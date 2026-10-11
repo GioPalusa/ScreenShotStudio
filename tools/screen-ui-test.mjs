@@ -1,0 +1,120 @@
+// Exercise screen ordering, naming, stable rail previews and empty frame guidance in the real UI.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createStudioService } from '../host/service.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-screen-ui-')), appPath = path.join(temp, 'app'), projectPath = path.join(temp, 'Test.sss');
+const chrome = [process.env.CHROME_PATH, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'].filter(Boolean).find(file => fs.existsSync(file));
+assert.ok(chrome, 'Install Chrome or set CHROME_PATH.');
+let service, server;
+try {
+  fs.cpSync(path.join(root, 'app'), appPath, { recursive: true }); createNewProject(projectPath, {});
+  fs.writeFileSync(path.join(appPath, 'screen-ui-test.html'), `<!doctype html><html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module">
+  const result = document.querySelector('#result'), check = (v, m) => { if (!v) throw new Error(m); };
+  const waitFor = async fn => { for (let i = 0; i < 500; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); } throw new Error('Timed out waiting for UI'); };
+  const button = name => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === name);
+  try {
+    result.textContent = 'Loading modules';
+    const { engine, state, loadAll, flushSaves, undo, redo } = await import('/app/js/store.js');
+    const { mountStudio } = await import('/app/js/ui.js');
+    result.textContent = 'Loading project'; await loadAll(); state.ui.view = 'editor'; state.ui.locale = 'en-US'; state.ui.device = Object.keys(engine.project.devices)[0]; state.ui.slideId = engine.project.slides[0].id;
+
+    const { createOverview } = await import('/app/js/ui/overview.js');
+    const { buildFramesView } = await import('/app/js/ui/frames-view.js');
+    const { orderedSlides } = await import('/app/js/project-ops.js');
+    const { newConnectedSeries } = await import('/app/js/connected-series.js');
+    // Use a connected layer: its visibility used to reconstruct the entire rail.
+    const seed = newConnectedSeries(engine.project, { designId: 'orbit', count: 3 }, () => crypto.randomUUID())[0];
+    engine.project.slides = ['first','second','third'].map(id => ({ ...structuredClone(seed), id, name: id }));
+    engine.project.locales.push({ id: 'sv', name: 'Swedish', native: 'Svenska', lang: 'sv', dir: 'ltr' });
+    engine.data.copy.sv = structuredClone(engine.data.copy['en-US']);
+    state.ui.slideId = 'first';
+    const overview = createOverview({ go() {} });
+    document.querySelector('#root').replaceChildren(overview.el); overview.build();
+    const drop = (from, to) => { const transfer = new DataTransfer(); transfer.setData('text/x-slide', from); to.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: to.getBoundingClientRect().left })); };
+    drop('third', document.querySelector('.strip-item'));
+    check(button('This language only'), 'Multilingual move must ask scope'); button('This language only').click();
+    await waitFor(() => engine.project.slideOrders?.['en-US']);
+    check(orderedSlides(engine.project,'en-US')[0].id === 'third' && orderedSlides(engine.project,'sv')[0].id === 'first', 'Current language only must leave Swedish order unchanged');
+    drop('second', document.querySelector('.strip-item')); [...document.querySelectorAll('.modal button')].find(b => b.textContent === 'All languages').click();
+    await waitFor(() => engine.project.slideOrders?.sv);
+    check(orderedSlides(engine.project,'sv')[0].id === 'second', 'All languages must apply the same order');
+    document.querySelector('.cap .screen-name').click(); document.querySelector('.modal input').value = 'Overview name'; button('Rename').click();
+    await waitFor(() => engine.project.slides.find(s => s.id === 'second').name === 'Overview name');
+    state.ui.view = 'editor'; state.ui.tab = 'layers'; mountStudio(document.querySelector('#root'));
+    await waitFor(() => document.querySelector('.neighbor.before').dataset.slideId);
+    const beforeNavigation = JSON.stringify(engine.project), device = state.ui.device, locale = state.ui.locale;
+    const previous = document.querySelector('.neighbor.before');
+    check(previous.tagName === 'BUTTON' && getComputedStyle(previous).pointerEvents !== 'none', 'Adjacent preview must accept pointer and keyboard activation');
+    const previousId = previous.dataset.slideId; previous.click();
+    check(state.ui.slideId === previousId && state.ui.device === device && state.ui.locale === locale, 'Click activates the adjacent screen with the same canvas and language');
+    await waitFor(() => document.querySelector('.neighbor.after').dataset.slideId === 'first');
+    document.querySelector('.neighbor.after').click();
+    check(state.ui.slideId === 'first', 'The next preview navigates back');
+    check(JSON.stringify(engine.project) === beforeNavigation, 'Preview navigation must not change document content');
+    document.querySelector('.thumb .screen-name').click(); document.querySelector('.modal input').value = 'Editor name'; button('Rename').click();
+    await waitFor(() => engine.project.slides.find(s => s.id === 'second').name === 'Editor name');
+    await waitFor(() => document.querySelector('[data-id="bridge-1"] [aria-label="Hide layer"]'));
+    const canvases = [...document.querySelectorAll('.thumb canvas')];
+    const hide = document.querySelector('[data-id="bridge-1"] [aria-label="Hide layer"]'); check(hide, 'Fixture needs visible layers'); hide.click();
+    await new Promise(r => setTimeout(r, 100));
+    check(canvases.every((c,i) => c === document.querySelectorAll('.thumb canvas')[i]), 'Visibility must preserve rail canvases');
+    await waitFor(() => canvases[0].style.width === '96px');
+    const show = document.querySelector('[aria-label="Show layer"]'); check(show, 'Layer must be hidden'); show.click();
+    // Screen actions use the right-clicked screen, even while the shared workspace is active.
+    const allScreens=document.querySelector('.all-screens-option');
+    check(allScreens.textContent.includes('Edit all screens') && allScreens.textContent.includes('3 screens'),'Shared workspace entry explains its action and scope');
+    allScreens.click();await waitFor(()=>state.ui.allScreens && allScreens.getAttribute('aria-pressed')==='true');
+    engine.data.copy['en-US'].third={headline:'The third screen'};engine.data.copy.sv.third={headline:'Den tredje skärmen'};
+    const context=id=>document.querySelector('.rail-list [data-id="'+id+'"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:90,clientY:360}));
+    context('third');check(document.querySelector('[role="menu"]').getAttribute('aria-label').includes('third'),'Menu identifies the right-clicked screen');
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    check(state.ui.allScreens && !document.querySelector('[role="menu"]'),'Dismissing a screen menu preserves All screens');
+    context('third');button('Duplicate screen').click();await waitFor(()=>engine.project.slides.length===4);
+    const duplicate=engine.project.slides.find(s=>s.name==='third (copy)');check(duplicate,'Duplicate uses the clicked screen, not the previously selected screen');
+    for(const locale of ['en-US','sv']) {
+      const order=orderedSlides(engine.project,locale).map(s=>s.id);check(order.indexOf(duplicate.id)===order.indexOf('third')+1,'Duplicate stays beside its source in every language');
+      check(engine.data.copy[locale][duplicate.id].headline===engine.data.copy[locale].third.headline,'Duplicated screen preserves localized text');
+    }
+    undo();await waitFor(()=>engine.project.slides.length===3);check(!engine.data.copy['en-US'][duplicate.id],'Undo removes duplicate copy');
+    redo();await waitFor(()=>engine.project.slides.length===4);
+    const selectedBeforeRemove=state.ui.slideId;
+    context('third');button('Remove screen…').click();await waitFor(()=>document.querySelector('.modal'));
+    check(document.querySelector('.modal').textContent.includes('“third”'),'Removal confirmation names the target');button('Cancel').click();
+    await waitFor(()=>!document.querySelector('.modal'));check(engine.project.slides.length===4,'Cancel preserves the screen');
+    context('third');button('Remove screen…').click();await waitFor(()=>button('Remove screen'));button('Remove screen').click();
+    await waitFor(()=>engine.project.slides.length===3);
+    check(!engine.project.slides.some(s=>s.id==='third') && engine.project.slides.some(s=>s.id===duplicate.id),'Removal affects only the clicked screen');
+    check(state.ui.slideId===selectedBeforeRemove,'Removing another screen preserves the selected screen');
+    check(!engine.data.copy['en-US'].third && !engine.data.copy.sv.third && !engine.project.slideOrders.sv.includes('third'),'Removal updates text and language order');
+    undo();await waitFor(()=>engine.project.slides.length===4);check(engine.data.copy.sv.third.headline==='Den tredje skärmen','Undo restores removed screen and translations');
+    undo();await waitFor(()=>engine.project.slides.length===3);
+    const card=document.querySelector('.rail-list [data-id="third"]');card.focus();card.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true,cancelable:true}));
+    check(document.querySelector('[role="menu"]'),'Keyboard opens screen actions');document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    const screens=engine.project.slides;engine.project.slides=[screens[0]];context(screens[0].id);
+    check(button('Remove screen…').disabled,'Last screen cannot be removed');document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));engine.project.slides=screens;
+    await flushSaves();
+    const frames = buildFramesView({ go() {} }); document.querySelector('#root').replaceChildren(frames);
+    check(document.querySelector('[data-family="iphone"]'), 'Empty iPhone category must be present');
+    check(document.querySelector('.iphone-frame-empty a'), 'iPhone must recommend downloading bezels');
+    result.textContent = 'PASS: scoped ordering, naming, adjacent navigation, stable rail, clear All screens entry, right-click and keyboard screen actions, correct duplication/removal target, localized copy/order, cancellation, undo/redo, last-screen guard and empty iPhone guidance';
+  } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
+  </script></body></html>`);
+  const testPage = path.join(appPath, 'screen-ui-test.html'), html = fs.readFileSync(testPage, 'utf8');
+  const inline = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+  fs.writeFileSync(path.join(appPath, 'screen-ui-test.js'), inline[1]);
+  fs.writeFileSync(testPage, html.replace(inline[0], '<script type="module" src="/app/screen-ui-test.js"></script>'));
+  service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
+  server = http.createServer((req, res) => service.handle(req, res, server.address().port));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/screen-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-screen-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-screen-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
+  const saved = JSON.parse(fs.readFileSync(path.join(projectPath, 'studio.json'))); assert.equal(saved.slides.find(s => s.id === 'second').name, 'Editor name'); assert.equal(saved.slideOrders.sv[0], 'second');
+  console.log(verdict);
+} finally { server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true }); }

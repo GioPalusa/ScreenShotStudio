@@ -1,0 +1,98 @@
+// Real-browser checks for continuous viewport gestures and post-zoom layer interaction.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createStudioService } from '../host/service.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-viewport-ui-')), appPath = path.join(temp, 'app'), projectPath = path.join(temp, 'Test.sss');
+const chrome = [process.env.CHROME_PATH, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'].filter(Boolean).find(file => fs.existsSync(file));
+assert.ok(chrome, 'Install Chrome or set CHROME_PATH.');
+let service, server;
+try {
+  fs.cpSync(path.join(root, 'app'), appPath, { recursive: true }); createNewProject(projectPath, {});
+  fs.writeFileSync(path.join(appPath, 'viewport-ui-test.html'), `<!doctype html><html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module">
+  const result = document.querySelector('#result'), check = (v, m) => { if (!v) throw new Error(m); };
+  const waitFor = async fn => { for (let i = 0; i < 500; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); } throw new Error('Timed out waiting for UI'); };
+  const button = name => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === name);
+  try {
+    result.textContent = 'Loading modules';
+    const { engine, state, loadAll, canUndo, clearHistory, flushSaves } = await import('/app/js/store.js');
+    const { createEditor } = await import('/app/js/ui/editor.js');
+    await loadAll(); state.ui.locale='en-US';state.ui.device=Object.keys(engine.project.devices)[0];state.ui.tab='layers';state.ui.showNeighbors=true;
+    const seed=engine.project.slides[0];
+    engine.project.slides=['first','second','third'].map(id=>({...structuredClone(seed),id,name:id}));
+    engine.project.slides[0].canvasOrientations={[state.ui.device]:'landscape'};
+    state.ui.slideId='second';clearHistory();
+    const snapshot=JSON.stringify(engine.project);
+    const editor=createEditor({openExport(){},go(){}});
+    document.querySelector('#root').style.height='100vh';document.querySelector('#root').append(editor.el);editor.build();editor.activate();
+    const canvas=document.querySelector('.preview canvas'),pane=document.querySelector('.stage-canvas'),overlay=document.querySelector('.overlay');
+    await waitFor(()=>editor.ed.scene && canvas.width>1);
+    const near=(a,b,m,t=.12)=>check(Math.abs(a-b)<t,m+': '+a+' vs '+b);
+    const wheel=(node,options={})=>{const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,...options});node.dispatchEvent(event);return event;};
+    const key=value=>editor.handleKey(new KeyboardEvent('keydown',{key:value,cancelable:true}));
+    const bounds=()=>canvas.getBoundingClientRect();
+    const fit=bounds(),point={clientX:fit.left+fit.width*.37,clientY:fit.top+fit.height*.42};
+    const backing=canvas.width;let rendered=0;canvas.addEventListener('rendered',()=>rendered++);
+    check(wheel(overlay,{...point,ctrlKey:true,deltaY:-.6}).defaultPrevented,'Pinch must prevent page zoom');
+    near(bounds().width,fit.width*Math.exp(.006),'Tiny pinch must change zoom without quantization');
+    near(bounds().left+bounds().width*.37,point.clientX,'Pinch must anchor x under pointer');
+    near(bounds().top+bounds().height*.42,point.clientY,'Pinch must anchor y under pointer');
+    check(canvas.width===backing,'Gesture must immediately reuse the current bitmap');
+    const beforeBurst=bounds().width;
+    for(let i=0;i<20;i++)wheel(overlay,{...point,ctrlKey:true,deltaY:-.18});
+    near(bounds().width,beforeBurst*Math.exp(.036),'Fractional events must accumulate smoothly');
+    check(rendered===0,'Gesture burst must not render at each wheel event');
+    await waitFor(()=>rendered>0);
+    near(bounds().width,beforeBurst*Math.exp(.036),'Sharp render must preserve zoom');
+    near(bounds().left+bounds().width*.37,point.clientX,'Sharp render must preserve anchor');
+    const sharp=canvas.width;
+    check(sharp>backing,'Gesture settle must draw a sharper bitmap');
+    wheel(overlay,{...point,ctrlKey:true,deltaY:4.2});
+    near(bounds().width,fit.width,'Reverse pinch must return to original scale');
+    const beforePan=bounds();
+    check(wheel(overlay,{deltaX:2.25,deltaY:-3.75}).defaultPrevented,'Canvas must consume panning');
+    near(bounds().left,beforePan.left-2.25,'Fractional horizontal pan');near(bounds().top,beforePan.top+3.75,'Fractional vertical pan');
+    const shift=bounds();wheel(overlay,{shiftKey:true,deltaY:3.5});near(bounds().left,shift.left-3.5,'Shift-wheel must pan horizontally');
+    const line=bounds();wheel(overlay,{deltaMode:1,deltaY:1});near(bounds().top,line.top-16,'Mouse line units must be normalized');
+    const stationary=bounds();
+    check(!wheel(document.querySelector('.inspector'),{ctrlKey:true,deltaY:-10}).defaultPrevented,'Inspector wheel must not be intercepted by canvas');
+    near(bounds().width,stationary.width,'Inspector wheel must leave canvas unchanged');
+    key('0');near(bounds().width,fit.width,'0 must restore Fit');near(bounds().left,fit.left,'Fit must recenter x');near(bounds().top,fit.top,'Fit must recenter y');
+    await new Promise(r=>setTimeout(r,200));near(bounds().width,fit.width,'Pending gesture must not override Fit');
+    key('+');near(bounds().width,fit.width*1.15,'Keyboard zoom starts from actual fit size');
+    wheel(overlay,{deltaX:-30.25,deltaY:22.5});
+    check(JSON.stringify(engine.project)===snapshot && !canUndo(),'Viewport gestures must not edit document or add undo steps');
+    // Hit testing and dragging must still use design coordinates after both zoom and pan.
+    await waitFor(()=>editor.ed.scene);
+    const box={...editor.ed.layerById('device')._box},scale=editor.ed.stageWidth/editor.ed.scene.W,rect=bounds();
+    const x=rect.left+(box.x+box.w/2)*scale,y=rect.top+(box.y+box.h/2)*scale;
+    overlay.setPointerCapture=()=>{};overlay.releasePointerCapture=()=>{};
+    const pointer=(type,xx,yy)=>overlay.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,button:0,buttons:type==='pointerup'?0:1,clientX:xx,clientY:yy,ctrlKey:true}));
+    pointer('pointerdown',x,y);check(editor.ed.selectedId==='device','Layer hit testing after zoom and pan');
+    pointer('pointermove',x+19.25,y+12.5);
+    const duringDrag=bounds();wheel(overlay,{ctrlKey:true,deltaY:-20,...point});near(bounds().width,duringDrag.width,'Pinch must not move viewport during a layer drag');
+    pointer('pointerup',x+19.25,y+12.5);
+    near(editor.ed.layerById('device')._box.x,box.x+19.25/scale,'Layer drag must use zoom-adjusted design coordinates',1);
+    near(editor.ed.layerById('device')._box.y,box.y+12.5/scale,'Vertical drag coordinates',1);
+    await flushSaves();
+    result.textContent='PASS: fractional pinch and pan, pointer anchoring, deferred sharp render, mouse normalization, scoped gestures, Fit reset, no document/undo changes, correct layer selection and drag after zoom';
+  } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
+  </script></body></html>`);
+  const testPage = path.join(appPath, 'viewport-ui-test.html'), html = fs.readFileSync(testPage, 'utf8');
+  const inline = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+  fs.writeFileSync(path.join(appPath, 'viewport-ui-test.js'), inline[1]);
+  fs.writeFileSync(testPage, html.replace(inline[0], '<script type="module" src="/app/viewport-ui-test.js"></script>'));
+  service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
+  server = http.createServer((req, res) => service.handle(req, res, server.address().port));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.VIEWPORT_TEST_WIDTH ?? 1100},800`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/viewport-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-viewport-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-viewport-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
+
+  console.log(verdict);
+} finally { server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true }); }

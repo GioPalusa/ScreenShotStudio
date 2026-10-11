@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "fonts": {
+    "default": {
+      "family": "system-ui"
+    }
+  },
+  "themes": {
+    "starter": {
+      "name": "Midnight",
+      "bg": "#142039",
+      "ink": "#f5f7fb",
+      "swatches": [
+        "#f0a66a"
+      ]
+    }
+  },
+  "profiles": {},
+  "locales": [
+    {
+      "id": "en-US",
+      "name": "English (US)",
+      "native": "English",
+      "dir": "ltr"
+    }
+  ],
+  "devices": {
+    "iphone": {
+      "label": "iPhone",
+      "short": "iPhone",
+      "target": "iphone",
+      "size": [
+        1320,
+        2868
+      ],
+      "layout": "phone",
+      "capture": "iphone",
+      "frame": {
+        "type": "generic",
+        "screen": [
+          1320,
+          2868
+        ],
+        "family": "iphone"
+      }
+    }
+  },
+  "slides": [
+    {
+      "id": "first-slide",
+      "name": "Your first slide",
+      "theme": "starter",
+      "capture": "screen",
+      "layouts": {
+        "iphone": {
+          "template": "custom",
+          "panorama": false,
+          "layers": [
+            {
+              "id": "device",
+              "type": "device",
+              "cx": 660,
+              "top": 745.68,
+              "w": 718.0557055214724
+            },
+            {
+              "id": "headline",
+              "type": "text",
+              "field": "headline",
+              "x": 92.4,
+              "capTop": 157.74,
+              "w": 1135.2,
+              "boxHeight": 487.56000000000006,
+              "size": 138.6,
+              "minSize": 76.23,
+              "maxLines": 3,
+              "weight": 750,
+              "lineHeight": 1.15,
+              "align": "center",
+              "block": "center",
+              "anchor": "top"
+            },
+            {
+              "id": "caption",
+              "type": "text",
+              "field": "caption",
+              "x": 92.4,
+              "capTop": 2409.12,
+              "w": 1135.2,
+              "boxHeight": 315.48,
+              "size": 56.76,
+              "minSize": 31.218,
+              "maxLines": 4,
+              "weight": 500,
+              "lineHeight": 1.15,
+              "align": "center",
+              "block": "center",
+              "anchor": "top"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

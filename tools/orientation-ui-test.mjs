@@ -1,0 +1,84 @@
+// Exercise screen ordering, naming, stable rail previews and empty frame guidance in the real UI.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createStudioService } from '../host/service.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-orientation-ui-')), appPath = path.join(temp, 'app'), projectPath = path.join(temp, 'Test.sss');
+const chrome = [process.env.CHROME_PATH, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'].filter(Boolean).find(file => fs.existsSync(file));
+assert.ok(chrome, 'Install Chrome or set CHROME_PATH.');
+let service, server;
+try {
+  fs.cpSync(path.join(root, 'app'), appPath, { recursive: true }); createNewProject(projectPath, {});
+  fs.writeFileSync(path.join(appPath, 'orientation-ui-test.html'), `<!doctype html><html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module">
+  const result = document.querySelector('#result'), check = (v, m) => { if (!v) throw new Error(m); };
+  const waitFor = async fn => { for (let i = 0; i < 500; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); } throw new Error('Timed out waiting for UI'); };
+  const button = name => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === name);
+  try {
+    result.textContent = 'Loading modules';
+    const { engine, state, loadAll, flushSaves } = await import('/app/js/store.js');
+    const { mountStudio } = await import('/app/js/ui.js');
+    result.textContent = 'Loading project'; await loadAll(); state.ui.view = 'editor'; state.ui.locale = 'en-US'; state.ui.device = Object.keys(engine.project.devices)[0]; state.ui.slideId = engine.project.slides[0].id;
+
+    const { createOverview } = await import('/app/js/ui/overview.js');
+    const { canvasForSlide } = await import('/app/js/canvas-orientation.js');
+    const { checkpoint, undo, redo } = await import('/app/js/store.js');
+    const seed = engine.project.slides[0];
+    engine.project.slides = ['first','second'].map(id => ({ ...structuredClone(seed), id, name: id }));
+    const base = [...engine.project.devices[state.ui.device].size];
+    state.ui.slideId = 'first'; state.ui.tab = 'design';
+    const overview = createOverview({ go() {} });
+    document.querySelector('#root').replaceChildren(overview.el); overview.build();
+    const picker = document.querySelector('[aria-label="Canvas orientation"]');
+    picker.value = 'landscape'; picker.dispatchEvent(new Event('change', {bubbles:true}));
+    check(Object.keys(engine.project.devices).length === 1, 'Orientation must not add a canvas');
+    check(canvasForSlide(engine.project,engine.project.slides[0],state.ui.device).size[0] === base[1], 'Overview orientation must swap width');
+    check(!engine.project.slides[1].canvasOrientations, 'Sibling must retain its orientation');
+    await waitFor(() => {const c=document.querySelector('.strip canvas');return c.width>c.height;});
+    undo(); overview.build(); check(!engine.project.slides[0].canvasOrientations, 'Undo restores original orientation');
+    redo(); overview.build(); check(engine.project.slides[0].canvasOrientations[state.ui.device] === 'landscape', 'Redo restores landscape');
+    await flushSaves();
+    state.ui.view = 'editor'; mountStudio(document.querySelector('#root'));
+    await waitFor(() => document.querySelector('.stage-bar [aria-label="Canvas orientation"]'));
+    check(document.querySelector('.stage-bar').textContent.includes(base[1] + ' × ' + base[0]), 'Editor must display effective dimensions');
+    const editorPicker=document.querySelector('.stage-bar [aria-label="Canvas orientation"]');
+    editorPicker.value='portrait'; editorPicker.dispatchEvent(new Event('change',{bubbles:true}));
+    await waitFor(() => document.querySelector('.stage-bar').textContent.includes(base[0] + ' × ' + base[1]));
+    await flushSaves();
+    const originalId=state.ui.device,originalDevice=JSON.stringify(engine.project.devices[originalId]);
+    const originalLayouts=engine.project.slides.map(s=>JSON.stringify(s.layouts[originalId]));
+    const addMenu=()=>{const menu=document.querySelector('[aria-label="Canvas"]');check([...menu.options].some(o=>o.text==='＋ Add device…'),'Canvas menu must advertise adding a device');menu.value='__add';menu.dispatchEvent(new Event('change',{bubbles:true}));};
+    addMenu();check(state.ui.device===originalId && document.querySelector('[aria-label="Canvas"]').value===originalId,'Opening Add device must keep the selected canvas');
+    button('Cancel').click();check(Object.keys(engine.project.devices).length===1,'Cancel must not add a device');
+    addMenu();
+    const chooseAndroid=()=>{const target=document.querySelector('.modal [aria-label="Store destination"]');target.value='play-phone';target.dispatchEvent(new Event('change',{bubbles:true}));const size=document.querySelector('.modal [aria-label="Store format"]');size.value='1440x2560';size.dispatchEvent(new Event('change',{bubbles:true}));};
+    chooseAndroid();button('Add device').click();
+    check(Object.keys(engine.project.devices).length===2,'Android action must create one canvas');
+    const android=state.ui.device,device=engine.project.devices[android];
+    check(device.target==='play-phone' && device.size.join('x')==='1440x2560' && device.frame.type==='android','Android canvas must use chosen size and Android frame');
+    check(state.ui.view==='editor' && document.querySelector('[aria-label="Canvas"]').value===android,'New canvas must open in Editor');
+    check(JSON.stringify(engine.project.devices[originalId])===originalDevice && engine.project.slides.every((s,i)=>JSON.stringify(s.layouts[originalId])===originalLayouts[i]),'Existing canvas and layouts must stay intact');
+    addMenu();chooseAndroid();button('Add device').click();check(Object.keys(engine.project.devices).length===2 && state.ui.device===android,'Choosing an existing store canvas must select it without duplicates');
+    undo();check(!engine.project.devices[android] && state.ui.device===originalId,'Adding from the menu must be undoable');
+    redo();check(engine.project.devices[android],'Redo must restore the Android canvas');
+    await flushSaves();
+    result.textContent = 'PASS: per-screen orientation, preview proportions, Undo/Redo and persistence; top-bar Add device, cancellation, Android size/frame/selection, duplicate prevention, preserved iPhone designs';
+  } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
+  </script></body></html>`);
+  const testPage = path.join(appPath, 'orientation-ui-test.html'), html = fs.readFileSync(testPage, 'utf8');
+  const inline = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+  fs.writeFileSync(path.join(appPath, 'orientation-ui-test.js'), inline[1]);
+  fs.writeFileSync(testPage, html.replace(inline[0], '<script type="module" src="/app/orientation-ui-test.js"></script>'));
+  service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
+  server = http.createServer((req, res) => service.handle(req, res, server.address().port));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/orientation-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-orientation-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-orientation-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
+  const saved = JSON.parse(fs.readFileSync(path.join(projectPath, 'studio.json'))); assert.equal(saved.slides[0].canvasOrientations[Object.keys(saved.devices)[0]], 'portrait');
+  console.log(verdict);
+} finally { server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true }); }

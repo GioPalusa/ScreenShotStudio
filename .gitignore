@@ -1,0 +1,24 @@
+# Generated PNGs: rebuild any time with `node studio.mjs export` (or Export in the studio).
+export/
+.DS_Store
+
+node_modules/
+dist/
+project/.history/
+project/.versions/
+
+build/
+*.xcarchive/
+**/xcuserdata/
+
+# Local user documents and historical development fixtures never belong in public source.
+project/
+*.sss/
+*.screenshotstudio/
+.env
+.env.*
+*.p12
+*.p8
+*.pem
+*.key
+*.mobileprovision

@@ -1,0 +1,12 @@
+{
+  "_meta": {
+    "status": "draft",
+    "needsReview": [
+      "*"
+    ]
+  },
+  "first-slide": {
+    "headline": "Your app, at a glance",
+    "caption": "Add a screenshot and tell your story."
+  }
+}

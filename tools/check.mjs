@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const files = [];
+const walk = folder => { for (const entry of fs.readdirSync(path.join(root, folder), { withFileTypes: true })) { const file = path.join(folder, entry.name); if (entry.isDirectory()) walk(file); else if (/\.(js|mjs|cjs)$/.test(file)) files.push(file); } };
+for (const folder of ['app/js', 'host', 'desktop', 'tools']) walk(folder);
+for (const file of [...files, 'studio.mjs']) execFileSync(process.execPath, ['--check', file], { cwd: root, stdio: 'pipe' });
+console.log(`${files.length + 1} JavaScript modules passed syntax checks.`);
+execFileSync(process.execPath, ['--test', 'tools/connected-series.test.mjs'], { cwd: root, stdio: 'inherit' });
+execFileSync(process.execPath, ['tools/selftest.mjs'], { cwd: root, stdio: 'inherit' });
+execFileSync(process.execPath, ['--test', 'tools/updater.test.mjs', 'tools/shared-canvas.test.mjs', 'tools/layer-transfer.test.mjs', 'tools/translation.test.mjs', 'tools/external-import.test.mjs', 'tools/canvas-orientation.test.mjs', 'tools/slide-order.test.mjs', 'tools/disk-image-frames.test.mjs', 'tools/platform.test.mjs', 'tools/onboarding.test.mjs', 'tools/editor-regressions.test.mjs', 'tools/export-targets.test.mjs', 'tools/design-library.test.mjs', 'tools/studio-ux.test.mjs', 'tools/media-decorations.test.mjs', 'tools/review-exchange.test.mjs', 'tools/device-compositions.test.mjs', 'tools/frame-matching.test.mjs', 'tools/imported-frames.test.mjs', 'tools/google-play.test.mjs', 'tools/export-naming.test.mjs'], { cwd: root, stdio: 'inherit' });

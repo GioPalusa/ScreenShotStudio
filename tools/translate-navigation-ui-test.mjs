@@ -1,0 +1,90 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createStudioService } from '../host/service.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-translate-nav-'));
+const appPath = path.join(temp, 'app'), projectPath = path.join(temp, 'Test.sss');
+const chrome = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+let service, server;
+try {
+  fs.cpSync(path.join(root, 'app'), appPath, { recursive: true });
+  createNewProject(projectPath, {});
+  const project = JSON.parse(fs.readFileSync(path.join(projectPath, 'studio.json')));
+  const original = project.slides[0];
+  project.slides = Array.from({ length: 14 }, (_, i) => ({ ...structuredClone(original), id: `screen-${i + 1}`, name: `Screen ${i + 1}`, ...(i === 13 ? { canvasOrientations: { iphone: 'landscape' } } : {}) }));
+  project.locales.push({ id: 'sv-SE', name: 'Swedish', native: 'Svenska', lang: 'sv', dir: 'ltr' });
+  project.slideOrders = { 'sv-SE': project.slides.map(s => s.id).reverse() };
+  fs.writeFileSync(path.join(projectPath, 'studio.json'), JSON.stringify(project));
+  for (const locale of ['en-US', 'sv-SE']) fs.writeFileSync(path.join(projectPath, `copy/${locale}.json`), JSON.stringify({
+    _meta: { status: 'draft', needsReview: ['*'] }, ...Object.fromEntries(project.slides.map((s, i) => [s.id, { headline: `${locale} title ${i + 1}`, caption: `${locale} caption ${i + 1}` }])),
+  }));
+  fs.writeFileSync(path.join(appPath, 'test.html'), '<!doctype html><html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module" src="/app/test.js"></script></body></html>');
+  fs.writeFileSync(path.join(appPath, 'test.js'), `
+    const result = document.querySelector('#result'), check = (v, m) => { if (!v) throw new Error(m); };
+    const waitFor = async fn => { for (let i = 0; i < 800; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); } throw new Error('Timed out'); };
+    const button = text => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+    const tabs = () => [...document.querySelectorAll('.translate-screen')];
+    const active = () => document.querySelector('.translate-screen[aria-selected="true"]');
+    const headline = () => document.querySelector('.lang-row[data-locale="sv-SE"] textarea');
+    try {
+      const { engine, state, loadAll, flushSaves } = await import('/app/js/store.js');
+      const { mountStudio } = await import('/app/js/ui.js');
+      window.studioDesktop = { onCommand() {}, action() { throw new Error('No duplicate project actions'); } };
+      await loadAll(); state.ui.view = 'languages'; state.ui.locale = 'en-US'; state.ui.device = 'iphone'; state.ui.slideId = 'screen-1';
+      mountStudio(document.querySelector('#root'));
+      check(!document.querySelector('[aria-label="Project actions"]'), 'Native toolbar must not duplicate File menu');
+      check(tabs().length === 14 && active().textContent.includes('Screen 1'), 'Every screenshot is selectable and current selection is marked');
+      const strip = document.querySelector('.translate-screen-strip');
+      check(strip.scrollWidth > strip.clientWidth, 'Long rows scroll horizontally');
+      check(Math.abs(tabs()[0].getBoundingClientRect().top - tabs().at(-1).getBoundingClientRect().top) < 1, 'Screens remain on one row');
+      await waitFor(() => tabs()[0].querySelector('canvas').width !== 300);
+      check(tabs()[0].querySelector('canvas').height > tabs()[0].querySelector('canvas').width, 'Thumbnails render the portrait canvas');
+      strip.scrollLeft = 300; tabs()[3].click();
+      check(document.querySelector('.translate-screen-strip').scrollLeft === 300, 'Selecting a visible thumbnail preserves horizontal scroll');
+      tabs().at(-1).click();
+      check(state.ui.slideId === 'screen-14' && headline().value === 'sv-SE title 14', 'Selecting screenshot updates translation fields');
+      check(document.querySelector('.langs').scrollTop === 0 && document.querySelector('.translate-screen-strip').scrollLeft > 0, 'Selection stays visible without scrolling page past selector');
+      await waitFor(() => active().querySelector('canvas').width !== 300);
+      check(active().querySelector('canvas').width > active().querySelector('canvas').height, 'Landscape screenshot keeps its orientation');
+      const before = JSON.stringify(engine.data.copy['sv-SE']['screen-1']);
+      headline().value = 'Edited screen fourteen'; headline().dispatchEvent(new Event('input', { bubbles: true }));
+      active().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      check(state.ui.slideId === 'screen-13' && headline().value === 'sv-SE title 13', 'Arrow keys select adjacent screenshots');
+      check(document.activeElement === active(), 'Keyboard focus follows selected tab');
+      active().dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+      check(headline().value === 'Edited screen fourteen', 'Navigation preserves unsaved edits');
+      check(JSON.stringify(engine.data.copy['sv-SE']['screen-1']) === before, 'Editing selected screenshot does not change another one');
+      button('Translate…').click();
+      check([...document.querySelectorAll('.translation-dialog select')].some(s => s.value === 'slide'), 'Translation defaults to selected screenshot');
+      check([...document.querySelectorAll('.translation-dialog select')].some(s => [...s.options].some(o => o.value === 'all')), 'All screens remains an explicit translation option');
+      button('Cancel').click();
+      const language = document.querySelector('[aria-label="Language"]'); language.value = 'sv-SE'; language.dispatchEvent(new Event('change', { bubbles: true }));
+      check(tabs()[0].textContent.includes('Screen 14') && state.ui.slideId === 'screen-14', 'Language-specific order is respected without changing selected screen');
+      button('Editor').click(); button('Translate').click();
+      check(state.ui.slideId === 'screen-14' && headline().value === 'Edited screen fourteen', 'Switching views retains screenshot selection');
+      check(JSON.parse(localStorage.getItem('mmd-studio-ui-v1')).slideId === 'screen-14', 'Screen selection is remembered');
+      await flushSaves();
+      result.textContent = 'PASS: horizontal thumbnails, selection, locale order, orientation, keyboard focus, edit isolation, saved selection and current-screen translation; no duplicate Project menu';
+    } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
+  `);
+  service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
+  server = http.createServer((req, res) => service.handle(req, res, server.address().port));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, '--window-size=1100,850', '--virtual-time-budget=18000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/test.html`], { timeout: 45000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => {
+    fs.writeFileSync('/tmp/studio-translate-nav-dom.html', output); fs.writeFileSync('/tmp/studio-translate-nav-chrome.log', stderr);
+    error ? reject(error) : resolve(output);
+  }));
+  const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No result';
+  assert.match(verdict, /^PASS:/, verdict);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(projectPath, 'copy/sv-SE.json')))['screen-14'].headline, 'Edited screen fourteen');
+  console.log(verdict);
+} finally {
+  server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true });
+}

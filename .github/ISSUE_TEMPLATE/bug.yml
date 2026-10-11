@@ -1,0 +1,10 @@
+name: Bug report
+description: Report an app, document or export problem.
+body:
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: What happened?
+      description: Include reproduction steps, expected behavior, app version and macOS version. Use synthetic examples; omit private documents and keys.
+    validations:
+      required: true

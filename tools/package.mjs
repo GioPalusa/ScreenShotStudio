@@ -1,0 +1,79 @@
+import { PROJECT_EXTENSIONS } from '../app/js/project-file.js';
+import { packager } from '@electron/packager';
+import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { copyProject } from '../host/files.mjs';
+import { createStudioService } from '../host/service.mjs';
+
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const xcode = process.argv.includes('--xcode');
+const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const identity = xcode && process.env.EXPANDED_CODE_SIGN_IDENTITY === '-'
+  ? ''
+  : xcode ? process.env.EXPANDED_CODE_SIGN_IDENTITY_NAME : process.env.STUDIO_SIGN_IDENTITY;
+if (xcode && !process.env.TARGET_BUILD_DIR) throw new Error('--xcode must run from the Xcode build phase.');
+const icon = path.join(root, 'distribution', 'ScreenshotStudio.icns');
+assert.ok(fs.existsSync(icon), 'App icon missing. Run node tools/build-icon.mjs on macOS.');
+const results = await packager({
+  dir: root, out: xcode ? path.join(process.env.TARGET_TEMP_DIR, 'electron-package') : path.join(root, 'dist'), name: 'Screenshot Studio',
+  platform: 'darwin', arch: xcode && process.env.ARCHS === 'x86_64' ? 'x64' : process.arch, overwrite: true, prune: true,
+  // The project seed and renderer assets use ordinary filesystem paths, including recursive copies.
+  asar: false,
+  appBundleId: 'se.palusa.screenshotstudio', appVersion: version, buildVersion: process.env.CURRENT_PROJECT_VERSION ?? '1',
+  ...(identity ? { osxSign: { identity, preAutoEntitlements: false, optionsForFile: () => ({ hardenedRuntime: true, entitlements: path.join(root, 'distribution', 'Studio.entitlements') }) } } : {}),
+  icon,
+  appCategoryType: 'public.app-category.graphics-design',
+  ignore: [/^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs)/, /^\/tests(?:\/|$)/],
+  extendInfo: {
+    CFBundleIconFile: 'ScreenshotStudio.icns',
+    CFBundleDocumentTypes: [{ CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
+    UTExportedTypeDeclarations: [{ UTTypeIdentifier: 'se.palusa.screenshotstudio.project', UTTypeDescription: 'Screenshot Studio project', UTTypeConformsTo: ['com.apple.package'], UTTypeTagSpecification: { 'public.filename-extension': PROJECT_EXTENSIONS } }],
+  },
+});
+for (const result of results) {
+  const app = path.join(result, 'Screenshot Studio.app');
+  const bundled = path.join(app, 'Contents', 'Resources', 'app');
+  assert.ok(fs.readFileSync(icon).equals(fs.readFileSync(path.join(app, 'Contents', 'Resources', 'ScreenshotStudio.icns'))), 'Packaged app icon differs');
+  let checked = 0;
+  const compare = relative => {
+    for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || entry.name === 'export') continue;
+      const file = path.join(relative, entry.name);
+      if (entry.isDirectory()) compare(file);
+      else { assert.ok(fs.readFileSync(path.join(root, file)).equals(fs.readFileSync(path.join(bundled, file))), `Packaged file differs: ${file}`); checked++; }
+    }
+  };
+  for (const folder of ['app', 'host', 'desktop', 'starter']) compare(folder);
+  assert.equal(fs.existsSync(path.join(bundled, 'project')), false, 'Private example project must not ship');
+  assert.equal(fs.existsSync(path.join(bundled, 'app/assets/frames')), false, 'Apple bezel artwork must not ship');
+  const seed = JSON.parse(fs.readFileSync(path.join(bundled, 'starter', 'studio.json'), 'utf8'));
+  assert.equal(Object.keys(seed.themes).length, 1);
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-package-check-'));
+  let service;
+  try {
+    const project = path.join(sandbox, 'Example.sss');
+    copyProject(path.join(bundled, 'starter'), project);
+    service = createStudioService({ appPath: path.join(bundled, 'app'), projectPath: project, exportPath: path.join(project, 'export'), origin: 'studio://local' });
+    service.loadProjectBundle();
+    assert.equal((await service.request(new Request('studio://local/app/index.html'))).status, 200);
+  } finally { service?.close(); fs.rmSync(sandbox, { recursive: true, force: true }); }
+  console.log(`Verified ${checked} bundled files, first-launch project copy and protocol content.`);
+  // Local developer build. Distribution signing/notarization is a separate release step.
+  if (!identity) execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
+  execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
+  if (xcode) {
+    const destination = path.join(process.env.TARGET_BUILD_DIR, process.env.FULL_PRODUCT_NAME);
+    fs.mkdirSync(path.join(destination, 'Contents'), { recursive: true });
+    // Xcode owns the root Info.plist and final signature; Electron supplies the executable and nested bundles.
+    for (const entry of ['MacOS', 'Frameworks', 'Resources']) {
+      const output = path.join(destination, 'Contents', entry);
+      fs.rmSync(output, { recursive: true, force: true });
+      execFileSync('ditto', [path.join(app, 'Contents', entry), output]);
+    }
+    console.log(destination);
+  } else console.log(app);
+}

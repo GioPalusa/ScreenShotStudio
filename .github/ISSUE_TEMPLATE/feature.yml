@@ -1,0 +1,10 @@
+name: Feature request
+description: Propose an improvement for the community.
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to do?
+      description: Describe the workflow, who benefits and your proposed behavior.
+    validations:
+      required: true

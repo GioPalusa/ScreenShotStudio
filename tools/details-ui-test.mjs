@@ -1,0 +1,83 @@
+// Selection-driven editing through the unified Details inspector.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createStudioService } from '../host/service.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-details-ui-')), appPath = path.join(temp, 'app'), projectPath = path.join(temp, 'Test.sss');
+const chrome = [process.env.CHROME_PATH, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'].filter(Boolean).find(file => fs.existsSync(file));
+assert.ok(chrome, 'Install Chrome or set CHROME_PATH.');
+let service, server;
+try {
+  fs.cpSync(path.join(root, 'app'), appPath, { recursive: true }); createNewProject(projectPath, {});
+  fs.writeFileSync(path.join(appPath, 'details-ui-test.html'), `<!doctype html><html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module">
+  const result = document.querySelector('#result'), check = (v, m) => { if (!v) throw new Error(m); };
+  const waitFor = async fn => { for (let i = 0; i < 500; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); } throw new Error('Timed out waiting for UI'); };
+  const button = name => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === name);
+  try {
+    result.textContent = 'Loading modules';
+    const { engine, state, loadAll, uploadAsset, uploadCapture, getCopy, flushSaves } = await import('/app/js/store.js');
+    const { createEditor } = await import('/app/js/ui/editor.js');
+    await loadAll();state.ui.locale='en-US';state.ui.device=Object.keys(engine.project.devices)[0];state.ui.slideId=engine.project.slides[0].id;state.ui.tab='screenshot';
+    const makePNG=async color=>{const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');g.fillStyle=color;g.fillRect(0,0,64,64);return new Promise(r=>c.toBlob(r,'image/png'));};
+    const red=await makePNG('#ff4433'),blue=await makePNG('#3355ff');
+    const a=await uploadAsset(new File([red],'first.png',{type:'image/png'})),b=await uploadAsset(new File([blue],'second.png',{type:'image/png'}));
+    const set=engine.project.devices[state.ui.device].capture;
+    await uploadCapture({scope:'default',device:set,name:'replacement',blob:blue,create:true});
+    const slide=engine.project.slides[0],block=slide.layouts[state.ui.device];
+    block.layers.push({id:'art',type:'art',src:a.file,aspect:1,cx:240,cy:2150,w:200});
+    block.layers.push({...structuredClone(block.layers.find(l=>l.id==='device')),id:'second-device',cx:1050,top:1700,w:250});
+    const editor=createEditor({openExport(){},go(){},setView(){}}),ed=editor.ed;
+    document.querySelector('#root').style.height='100vh';document.querySelector('#root').append(editor.el);editor.build();editor.activate();
+    await waitFor(()=>ed.scene && document.querySelector('.details-empty'));
+    check([...document.querySelectorAll('.tabs button')].map(b=>b.textContent).join(',')==='Details,Layers,Design','Old Text/Screenshot tabs must become Details');
+    check(!document.querySelector('[aria-label="Device frame"]'),'Nothing selected must not silently edit the first device');
+    const overlay=document.querySelector('.overlay');overlay.setPointerCapture=()=>{};overlay.releasePointerCapture=()=>{};
+    const clickLayer=id=>{const box=ed.layerById(id)._box,k=ed.stageWidth/ed.scene.W,r=overlay.getBoundingClientRect();const p={bubbles:true,cancelable:true,button:0,pointerId:1,clientX:r.left+(box.x+box.w/2)*k,clientY:r.top+(box.y+box.h/2)*k};overlay.dispatchEvent(new PointerEvent('pointerdown',p));overlay.dispatchEvent(new PointerEvent('pointerup',p));};
+    clickLayer('headline');check(state.ui.tab==='details' && ed.selectedId==='headline','Canvas text click must open Details');
+    let field=document.querySelector('.details-panel textarea');check(field && document.querySelectorAll('.details-panel [data-field]').length===1,'Details must expose only the selected text field');
+    check(!document.querySelector('[aria-label="Device frame"]'),'Text Details must not show device controls');
+    field.value='Edited directly in Details';field.dispatchEvent(new Event('input',{bubbles:true}));
+    await new Promise(r=>setTimeout(r,220));check(field===document.querySelector('.details-panel textarea'),'Typing must retain focus and field identity');
+    check(getCopy('en-US',slide.id,'headline')==='Edited directly in Details','Text edits must update selected copy');
+    check(engine.data.copy['en-US']._meta.status==='draft','Edited text must remain draft');
+    clickLayer('second-device');check(ed.selectedId==='second-device' && document.querySelector('[aria-label="Device frame"]'),'Clicking the second device exposes its frame');
+    const firstFrame=JSON.stringify(ed.layerById('device').frame);
+    const frame=document.querySelector('[aria-label="Device frame"]');frame.value=[...frame.options].find(o=>o.textContent==='No frame').value;frame.dispatchEvent(new Event('change',{bubbles:true}));
+    await waitFor(()=>ed.layerById('second-device').frame?.type==='plain');
+    check(JSON.stringify(ed.layerById('device').frame)===firstFrame,'Frame edits must not affect the first device');
+    (button('Change screenshot…')??button('Choose screenshot…')).click();
+    await waitFor(()=>document.querySelector('.media-pick'));
+    [...document.querySelectorAll('.media-pick')].find(n=>n.textContent.includes('replacement')).click();
+    await waitFor(()=>ed.layerById('second-device').capture==='replacement');
+    check(ed.layerById('device').capture!=='replacement','Screenshot edits must only affect the selected device');
+    clickLayer('art');check(ed.selectedId==='art' && button('Change image…') && document.querySelector('.details-image-preview'),'Image selection must show image preview and replacement');
+    button('Change image…').click();await waitFor(()=>document.querySelectorAll('.media-pick').length===2);
+    [...document.querySelectorAll('.media-pick')].find(n=>n.textContent.includes('second')).click();
+    await waitFor(()=>ed.layerById('art').src===b.file);
+    check(!document.querySelector('[aria-label="Device frame"]') && !document.querySelector('.details-panel textarea'),'Image Details must not retain unrelated controls');
+    ed.setTab('layers');clickLayer('art');check(state.ui.tab==='details','Clicking an already-selected canvas object must return from Layers to Details');
+    ed.select('device',{from:'stage'});ed.select('second-device',{from:'stage',toggle:true});
+    check(!document.querySelector('[aria-label="Device frame"]') && document.querySelector('[aria-label="Align selected layers"]'),'Multiple selection must expose group operations, not edit one device by accident');
+    ed.select(null);check(document.querySelector('.details-empty'),'Clearing selection must clear stale detail controls');
+    await flushSaves();
+    result.textContent='PASS: unified Details tabs, canvas selection, direct text edit without focus loss, second-device frame and screenshot edits, image preview/replacement, multi-selection, deselection and persistence';
+  } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
+  </script></body></html>`);
+  const testPage = path.join(appPath, 'details-ui-test.html'), html = fs.readFileSync(testPage, 'utf8');
+  const inline = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+  fs.writeFileSync(path.join(appPath, 'details-ui-test.js'), inline[1]);
+  fs.writeFileSync(testPage, html.replace(inline[0], '<script type="module" src="/app/details-ui-test.js"></script>'));
+  service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
+  server = http.createServer((req, res) => service.handle(req, res, server.address().port));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.DETAILS_TEST_WIDTH ?? 1100},800`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/details-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-details-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-details-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
+
+  console.log(verdict);
+} finally { server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true }); }
