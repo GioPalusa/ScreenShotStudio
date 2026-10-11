@@ -155,7 +155,18 @@ try {
     check(engine.project.slides[0].layouts.phone.layers.some(l=>l.screenScope==='local'),'Explicit containment survives save/reload');
     check(!JSON.stringify(engine.project).includes('_sharedId')&&!JSON.stringify(engine.project).includes('_offsetX'),'Only plain document data is persisted');
     editor.selectSlide('c');await waitFor(()=>ed.scene?.slideId==='c'&&!ed.scene.allScreens);
-    ed.addLayer('device');await waitFor(()=>document.querySelector('.rail-list [data-id="c"] .warning-mark')?.textContent==='⚠');
+    // Await the actual thumbnail render: virtual timers can outrun image IO on CI.
+    const deviceRendered = new Promise(resolve => {
+      const rail = document.querySelector('.rail-list');
+      const listener = event => {
+        if (event.target.closest('[data-id="c"]') && event.detail.scene.layers.some(layer => layer.type === 'device')) {
+          rail.removeEventListener('rendered', listener, true); resolve();
+        }
+      };
+      rail.addEventListener('rendered', listener, true);
+    });
+    ed.addLayer('device'); await deviceRendered;
+    check(document.querySelector('.rail-list [data-id="c"] .warning-mark')?.textContent==='⚠','Missing capture shows a warning triangle after rendering');
     check(!document.querySelector('.rail-list .dot'),'Editor warning badges use triangles');
     result.textContent='PASS: All screens first, store spacing presets, fractional custom spacing, undo, visible gaps, shared image on both screens, edits from a single screen, isolated local overflow, grouped screen choices, default sharing in workspace, editable scope and persistent containment, copy/paste with independent text, undo/redo, unique IDs, shared duplication/deletion, text editing, persistence and warning triangles';
   } catch (e) { result.textContent = 'FAIL: ' + e.stack; }

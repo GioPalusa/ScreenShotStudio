@@ -1,3 +1,14 @@
+## 0.2.6 (7) — 11 October 2026
+
+- First public MIT release; native Electron updater and community contribution workflows.
+- Apple accepted notarization in Xcode Direct Distribution.
+- Exported app and ZIP-extracted app passed deep signature, stapler validation and Gatekeeper assessment (Notarized Developer ID).
+- Apple silicon arm64, macOS 13+. Developer ID team: `4W4M797J67`.
+- ZIP: `Screenshot-Studio-0.2.6-darwin-arm64.zip`.
+- SHA-256: `27eaa80624d6ff7c7705d9bb1e433e6bf076f041e25aabf3b6c2a8a033f69c95`.
+- 239 Node tests, 25 self-tests and full local renderer/export integration passed.
+- Automatic installation of a future published version has not yet been exercised end to end.
+
 # Verified distribution releases
 
 ## 0.2.2 (3) — 8 October 2026

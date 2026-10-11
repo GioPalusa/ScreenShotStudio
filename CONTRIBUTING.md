@@ -29,3 +29,9 @@ Be respectful, patient and specific. Critique ideas and code, avoid personal att
 Contributions are offered under the [MIT license](LICENSE). Submit only work you have the right to contribute. Dependencies retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). PALUSA names and logos remain trademarks. Do not imply that a fork is an official PALUSA release.
 
 Maintainers review contributions and publish official Developer ID releases. Community builds can be packaged ad-hoc and do not receive automatic updates from the official feed. See [docs/releases.md](docs/releases.md).
+
+## Automated checks
+
+Every pull request runs module and document tests, real Chrome rendering/export and UI tests, and Mac app packaging. The public source check rejects private project directories, credential files and common secret patterns. CodeQL analyses JavaScript for security issues; Dependabot proposes dependency and GitHub Action updates weekly. GitHub secret scanning and push protection are enabled.
+
+Run `npm test`, `npm run test:render` and `npm run package` before proposing changes that affect those areas. Public checkout maintainers can also run `node tools/check-public-source.mjs`. The package check uses an ad-hoc signature; official releases are separately signed and notarized by the maintainer.

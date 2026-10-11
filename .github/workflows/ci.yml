@@ -5,24 +5,31 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   core:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
       - run: npm ci
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node tools/check-public-source.mjs
+      - run: npm audit --audit-level=high
       - run: npm test
   render:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -30,3 +37,20 @@ jobs:
       - run: npm run test:render
         env:
           CHROME_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: renderer-diagnostics
+          path: /tmp/studio-*-*
+          retention-days: 7
+  package:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run package

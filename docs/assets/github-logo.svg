@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
+<title id="title">Screenshot Studio</title><desc id="desc">Three colourful screenshot cards inside capture corners. Create screenshots worth sharing.</desc>
+<rect width="1200" height="440" rx="32" fill="#F5F2ED"/>
+<g transform="translate(84 92)">
+<g fill="none" stroke="#101C36" stroke-width="8" stroke-linecap="round"><path d="M0 38V0h38M236 0h38v38M274 218v38h-38M38 256H0v-38"/></g>
+<rect x="38" y="42" width="94" height="162" rx="17" fill="#2EAAE1" transform="rotate(-12 85 123)"/>
+<rect x="143" y="42" width="94" height="162" rx="17" fill="#C0338B" transform="rotate(12 190 123)"/>
+<rect x="90" y="28" width="94" height="190" rx="18" fill="#101C36"/>
+<rect x="99" y="38" width="76" height="167" rx="11" fill="#F5F2ED"/>
+<path d="M99 151c26-48 51-4 76-48v91a11 11 0 0 1-11 11h-54a11 11 0 0 1-11-11z" fill="#2EAAE1"/>
+<circle cx="150" cy="75" r="14" fill="#C0338B"/>
+<rect x="113" y="163" width="48" height="6" rx="3" fill="#101C36"/><rect x="113" y="177" width="33" height="6" rx="3" fill="#101C36"/>
+</g>
+<g font-family="Arial, Helvetica, sans-serif"><text x="416" y="186" font-size="66" font-weight="700" letter-spacing="-2.5" fill="#101C36">Screenshot</text><text x="416" y="254" font-size="66" font-weight="700" letter-spacing="-2.5" fill="#101C36">Studio<tspan fill="#C0338B">.</tspan></text><text x="420" y="310" font-size="23" fill="#596579">Create screenshots worth sharing.</text></g>
+</svg>

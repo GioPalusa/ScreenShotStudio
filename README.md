@@ -1,3 +1,14 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/github-logo-dark.svg">
+  <img src="docs/assets/github-logo.svg" alt="Screenshot Studio — Create screenshots worth sharing." width="100%">
+</picture>
+
+[Download for Mac](https://github.com/GioPalusa/ScreenShotStudio/releases/latest) · [Join the community](https://github.com/GioPalusa/ScreenShotStudio/discussions) · [Contribute](CONTRIBUTING.md)
+
+![Tests](https://github.com/GioPalusa/ScreenShotStudio/actions/workflows/ci.yml/badge.svg)
+![CodeQL](https://github.com/GioPalusa/ScreenShotStudio/actions/workflows/codeql.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-2EAAE1)
+
 # Screenshot Studio
 
 An offline Mac app for composing screenshots and static marketing graphics. One portable project produces every language × canvas × slide. It needs no terminal, installed browser, account or localhost server to use.
