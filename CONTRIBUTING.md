@@ -35,3 +35,5 @@ Maintainers review contributions and publish official Developer ID releases. Com
 Every pull request runs module and document tests, real Chrome rendering/export and UI tests, and Mac app packaging. The public source check rejects private project directories, credential files and common secret patterns. CodeQL analyses JavaScript for security issues; Dependabot proposes dependency and GitHub Action updates weekly. GitHub secret scanning and push protection are enabled.
 
 Run `npm test`, `npm run test:render` and `npm run package` before proposing changes that affect those areas. Public checkout maintainers can also run `node tools/check-public-source.mjs`. The package check uses an ad-hoc signature; official releases are separately signed and notarized by the maintainer.
+
+The main branch requires green `core`, `render`, `package` and `analyze` checks for merges. Force pushes and branch deletion are disabled. Maintainer administrators retain their emergency bypass; community contributions use pull requests.

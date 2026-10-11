@@ -28,7 +28,7 @@ Apple bezel artwork is not bundled with the app. Setup → Frames has two promin
 
 ## Development
 
-This is an open-source community project under the [MIT license](../LICENSE). See [CONTRIBUTING.md](../CONTRIBUTING.md) to get involved and [SECURITY.md](SECURITY.md) to report vulnerabilities. Use Node 22.12 or newer (Node 24 recommended):
+This is an open-source community project under the [MIT license](../LICENSE). See [CONTRIBUTING.md](../CONTRIBUTING.md) to get involved and [SECURITY.md](../SECURITY.md) to report vulnerabilities. Use Node 22.12 or newer (Node 24 recommended):
 
 ```sh
 npm ci
