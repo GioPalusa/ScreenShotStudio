@@ -63,7 +63,13 @@ for (const result of results) {
   } finally { service?.close(); fs.rmSync(sandbox, { recursive: true, force: true }); }
   console.log(`Verified ${checked} bundled files, first-launch project copy and protocol content.`);
   // Local developer build. Distribution signing/notarization is a separate release step.
-  if (!identity) execFileSync('codesign', ['--force', '--deep', '--options', 'runtime', '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
+  if (!identity) {
+    // --deep does not discover Squirrel's executable in framework Resources.
+    // Organizer checks every executable for Hardened Runtime before re-signing.
+    const shipIt = path.join(app, 'Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt');
+    execFileSync('codesign', ['--force', '--options', 'runtime', '--sign', '-', shipIt], { stdio: 'inherit' });
+    execFileSync('codesign', ['--force', '--deep', '--options', 'runtime', '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
+  }
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
   if (xcode) {
     const destination = path.join(process.env.TARGET_BUILD_DIR, process.env.FULL_PRODUCT_NAME);
