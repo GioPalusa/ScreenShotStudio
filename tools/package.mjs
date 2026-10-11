@@ -63,7 +63,7 @@ for (const result of results) {
   } finally { service?.close(); fs.rmSync(sandbox, { recursive: true, force: true }); }
   console.log(`Verified ${checked} bundled files, first-launch project copy and protocol content.`);
   // Local developer build. Distribution signing/notarization is a separate release step.
-  if (!identity) execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
+  if (!identity) execFileSync('codesign', ['--force', '--deep', '--options', 'runtime', '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
   if (xcode) {
     const destination = path.join(process.env.TARGET_BUILD_DIR, process.env.FULL_PRODUCT_NAME);
