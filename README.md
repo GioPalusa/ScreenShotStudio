@@ -26,9 +26,9 @@
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-![Screenshot Studio editing three screens together](docs/assets/editor-demo.png)
+![Screenshot Studio editing the complete four-screen Pulse design](docs/assets/editor-demo.jpg)
 
-*The real editor with an original demo composition. All artwork in this example was created for this project.*
+*The built-in four-screen Pulse starter design, shown in the editor with original sample app content.*
 
 > [!NOTE]
 > Build this with us. Designers, translators, developers and people shipping their first app are welcome. Share designs and ideas in [Discussions](https://github.com/GioPalusa/ScreenShotStudio/discussions), or tell us what needs improving in [Issues](https://github.com/GioPalusa/ScreenShotStudio/issues).
