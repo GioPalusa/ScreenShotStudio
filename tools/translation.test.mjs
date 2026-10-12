@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { translationPlan, translationBatches, translatedCopy, translatedCopies, validateTranslations } from '../app/js/translation.js';
+import { translationPlan, translationBatches, translatedCopy, translatedCopies, validateTranslations, translationReviewFor } from '../app/js/translation.js';
 import { captureSourceFor, captureUsage } from '../app/js/media.js';
 import { cleanTranslationSettings, createTranslationSettings } from '../desktop/translation-settings.mjs';
 import { translateText, listTranslationModels } from '../host/translation.mjs';
@@ -58,7 +58,7 @@ test('translation scopes, missing-only, lists, line breaks and review state', ()
   const p = plan(); assert.equal(p.fields.length, 2); assert.equal(p.entries.length, 3);
   const next = translatedCopy(project, copy, p, result(p));
   assert.equal(next.one.headline, 'Existing'); assert.deepEqual(next.one.bullets, ['SV One', '', 'SV Two %1$s']);
-  assert.deepEqual(next._meta, { status: 'draft', needsReview: ['*'] }); assert.equal(copy['sv-SE']._meta.status, 'approved');
+  assert.equal(next._meta.status, 'draft'); assert.deepEqual(next._meta.needsReview, ['*']); assert.equal(next._meta.translationReview.length, 2); assert.equal(copy['sv-SE']._meta.status, 'approved');
   const selected = plan({ missingOnly: false, slideId: 'one' }); assert.equal(selected.fields.length, 2);
   assert.equal(translatedCopy(project, copy, selected, result(selected)).one.headline, 'SV Hello\n{name}');
   assert.throws(() => plan({ target: 'en-US' }), /different/);
@@ -82,11 +82,14 @@ test('translation rejects partial/duplicate/unknown IDs and changed placeholders
 for (const provider of ['openai', 'claude']) test(`${provider} request, structured response and credential isolation`, async () => {
   const entries = [{ id: 't0', text: 'Hello', context: 'headline' }]; let called;
   const output = { translations: [{ id: 't0', text: 'Hej' }] };
+  const reviewed = { translations: [{ ...output.translations[0], review: { status: 'passed', corrected: false, issues: [] } }] };
   const fetchImpl = async (url, options) => {
     called = { url, ...options, body: JSON.parse(options.body) };
-    return Response.json(provider === 'openai' ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(output) }] }] } : { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(output) }] });
+    const prompt = JSON.parse(provider === 'openai' ? called.body.input : called.body.messages[0].content);
+    const response = prompt.sourceText ? { status: 'passed', issues: [] } : output;
+    return providerReply(provider, response);
   };
-  assert.deepEqual(await translateText({ provider, token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries }, { fetchImpl }), output);
+  assert.deepEqual(await translateText({ provider, token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries }, { fetchImpl }), reviewed);
   assert.equal(called.redirect, 'error'); assert.equal(JSON.stringify(called.body).includes('test-only-key'), false);
   assert.equal(called.url, provider === 'openai' ? 'https://api.openai.com/v1/responses' : 'https://api.anthropic.com/v1/messages');
   if (provider === 'openai') { assert.equal(called.body.store, false); assert.equal(called.body.text.format.strict, true); }
@@ -166,7 +169,7 @@ test('desktop studio protocol completes translation and model discovery without 
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     if (url.endsWith('/models')) return Response.json({ data: [{ id: 'gpt-test' }] });
     const body = JSON.parse(options.body), prompt = JSON.parse(body.input);
-    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ translations: prompt.entries.map(e => ({ id: e.id, text: 'Hej' })) }) }] }] });
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(prompt.sourceText ? { status: 'passed', issues: [] } : { translations: prompt.entries.map(e => ({ id: e.id, text: 'Hej' })) }) }] }] });
   });
   const input = { provider: 'openai', token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries: [{ id: 't0', text: 'Hello', context: 'headline' }] };
   for (const endpoint of ['/api/translate', '/api/translate/models']) {
@@ -198,6 +201,10 @@ for (const provider of ['openai', 'claude']) test(`${provider} isolates city-gui
   const fetchImpl = async (url, options) => {
     const body = JSON.parse(options.body);
     const prompt = JSON.parse(provider === 'openai' ? body.input : body.messages[0].content);
+    if (prompt.sourceText) {
+      assert.deepEqual(prompt, { source: 'en-US', target: 'sv-SE', sourceText: entries[calls.length - 1].text, candidate: expected[calls.length - 1] });
+      return providerReply(provider, { status: 'passed', issues: [] });
+    }
     const index = calls.length;
     assert.deepEqual(prompt, { source: 'en-US', target: 'sv-SE', entries: [{ id: entries[index].id, text: entries[index].text }] });
     calls.push(prompt);
@@ -208,7 +215,7 @@ for (const provider of ['openai', 'claude']) test(`${provider} isolates city-gui
   };
   const translated = await translateText({ provider, token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries }, { fetchImpl });
   assert.equal(calls.length, entries.length);
-  assert.deepEqual(translated.translations, entries.map((e, i) => ({ id: e.id, text: expected[i] })));
+  assert.deepEqual(translated.translations, entries.map((e, i) => ({ id: e.id, text: expected[i], review: { status: 'passed', corrected: false, issues: [] } })));
   assert.deepEqual(translationBatches(entries), entries.map(e => [e]));
 });
 
@@ -218,6 +225,116 @@ test('failure after an isolated text succeeds rejects the entire translation res
     { id: 't0', text: 'A city guide', context: '' }, { id: 't1', text: 'Explore Tokyo', context: '' },
   ] }, { fetchImpl: async () => ++calls === 1
     ? Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ translations: [{ id: 't0', text: 'En stadsguide' }] }) }] }] })
-    : new Response('', { status: 500 }) }), /unavailable/);
-  assert.equal(calls, 2);
+    : calls === 2 ? providerReply('openai', { status: 'passed', issues: [] }) : new Response('', { status: 500 }) }), /unavailable/);
+  assert.equal(calls, 3);
+});
+
+function providerReply(provider, value) {
+  return Response.json(provider === 'openai'
+    ? { status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(value) }] }] }
+    : { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(value) }] });
+}
+
+for (const provider of ['openai', 'claude']) {
+  const examples = [
+    ['A city guide.', 'Un guide de Tokyo.', 'Un guide de ville.', 'Added Tokyo, absent from source.'],
+    ['A month’s worth of moments.', 'Целый месяц ярких мгновений.', 'Целый месяц мгновений.', 'Added bright, absent from source.'],
+    ['Works offline.', 'Requires an internet connection.', 'Fonctionne hors ligne.', 'Reversed the connectivity claim.'],
+    ['Save 10 places.', 'Enregistrez 100 lieux.', 'Enregistrez 10 lieux.', 'Changed the number from 10 to 100.'],
+    ['Save and share places.', 'Enregistrez des lieux.', 'Enregistrez et partagez des lieux.', 'Omitted sharing.'],
+  ];
+  for (const [sourceText, bad, good, issue] of examples) test(`${provider} corrects and rechecks: ${issue}`, async () => {
+    const prompts = [];
+    const fetchImpl = async (_url, options) => {
+      const body = JSON.parse(options.body), prompt = JSON.parse(provider === 'openai' ? body.input : body.messages[0].content);
+      prompts.push(prompt);
+      if (prompt.sourceText) return providerReply(provider, { status: prompt.candidate === bad ? 'needs_correction' : 'passed', issues: prompt.candidate === bad ? [issue] : [] });
+      return providerReply(provider, { translations: [{ id: 't0', text: prompt.candidate ? good : bad }] });
+    };
+    const result = await translateText({ provider, token: 'test-only-key', source: 'en-US', target: 'fr-FR', entries: [{ id: 't0', text: sourceText, context: 'ignored' }] }, { fetchImpl });
+    assert.deepEqual(result.translations, [{ id: 't0', text: good, review: { status: 'passed', corrected: true, issues: [] } }]);
+    assert.equal(prompts.length, 4);
+    assert.deepEqual(prompts[2], { source: 'en-US', target: 'fr-FR', entries: [{ id: 't0', text: sourceText }], candidate: bad, issues: [issue] });
+    assert.equal(prompts[3].candidate, good);
+  });
+  for (const [sourceText, natural] of [
+    ["Look how far you’ve come.", 'Voyez tout le chemin parcouru.'],
+    ['Your days. Rediscovered.', 'Redécouvrez vos journées.'],
+    ['Little badges. Big memories.', 'De petits badges. De grands souvenirs.'],
+  ]) test(`${provider} accepts natural wording without a literal rewrite: ${natural}`, async () => {
+    let calls = 0;
+    const result = await translateText({ provider, token: 'test-only-key', source: 'en-US', target: 'fr-FR', entries: [{ id: 't0', text: sourceText, context: '' }] }, { fetchImpl: async (_url, options) => {
+      calls++;
+      const body = JSON.parse(options.body), instructions = provider === 'openai' ? body.instructions : body.system;
+      if (calls === 2) assert.match(instructions, /Accept natural, idiomatic translations/);
+      return providerReply(provider, calls === 1 ? { translations: [{ id: 't0', text: natural }] } : { status: 'passed', issues: [] });
+    } });
+    assert.equal(calls, 2);
+    assert.deepEqual(result.translations[0], { id: 't0', text: natural, review: { status: 'passed', corrected: false, issues: [] } });
+  });
+  test(`${provider} unresolved errors and ambiguous sources require manual checks`, async () => {
+    for (const status of ['needs_correction', 'manual']) {
+      let calls = 0;
+      const result = await translateText({ provider, token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries: [{ id: 't0', text: 'A city guide.', context: '' }] }, { fetchImpl: async (_url, options) => {
+        calls++;
+        const body = JSON.parse(options.body), prompt = JSON.parse(provider === 'openai' ? body.input : body.messages[0].content);
+        return providerReply(provider, prompt.sourceText ? { status, issues: ['Check the intended meaning.'] } : { translations: [{ id: 't0', text: 'En Tokyoguide.' }] });
+      } });
+      assert.equal(calls, status === 'manual' ? 2 : 4);
+      assert.deepEqual(result.translations[0].review, { status: 'manual', corrected: false, issues: ['Check the intended meaning.'] });
+    }
+  });
+}
+
+test('meaning reports survive JSON and preserve human review, list order and untouched reports', () => {
+  const p = plan({ missingOnly: false });
+  const output = result(p);
+  output.translations = output.translations.map((row, i) => ({ ...row, review: { status: i === 1 ? 'manual' : 'passed', corrected: i === 0, issues: i === 1 ? ['Check this list item.'] : [] } }));
+  const doc = JSON.parse(JSON.stringify(translatedCopy(project, copy, p, output)));
+  const data = { ...copy, 'sv-SE': doc };
+  assert.equal(doc._meta.status, 'draft');
+  assert.equal(translationReviewFor(data, 'sv-SE', 'one', 'headline').corrected, true);
+  assert.deepEqual(translationReviewFor(data, 'sv-SE', 'one', 'bullets').issues, ['Item 1: Check this list item.']);
+  const limited = translationPlan({ project, copy: data, source: 'en-US', target: 'sv-SE', slideId: 'two', missingOnly: false });
+  const updated = translatedCopy(project, data, limited, result(limited));
+  assert.deepEqual(updated._meta.translationReview.filter(r => r.slideId === 'one'), doc._meta.translationReview.filter(r => r.slideId === 'one'));
+  data['sv-SE'].one.headline = 'Edited';
+  assert.equal(translationReviewFor(data, 'sv-SE', 'one', 'headline').status, 'stale');
+  data['sv-SE'].one.headline = doc._meta.translationReview[0].value;
+  data['en-US'] = structuredClone(copy['en-US']); data['en-US'].one.headline = 'Changed source';
+  assert.equal(translationReviewFor(data, 'sv-SE', 'one', 'headline').status, 'stale');
+  assert.equal(translationReviewFor(data, 'sv-SE', 'missing', 'headline'), null);
+});
+
+test('malformed or failed meaning reviews reject the whole operation', async () => {
+  for (const review of [{ status: 'passed', issues: ['Contradiction'] }, { status: 'manual', issues: [] }, { status: 'unknown', issues: [] }, { status: 'passed' }, null]) {
+    let calls = 0;
+    await assert.rejects(translateText({ provider: 'openai', token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries: [{ id: 't0', text: 'A city guide.', context: '' }] }, { fetchImpl: async () => providerReply('openai', ++calls === 1 ? { translations: [{ id: 't0', text: 'En stadsguide.' }] } : review) }), /invalid meaning review/);
+  }
+  const p = plan({ missingOnly: false }), output = result(p);
+  output.translations[0].review = { status: 'passed', corrected: false, issues: ['Not passed'] };
+  assert.throws(() => translatedCopy(project, copy, p, output), /Invalid meaning review/);
+});
+
+test('review cancellation and provider failures never return an unchecked translation', async () => {
+  const input = { provider: 'openai', token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries: [{ id: 't0', text: 'A city guide.', context: '' }] };
+  for (const cancel of [false, true]) {
+    const controller = new AbortController(); let calls = 0;
+    await assert.rejects(translateText(input, { signal: controller.signal, fetchImpl: async () => {
+      if (++calls === 1) return providerReply('openai', { translations: [{ id: 't0', text: 'En stadsguide.' }] });
+      if (cancel) { controller.abort(); throw new Error('aborted'); }
+      return new Response('', { status: 500 });
+    } }), cancel ? /cancelled/ : /unavailable/);
+    assert.equal(calls, 2);
+  }
+});
+
+test('correction cannot bypass placeholder validation', async () => {
+  let calls = 0;
+  await assert.rejects(translateText({ provider: 'openai', token: 'test-only-key', source: 'en-US', target: 'sv-SE', entries: [{ id: 't0', text: 'Guide for {name}', context: '' }] }, { fetchImpl: async () => providerReply('openai', [
+    { translations: [{ id: 't0', text: 'Tokyoguide för {name}' }] },
+    { status: 'needs_correction', issues: ['Added Tokyo.'] },
+    { translations: [{ id: 't0', text: 'En stadsguide' }] },
+  ][calls++]) }), /invalid translations/);
+  assert.equal(calls, 3);
 });

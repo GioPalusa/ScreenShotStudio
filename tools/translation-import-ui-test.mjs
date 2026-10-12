@@ -23,7 +23,7 @@ try {
   const button=text=>[...document.querySelectorAll('button')].reverse().find(b=>b.textContent.trim()===text);
   const select=(node,value)=>{node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));};
   try {
-    const store=await import('/app/js/store.js'), {engine,state,loadAll,flushSaves,undo,redo,addLocale,uploadCapture}=store;
+    const store=await import('/app/js/store.js'), {engine,state,loadAll,flushSaves,undo,redo,addLocale,uploadCapture,editCopy}=store;
     const {mountStudio}=await import('/app/js/ui.js'); const {openTranslate}=await import('/app/js/ui/translate-dialog.js');
     const {openImportDesigns}=await import('/app/js/ui/import-designs.js');
     await loadAll();state.ui.locale='sv-SE';state.ui.device='iphone';state.ui.slideId=engine.project.slides[0].id;state.ui.view='languages';
@@ -41,6 +41,17 @@ try {
     check(engine.data.copy['sv-SE'][state.ui.slideId].headline.startsWith('SV '),'Translation must update target text');
     check(engine.data.copy['sv-SE']._meta.status==='draft' && engine.data.copy['sv-SE']._meta.needsReview.includes('*'),'Machine text needs review');
     check(JSON.stringify(engine.data.copy['en-US'])===source,'Source language unchanged');
+    const meaning=document.querySelector('.lang-row[data-locale="sv-SE"] [data-meaning-review="headline"]');
+    check(meaning?.textContent.includes('Manual meaning check needed'),'Unresolved meaning issue must be visible beside its field');
+    check(meaning.textContent.includes('Fixture: compare the source text.') && meaning.textContent.includes('Source (en-US):'),'Show the issue and original text');
+    check(document.querySelector('.lang-row[data-locale="sv-SE"] [data-meaning-review="caption"]')?.textContent.includes('Meaning check passed after correction'),'Corrected text shows a separate automatic status');
+    const {buildTextPanel}=await import('/app/js/ui/text-panel.js');
+    const details=buildTextPanel({slide:()=>engine.project.slides.find(s=>s.id===state.ui.slideId),locale:()=>engine.project.locales.find(l=>l.id==='sv-SE'),ctx,refresh(){},device:()=>engine.project.devices[state.ui.device],rebuildInspector(){}},{fields:['headline']}).el;
+    check(details.querySelector('[data-meaning-review="headline"]')?.textContent.includes('Manual meaning check needed'),'Details shows the same unresolved meaning warning');
+    const firstSlide=state.ui.slideId;
+    editCopy('sv-SE',firstSlide,'headline','Manual edit');
+    meaning.refreshMeaningReview();check(meaning.textContent.includes('Meaning check outdated'),'Editing invalidates the automatic result');
+    undo();meaning.refreshMeaningReview();check(meaning.textContent.includes('Manual meaning check needed'),'Undo restores the meaning result');
     check(!Object.values(localStorage).some(v=>v.includes('test-only-token')) && !JSON.stringify(engine.data).includes('test-only-token'),'No key in local storage or document');
     undo();check(JSON.stringify(engine.data.copy['sv-SE'])===before,'Translation must undo as one edit');redo();await flushSaves();
     openTranslate(ctx);await waitFor(()=>!document.querySelector('[aria-label="API key"]').disabled);let dlg=document.querySelector('.translation-dialog');
@@ -142,7 +153,7 @@ try {
       const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=JSON.parse(Buffer.concat(chunks));requests.push({provider:body.provider,model:body.model,target:body.target,count:body.entries.length});
       if(body.token==='test-error' || body.token==='test-second-error' && body.target==='de-DE'){res.writeHead(502,{'content-type':'application/json'});res.end(JSON.stringify({error:'Fixture provider unavailable'}));return;}
       if(body.token==='test-cancel')await new Promise(r=>setTimeout(r,120));
-      res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({translations:body.entries.map(e=>({id:e.id,text:'SV '+e.text}))}));return;
+      res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({translations:body.entries.map(e=>({id:e.id,text:'SV '+e.text,review:e.id==='t0'?{status:'manual',corrected:false,issues:['Fixture: compare the source text.']}:{status:'passed',corrected:true,issues:[]}}))}));return;
     }
     if(req.url==='/api/translate/models'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({models:[{id:'gpt-fixture',name:'Fixture model'}]}));return;}
     service.handle(req,res,server.address().port);
@@ -150,5 +161,5 @@ try {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const stdout=await new Promise((resolve,reject)=>execFile(chrome,['--headless','--disable-gpu','--no-sandbox','--no-first-run',`--user-data-dir=${path.join(temp,'chrome')}`,'--window-size=1400,1000',`http://127.0.0.1:${server.address().port}/app/integration-test.html`],{timeout:55000,maxBuffer:4*1024*1024},(error,output,stderr)=>{fs.writeFileSync('/tmp/studio-translation-import-chrome.log',stderr);fs.writeFileSync('/tmp/studio-translation-import-dom.html',output);error?reject(error):resolve(output);}));
   const verdict=stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1]??'No test result';assert.match(verdict,/^PASS:/,verdict);
-    const saved=fs.readFileSync(path.join(projectPath,'copy/sv-SE.json'),'utf8');assert.ok(saved.includes('Imported headline'));assert.ok(!saved.includes('test-only-token'));assert.ok(requests.length>=2);assert.equal(requests[0].model,'gpt-fixture');console.log(verdict);console.log('PASS: Translate all across every target, atomic failure/Undo, persisted model lists, Keychain bridge and forgetting keys, pixel-checked original/standard/localized screenshot fallback.');
+    const saved=fs.readFileSync(path.join(projectPath,'copy/sv-SE.json'),'utf8');assert.ok(saved.includes('Imported headline'));assert.ok(JSON.parse(saved)._meta.translationReview.some(r=>r.items.some(item=>item?.status==='manual')),'Meaning reports persist in copy JSON');assert.ok(!saved.includes('test-only-token'));assert.ok(requests.length>=2);assert.equal(requests[0].model,'gpt-fixture');console.log(verdict);console.log('PASS: Translate all across every target, atomic failure/Undo, persisted model lists, Keychain bridge and forgetting keys, pixel-checked original/standard/localized screenshot fallback.');
 }finally{server?.closeAllConnections();await new Promise(resolve=>server?server.close(resolve):resolve());service?.close();fs.rmSync(temp,{recursive:true,force:true});}

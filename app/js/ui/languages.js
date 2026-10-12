@@ -1,3 +1,4 @@
+import { meaningReviewNote } from './meaning-review.js';
 import { checkControl } from './review-check.js';
 import { openCopyReview } from './copy-review.js';
 import { translateButton } from './translate-dialog.js';
@@ -145,6 +146,7 @@ export function createLanguages(ctx) {
       const fields = fieldsFor(slide);
       const reviewChip = h('span');
       const updateReview = () => {
+        for (const note of el.querySelectorAll('[data-meaning-review]')) note.refreshMeaningReview();
         const pending = needsReview(locale.id, slide.id);
         reviewChip.title = 'Review status for the text on this slide';
         reviewChip.className = `chip ${pending ? 'warn' : 'ok'}`;
@@ -216,7 +218,7 @@ export function createLanguages(ctx) {
         if (locale.id === state.ui.locale && thumb) drawInto(thumb.canvas, { slideId: slide.id, deviceId: state.ui.device, localeId: locale.id, width: thumb.width, priority: true });
       }, 120);
     });
-    return h('div', { class: 'f' }, h('label', null, field === 'bullets' ? 'Bullets' : fieldLabel(field), check), ta);
+    return h('div', { class: 'f' }, h('label', null, field === 'bullets' ? 'Bullets' : fieldLabel(field), check), ta, meaningReviewNote(locale.id, slide.id, field));
   }
 
   return {

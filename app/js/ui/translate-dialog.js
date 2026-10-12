@@ -93,7 +93,7 @@ export function openTranslate(ctx, { target = state.ui.locale, slideId = null, f
       for (const [languageIndex, p] of request.entries()) {
         const batches = translationBatches(p.entries), translations = [];
         for (const [index, entries] of batches.entries()) {
-          status.textContent = `Translating ${project.locales.find(l => l.id === p.target)?.name} · language ${languageIndex + 1} of ${request.length} · text ${index + 1} of ${batches.length}…`;
+          status.textContent = `Translating ${project.locales.find(l => l.id === p.target)?.name} · language ${languageIndex + 1} of ${request.length} · text ${index + 1} of ${batches.length} · translating, checking meaning and correcting if needed…`;
           const result = await api('/api/translate', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: controller.signal, body: JSON.stringify({ provider: providerId, token, model: selectedModel, source: p.source, target: p.target, entries }) });
           translations.push(...result.translations);
         }
@@ -103,7 +103,8 @@ export function openTranslate(ctx, { target = state.ui.locale, slideId = null, f
       if (state.projectId !== projectId || engine.project !== project) throw new Error('The project changed. Open Translate again.');
       applyTranslations(results);
       dialog.close(); ctx.go({ locale: targetInput.value === 'all' ? state.ui.locale : request[0].target });
-      toast(`${request.reduce((n, p) => n + p.fields.length, 0)} text fields translated across ${request.length} language${request.length === 1 ? '' : 's'} · needs review`);
+      const manual = results.flatMap(({ result }) => result.translations).filter(row => row.review?.status !== 'passed').length;
+      toast(`${request.reduce((n, p) => n + p.fields.length, 0)} text fields translated across ${request.length} language${request.length === 1 ? '' : 's'} · ${manual ? `${manual} text${manual === 1 ? '' : 's'} need manual meaning checks` : 'meaning checks passed'} · needs review`, { timeout: 9000 });
       try { await flushSaves(); } catch { toast('Translation is in the editor. Saving needs attention; use the save status to retry.', { error: true }); }
     } catch (error) { if (!closed) status.textContent = error.message; }
     finally { busy = false; if (!closed) { for (const input of controls) input.disabled = false; update(); } }
@@ -127,7 +128,7 @@ export function openTranslate(ctx, { target = state.ui.locale, slideId = null, f
   const body = h('div', { class: 'translation-dialog' },
     h('p', null, 'Translate your screenshot copy, then review it in context.'),
     h('div', { class: 'translation-grid' }, field('From', sourceInput), field('To', targetInput), field('Slides', scope), field('Text to translate', mode), field('Provider', provider), field('Model', h('div', null, model, customModel))),
-    field('API key', key), forgetKey, loadModels, h('p', { class: 'hint' }, `Model choices are remembered. ${window.studioDesktop?.translationSettings ? 'Your API key is saved in macOS Keychain.' : 'API keys are not saved in browser mode.'} Keys are never saved in the project. Screenshot text is sent directly to the selected provider. API usage is billed by that provider; a ChatGPT or Claude subscription is separate.`), summary, status);
+    field('API key', key), forgetKey, loadModels, h('p', { class: 'hint' }, `Model choices are remembered. ${window.studioDesktop?.translationSettings ? 'Your API key is saved in macOS Keychain.' : 'API keys are not saved in browser mode.'} Keys are never saved in the project. Each text is translated and checked for meaning separately, with one correction attempt if needed. Texts with unresolved issues are marked for manual checks. This uses additional API requests. Screenshot text is sent directly to the selected provider. API usage is billed by that provider; a ChatGPT or Claude subscription is separate.`), summary, status);
   const dialog = modal({ title: 'Translate screenshots', body, actions: [h('button', { class: 'btn', onClick: () => dialog.close() }, 'Cancel'), run], onClose: () => { closed = true; key.value = ''; controller.abort(); } });
   update(); void restorePreferences();
 }

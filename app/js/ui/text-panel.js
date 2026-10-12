@@ -1,3 +1,4 @@
+import { meaningReviewNote } from './meaning-review.js';
 import { copyFields } from '../copy-fields.js';
 import { checkControl } from './review-check.js';
 import { openCopyReview } from './copy-review.js';
@@ -41,6 +42,7 @@ export function buildTextPanel(ed, { fields = null, compact = false } = {}) {
   const banner = h('div');
   let reviewPending;
   function updateReview() {
+    for (const note of panel.querySelectorAll('[data-meaning-review]')) note.refreshMeaningReview();
     const pending = needsReview(locale.id);
     if (pending === reviewPending) return;
     reviewPending = pending;
@@ -123,7 +125,7 @@ function fieldEditor(ed, slide, locale, field, updateReview, compact = false) {
     ta.addEventListener('input', () => { editCopy(locale.id, slide.id, field, ta.value); updateReview(); ed.refresh(); });
     wrap.append(ta);
   }
-  wrap.append(h('div', { class: 'hint', dataset: { fit: field } }));
+  wrap.append(meaningReviewNote(locale.id, slide.id, field), h('div', { class: 'hint', dataset: { fit: field } }));
   if (locale.id !== 'en-US' && english) {
     const line = Array.isArray(english) ? english.join(' · ') : english.replace(/\n/g, ' ⏎ ');
     wrap.append(h('div', { class: 'ref', title: 'Click to start from the English text', onClick: () => {
