@@ -247,6 +247,7 @@ try {
   execFileSync(process.execPath, ['tools/profiles-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/viewport-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/details-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/text-fit-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/translation-view-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/translation-import-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-ui-test.mjs'], { cwd: root, stdio: 'inherit' });

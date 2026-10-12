@@ -7,7 +7,7 @@ export function adjacentSlides(slides, id) {
 /** One badge per warning kind, with every affected text retained in the tooltip. */
 export function previewWarnings(warnings) {
   const groups = new Map();
-  const labels = { shrunk: 'Text scaled to fit', overflow: 'Text too long', 'missing-translation': 'Using English', 'capture-missing': 'No screenshot' };
+  const labels = { shrunk: 'Text scaled to fit', overflow: 'Text layout limit', 'missing-translation': 'Using English', 'capture-missing': 'No screenshot' };
   for (const warning of warnings) {
     if (warning.level === 'info') continue;
     const key = `${warning.level}:${warning.code}`;

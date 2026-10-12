@@ -16,7 +16,7 @@ import { decorationBounds } from './decorations.js';
 import { deviceForLayer } from './profiles.js';
 import { captureSourceFor } from './media.js';
 import { originalLocale } from './copy-review.js';
-import { layoutText, drawLines, capHeight } from './text.js';
+import { layoutText, drawLines, capHeight, textOverflowMessage } from './text.js';
 import { composeBezel, composeDuo, composeAndroid, composeGeneric, composePlain, fitCapture, buildHoleMask } from './devices.js';
 import { resolveLayers, paintOrder } from './layouts.js';
 import { frameKey, frameScreenSize, DEFAULT_FRAME } from './frames.js';
@@ -303,7 +303,7 @@ export class Engine {
     // report
     for (const [id, t] of Object.entries(scene.texts)) {
       if (t.fallback) scene.warnings.push({ level: 'warn', code: 'missing-translation', layer: id, message: `No ${locale.name} text for “${t.field}” - showing original text` });
-      if (t.overflow) scene.warnings.push({ level: 'error', code: 'overflow', layer: id, message: `“${t.field}” does not fit even at the smallest size - shorten it` });
+      if (t.overflow) scene.warnings.push({ level: 'error', code: 'overflow', layer: id, message: `“${t.field}”: ${textOverflowMessage(t.overflowReasons)}` });
       else if (t.shrink / t.baseShrink < 0.85) scene.warnings.push({ level: 'warn', code: 'shrunk', layer: id, message: `“${t.field}” is ${Math.round((1 - t.shrink / t.baseShrink) * 100)}% smaller than the English version to fit - consider shorter text` });
     }
     // Shared objects outside this tile belong to another export, not this tile's preflight.
@@ -399,7 +399,7 @@ export class Engine {
       const en = this.copyFor('en-US', layer.copySlideId ?? scene.slideId, layer.field);
       if (en) baseShrink = this.englishShrink(layer, en.value, (layer.lineHeight ?? 1.2) * (this.fontsFor('en-US').lineHeight ?? 1));
     }
-    scene.texts[layer.id] = { field: layer.field, size: layout.size, shrink: layout.shrink, baseShrink, lines: layout.lines.length, overflow: layout.overflow, fallback: copy.fallback, width: layout.maxW, baseline: firstBaseline, lineTexts: layout.lines.map((l) => l.text) };
+    scene.texts[layer.id] = { field: layer.field, copySlideId: layer.copySlideId ?? scene.slideId, size: layout.size, shrink: layout.shrink, baseShrink, lines: layout.lines.length, overflow: layout.overflow, overflowReasons: layout.overflowReasons, fallback: copy.fallback, width: layout.maxW, baseline: firstBaseline, lineTexts: layout.lines.map((l) => l.text) };
   }
 
   drawTextLayer(ctx, scene, layer) {

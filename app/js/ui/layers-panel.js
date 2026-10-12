@@ -342,6 +342,11 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
 
   function textFields(layer) {
     const set = (patch, o) => ed.setLayer(current(layer), patch, o);
+    const lineLimit = numberInput({ value: layer.maxLines ?? 99, min: 0, step: 1, width: 64, title: 'Maximum number of lines. Set 0 for unlimited.', onChange: v => {
+      if (!Number.isInteger(v) || v < 0) { lineLimit.value = current(layer).maxLines ?? 99; return; }
+      set({ maxLines: v });
+    } });
+    lineLimit.setAttribute('aria-label', 'Max lines');
     const slider = (label, value, min, max, step, onInput, fmt = (v) => v) => {
       const input = h('input', { type: 'range', min, max, step, value });
       const out = h('output', { class: 'mono' }, fmt(Number(value)));
@@ -364,7 +369,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Colour'), color, layer.color ? h('button', { class: 'btn small', onClick: () => set({ color: undefined }, { rebuild: true }) }, 'Slide colour') : h('span', { class: 'hint' }, 'follows the slide')),
       paletteSwatches(ed, colour => set({ color: colour }, { rebuild: true })),
       slider('Line spacing', layer.lineHeight ?? 1.2, 0.9, 1.7, 0.01, (v) => set({ lineHeight: v }, { key: `lh:${layer.id}` }), (v) => v.toFixed(2)),
-      layer.textFit !== 'frame' ? h('div', { class: 'row' }, h('span', { class: 'label' }, 'Max lines'), numberInput({ value: layer.maxLines ?? 2, min: 1, max: 10, step: 1, width: 64, onChange: (v) => set({ maxLines: v }) })) : null);
+      layer.textFit !== 'frame' ? h('div', { class: 'row' }, h('span', { class: 'label' }, 'Max lines'), lineLimit, h('span', { class: 'hint' }, '0 = unlimited')) : null);
   }
 
   // ----- order, duplicate, delete, copy
