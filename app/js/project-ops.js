@@ -2,6 +2,8 @@
 
 import { slugify, uniqueId } from './layer-ops.js';
 import { availableProfilesFor } from './profiles.js';
+import { orderedSlides } from './slide-order.js';
+export { orderedSlides } from './slide-order.js';
 
 export function deviceProfileUsage(project, profileId) {
   const count = value => {
@@ -78,15 +80,6 @@ export function removeDevice(project, id) {
 }
 
 /** Locale order is presentation metadata; slide identities and connected layouts stay intact. */
-export function orderedSlides(project, localeId) {
-  const remaining = new Map((project.slides ?? []).map(slide => [slide.id, slide]));
-  const result = [];
-  for (const id of project.slideOrders?.[localeId] ?? []) {
-    if (remaining.has(id)) { result.push(remaining.get(id)); remaining.delete(id); }
-  }
-  return [...result, ...remaining.values()];
-}
-
 /** Insert a new screen beside its source in the default order and every custom language order. */
 export function insertSlideAfter(project, slide, afterId) {
   const index = project.slides.findIndex(s => s.id === afterId);
@@ -106,6 +99,12 @@ export function reorderSlides(project, fromId, toId, after, localeId, allLanguag
   const [moved] = slides.splice(slides.findIndex(s => s.id === fromId), 1);
   slides.splice(slides.findIndex(s => s.id === toId) + Number(after), 0, moved);
   project.slideOrders ??= {};
+  const original = project.locales?.find(l => l.id === project.sourceLocale)?.id ?? project.locales?.[0]?.id;
+  // An explicit "This language only" move must preserve other languages' current
+  // order, including those that had followed the original implicitly.
+  if (!allLanguages && localeId === original) for (const locale of project.locales) {
+    if (locale.id !== localeId && !project.slideOrders[locale.id]) project.slideOrders[locale.id] = orderedSlides(project, locale.id).map(s => s.id);
+  }
   const locales = allLanguages ? project.locales.map(l => l.id) : [localeId];
   for (const id of locales) project.slideOrders[id] = slides.map(s => s.id);
   return true;

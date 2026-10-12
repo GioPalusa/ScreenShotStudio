@@ -223,7 +223,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
     );
     const keep = unlockable ? h('label', { class: 'row check' }, h('input', { type: 'checkbox', checked: isLocked(), onChange: (e) => { aspectLocks.set(layer.id, e.target.checked); } }), 'Lock proportions') : null;
     return h('div', { class: 'field', title: 'Position and size in canvas pixels. Arrow keys nudge; Shift moves 10 px. Alt resizes from the centre.' }, grid, keep,
-      isText ? h('button', { class: 'btn small', onClick: () => ed.setLayer(layer, { boxHeight: undefined }, { rebuild: true }) }, 'Auto text height') : null);
+      isText ? h('button', { class: 'btn small', onClick: () => ed.setLayer(layer, { boxHeight: undefined, textFit: undefined }, { rebuild: true }) }, 'Auto text height') : null);
   }
 
   // ----- opacity and shadow
@@ -342,6 +342,11 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
 
   function textFields(layer) {
     const set = (patch, o) => ed.setLayer(current(layer), patch, o);
+    const lineLimit = numberInput({ value: layer.maxLines ?? 99, min: 0, step: 1, width: 64, title: 'Maximum number of lines. Set 0 for unlimited.', onChange: v => {
+      if (!Number.isInteger(v) || v < 0) { lineLimit.value = current(layer).maxLines ?? 99; return; }
+      set({ maxLines: v });
+    } });
+    lineLimit.setAttribute('aria-label', 'Max lines');
     const slider = (label, value, min, max, step, onInput, fmt = (v) => v) => {
       const input = h('input', { type: 'range', min, max, step, value });
       const out = h('output', { class: 'mono' }, fmt(Number(value)));
@@ -353,14 +358,18 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
     return h('div', { class: 'field' },
       !detailsOnly ? h('div', { class: 'row' }, h('button', { class: 'btn small', onClick: () => ed.openLayer(layer) }, 'Edit the text…')) : null,
       fontPicker({ value: layer.fontFamily, inherited: scene.fonts.family, onChange: fontFamily => set({ fontFamily }) }),
-      slider('Max size', Math.round(layer.size ?? 100), 24, 400, 1, (v) => set({ size: v }, { key: `size:${layer.id}` }), (v) => `${v}px`),
+      h('div', { class: 'row' }, h('span', { class: 'label' }, 'Text size'), selectInput({ title: 'Text sizing', options: [['manual', 'Max size'], ['frame', 'Fill frame']], value: layer.textFit ?? 'manual', onChange: v => {
+        const fresh = current(layer);
+        set(v === 'frame' ? { textFit: 'frame', boxHeight: fresh.boxHeight ?? fresh._box?.h ?? fresh.size ?? 100 } : { textFit: undefined }, { rebuild: true });
+      } })),
+      layer.textFit === 'frame' ? h('div', { class: 'hint' }, 'Text grows or shrinks to fit the frame. Enter keeps a line break. Resize the frame to change the text size.') : slider('Max size', Math.round(layer.size ?? 100), 24, 400, 1, (v) => set({ size: v }, { key: `size:${layer.id}` }), (v) => `${v}px`),
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Weight'),
         selectInput({ options: [[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Heavy']], value: layer.weight ?? 700, onChange: (v) => set({ weight: Number(v) }) })),
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Align'), iconChoices({ label: 'Text alignment', options: [['start', scene.locale?.dir === 'rtl' ? 'text.alignright' : 'text.alignleft', 'Align to language start'], ['center', 'text.aligncenter', 'Centre text'], ['end', scene.locale?.dir === 'rtl' ? 'text.alignleft' : 'text.alignright', 'Align to language end']], value: layer.align ?? 'start', onChange: (v) => set({ align: v }) })),
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Colour'), color, layer.color ? h('button', { class: 'btn small', onClick: () => set({ color: undefined }, { rebuild: true }) }, 'Slide colour') : h('span', { class: 'hint' }, 'follows the slide')),
       paletteSwatches(ed, colour => set({ color: colour }, { rebuild: true })),
       slider('Line spacing', layer.lineHeight ?? 1.2, 0.9, 1.7, 0.01, (v) => set({ lineHeight: v }, { key: `lh:${layer.id}` }), (v) => v.toFixed(2)),
-      h('div', { class: 'row' }, h('span', { class: 'label' }, 'Max lines'), numberInput({ value: layer.maxLines ?? 2, min: 1, max: 10, step: 1, width: 64, onChange: (v) => set({ maxLines: v }) })));
+      layer.textFit !== 'frame' ? h('div', { class: 'row' }, h('span', { class: 'label' }, 'Max lines'), lineLimit, h('span', { class: 'hint' }, '0 = unlimited')) : null);
   }
 
   // ----- order, duplicate, delete, copy

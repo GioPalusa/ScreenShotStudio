@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isProjectFile } from '../app/js/project-file.js';
 
 export const revision = file => fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : 'missing';
 export function atomicWrite(file, data, { backupRoot = null, expected = null } = {}) {
@@ -50,18 +51,44 @@ function writeLocked(file, data, { backupRoot, expected }) {
   } finally { if (fd !== undefined && fd !== null) fs.closeSync(fd); if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
   return revision(file);
 }
-export function copyProject(from, to) {
-  if (fs.existsSync(to)) throw new Error('Choose a new project name. Existing projects are never overwritten.');
+export function copyProject(from, to, { replace = false } = {}) {
   const src = fs.realpathSync(from), dest = path.resolve(to);
+  const checkDestination = () => {
+    if (!fs.existsSync(dest)) return false;
+    if (!replace) throw new Error('Choose a new project name. Existing projects are never overwritten.');
+    if (!isProjectFile(dest) || !fs.lstatSync(dest).isDirectory() || !fs.existsSync(path.join(dest, 'studio.json')) || !fs.lstatSync(path.join(dest, 'studio.json')).isFile()) throw new Error('Choose an existing Screenshot Studio project to replace.');
+    return true;
+  };
+  checkDestination();
   let existing = path.dirname(dest);
   while (!fs.existsSync(existing)) existing = path.dirname(existing);
   const physicalDest = path.resolve(fs.realpathSync(existing), path.relative(existing, dest));
   if (physicalDest === src || physicalDest.startsWith(src + path.sep)) throw new Error('Save the copy outside the current project.');
   if (dest.startsWith(src + path.sep)) throw new Error('Save the copy outside the current project.');
-  fs.cpSync(src, dest, { recursive: true, filter: p => {
-    if (fs.lstatSync(p).isSymbolicLink()) throw new Error('Project files cannot be symbolic links.');
-    return !['.history', '.versions', 'export', '.DS_Store'].includes(path.basename(p)) && !p.endsWith('.studio-lock') && !p.endsWith('.tmp');
-  } });
+  if (src.startsWith(physicalDest + path.sep)) throw new Error('Save the copy outside a folder containing the current project.');
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const staging = fs.mkdtempSync(path.join(path.dirname(dest), '.studio-copy-'));
+  let preserveStaging = false;
+  try {
+    fs.cpSync(src, staging, { recursive: true, filter: p => {
+      if (fs.lstatSync(p).isSymbolicLink()) throw new Error('Project files cannot be symbolic links.');
+      return p === src || (!['.history', '.versions', 'export', '.DS_Store'].includes(path.basename(p)) && !p.endsWith('.studio-lock') && !p.endsWith('.tmp'));
+    } });
+    if (checkDestination()) {
+      const previous = path.join(staging, '.versions', `replaced-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID()}`);
+      fs.mkdirSync(path.dirname(previous));
+      fs.renameSync(dest, previous);
+      try { fs.renameSync(staging, dest); }
+      catch (error) {
+        try { fs.renameSync(previous, dest); }
+        catch {
+          preserveStaging = true;
+          throw new Error(`The copy could not be saved. The previous project is preserved at ${previous}.`, { cause: error });
+        }
+        throw error;
+      }
+    } else fs.renameSync(staging, dest);
+  } finally { if (!preserveStaging && fs.existsSync(staging)) fs.rmSync(staging, { recursive: true }); }
 }
 
 export function assertInside(root, file) {

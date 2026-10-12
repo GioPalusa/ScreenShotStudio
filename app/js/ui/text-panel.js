@@ -1,3 +1,4 @@
+import { meaningReviewNote } from './meaning-review.js';
 import { copyFields } from '../copy-fields.js';
 import { checkControl } from './review-check.js';
 import { openCopyReview } from './copy-review.js';
@@ -5,9 +6,10 @@ import { translateButton } from './translate-dialog.js';
 // Inspector → Text: one editor per text field of the slide (headline, sub text, bullets, any text layer you add),
 // for the language being edited, with a live note on whether it fits.
 
-import { engine, editCopy, getCopy, markReviewed } from '../store.js';
+import { engine, editCopy, getCopy, markReviewed, needsReview } from '../store.js';
 import { resolveLayers } from '../layouts.js';
-import { copyNeedsReview } from '../copy-review.js';
+import { textOverflowMessage } from '../text.js';
+import { isOriginalLocale } from '../copy-review.js';
 import { h, localeLabel } from './helpers.js';
 
 const FIELD_LABEL = { headline: 'Headline', headlineAccent: 'Accent line', eyebrow: 'Eyebrow', caption: 'Sub text', bullets: 'Bullet list' };
@@ -19,7 +21,7 @@ const FIELD_HELP = {
 
 export const fieldLabel = (field) => FIELD_LABEL[field] ?? field;
 
-/** Fields of a slide: headline, whatever has text in English or the current language, and every text layer of any layout. */
+/** Text fields still referenced by this language's layouts on any canvas. */
 export const slideFields = (slide, localeId) => copyFields(engine.project, engine.data.copy, slide, localeId);
 
 /** Short names of the devices whose layout shows a field. */
@@ -40,14 +42,15 @@ export function buildTextPanel(ed, { fields = null, compact = false } = {}) {
   const banner = h('div');
   let reviewPending;
   function updateReview() {
-    const pending = copyNeedsReview(engine.data.copy[locale.id]);
+    for (const note of panel.querySelectorAll('[data-meaning-review]')) note.refreshMeaningReview();
+    const pending = needsReview(locale.id);
     if (pending === reviewPending) return;
     reviewPending = pending;
     banner.className = `banner${pending ? ' warn' : ''}`;
-    banner.replaceChildren(
-      h('div', null, h('b', null, localeLabel(locale)), h('div', { class: 'hint' }, pending ? 'Text needs review: check the changes before final export' : 'Reviewed text')),
-      pending ? h('button', { class: 'btn small', onClick: () => { markReviewed(locale.id); ed.rebuildInspector(); } }, 'Mark reviewed') : h('span', { class: 'chip ok' }, '✓ Reviewed'),
-    );
+    banner.replaceChildren(...[
+      h('div', null, h('b', null, localeLabel(locale)), h('div', { class: 'hint' }, isOriginalLocale(engine.project, locale.id) ? 'Original text' : pending ? 'Text needs review: check the changes before final export' : 'Reviewed text')),
+      isOriginalLocale(engine.project, locale.id) ? null : pending ? h('button', { class: 'btn small', onClick: () => { markReviewed(locale.id); ed.rebuildInspector(); } }, 'Mark reviewed') : h('span', { class: 'chip ok' }, '✓ Reviewed'),
+    ].filter(Boolean));
   }
   updateReview();
   panel.append(translateButton(ed.ctx, { target: locale.id, slideId: slide.id, fields }, true));
@@ -60,11 +63,24 @@ export function buildTextPanel(ed, { fields = null, compact = false } = {}) {
     for (const node of panel.querySelectorAll('[data-check]')) node.refreshCheck?.();
     for (const node of panel.querySelectorAll('[data-fit]')) {
       const field = node.dataset.fit;
-      const t = Object.values(scene.texts).find((x) => x.field === field);
+      // Field names repeat across screens and even within one screen. Details must use
+      // the selected object's measurements, including its all-screens proxy identity.
+      const layer = selected && ed.layerById(selected.id);
+      const textId = layer?._sourceSlideId ? `${layer._sourceSlideId}:${layer._sourceLayerId}` : layer?.id;
+      const matches = Object.values(scene.texts).filter(t => t.field === field && t.copySlideId === slide.id);
+      const t = selected ? scene.texts[textId] : matches.find(t => t.overflow) ?? matches[0];
       node.className = 'hint';
       if (!t) { node.textContent = `Not shown on ${ed.device().short ?? ed.device().label}.`; continue; }
       const lines = `${t.lines} line${t.lines === 1 ? '' : 's'}`;
-      if (t.overflow) { node.className = 'hint err'; node.textContent = 'Too long: it does not fit even at the smallest size. Shorten it.'; }
+      if (t.overflow) {
+        node.className = 'hint err'; node.textContent = textOverflowMessage(t.overflowReasons);
+        if (layer && !layer.locked && t.overflowReasons?.length === 1 && t.overflowReasons[0].code === 'lines') {
+          node.append(h('div', { class: 'row' }, h('button', { class: 'btn small', onClick: () => {
+            const current = ed.layerById(layer.id);
+            if (current && !current.locked) ed.setLayer(current, { maxLines: t.lines }, { rebuild: true });
+          } }, `Allow ${t.lines} lines`)));
+        }
+      }
       else if (t.shrink / (t.baseShrink ?? 1) < 0.85) { node.className = 'hint warn'; node.textContent = `Smaller than the English version (${Math.round(t.shrink * 100)}% vs ${Math.round((t.baseShrink ?? 1) * 100)}%) to fit · ${lines}. Shorter text would look better.`; }
       else if (t.shrink < 0.995) node.textContent = `Fits · scaled to ${Math.round(t.shrink * 100)}% · ${lines}`;
       else { node.className = 'hint ok'; node.textContent = `Fits at full size · ${lines}`; }
@@ -109,7 +125,7 @@ function fieldEditor(ed, slide, locale, field, updateReview, compact = false) {
     ta.addEventListener('input', () => { editCopy(locale.id, slide.id, field, ta.value); updateReview(); ed.refresh(); });
     wrap.append(ta);
   }
-  wrap.append(h('div', { class: 'hint', dataset: { fit: field } }));
+  wrap.append(meaningReviewNote(locale.id, slide.id, field), h('div', { class: 'hint', dataset: { fit: field } }));
   if (locale.id !== 'en-US' && english) {
     const line = Array.isArray(english) ? english.join(' · ') : english.replace(/\n/g, ' ⏎ ');
     wrap.append(h('div', { class: 'ref', title: 'Click to start from the English text', onClick: () => {

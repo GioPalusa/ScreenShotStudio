@@ -3,10 +3,12 @@
 import { engine, state, flushSaves } from '../store.js';
 import { preflightScene, preflightSelection } from '../preflight.js';
 import { SPEC_URL, SPEC_CHECKED_AT, PLAY_SPEC_URL, PLAY_SPEC_CHECKED_AT } from '../export-targets.js';
-import { copyNeedsReview } from '../copy-review.js';
+import { localeNeedsReview } from '../copy-review.js';
 import { Engine, renderToBytes } from '../render.js';
 import { h, modal, toast, localeLabel } from './helpers.js';
 import { warningList } from './warnings.js';
+import { openAppStoreUpload } from './app-store-connect.js';
+import { uploadChecks } from '../upload-checks.js';
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -30,7 +32,16 @@ const fontAvailable = stack => {
 export async function runExport({ locales, devices, slides, allowPlaceholders = false, mode = 'draft', preflightOnly = false, onPreflight, onProgress, signal }) {
   await flushSaves();
   const selection = { locales, devices, slides: slides.map(s => s.id) };
-  const snapshot = await post('/api/export/start', { mode, selection });
+  let destination;
+  if (!preflightOnly && window.studioDesktop?.chooseExportFolder) {
+    const picked = await window.studioDesktop.chooseExportFolder();
+    if (picked.canceled || signal?.aborted) return { canceled: true, written: 0 };
+    if (typeof picked.token !== 'string') throw new Error('Choose an export folder before exporting.');
+    destination = picked.token;
+    await flushSaves();
+  }
+  if (signal?.aborted) throw new Error('Export stopped. No partial export was published.');
+  const snapshot = await post('/api/export/start', { mode, selection, ...(destination ? { destination } : {}) });
   const frozen = new Engine(); frozen.setData(snapshot.bundle); frozen.projectURL = snapshot.projectURL;
   const results = { environment: { renderer: navigator.userAgent, fonts: frozen.project.fonts, fontOverrides: frozen.project.locales.filter(l => l.font).map(l => ({ locale: l.id, font: l.font })) }, written: 0, bytes: 0, skipped: [], warnings: [], issues: [], files: [], checked: false, mode };
   const jobs = [];
@@ -107,19 +118,22 @@ export function openExport(ctx, previous = null) {
   });
   const count = () => pick.locales.size * pick.devices.size * pick.slides.size;
   const fingerprint = r => JSON.stringify(r.issues.map(i => [i.level, i.code, i.message]));
-  const showReport = r => {
-    report = r;
+  const checkCounts = r => {
     const errors = r.issues.filter(i => i.level === 'error').length;
     const warnings = r.issues.length - errors;
+    return h('div', { class: 'export-check-counts' },
+      h('span', { class: errors ? 'err' : 'ok' }, `${errors} blocking error${errors === 1 ? '' : 's'}`),
+      h('span', { class: warnings ? 'warn' : 'ok' }, `${warnings} warning${warnings === 1 ? '' : 's'}`));
+  };
+  const showReport = r => {
+    report = r;
     readiness.replaceChildren(
       h('div', { class: 'label' }, r.issues.length ? 'Review before export' : '✓ Ready to export'),
-      h('div', { class: 'export-check-counts' },
-        h('span', { class: errors ? 'err' : 'ok' }, `${errors} blocking error${errors === 1 ? '' : 's'}`),
-        h('span', { class: warnings ? 'warn' : 'ok' }, `${warnings} warning${warnings === 1 ? '' : 's'}`)),
+      checkCounts(r),
       h('p', { class: 'hint' }, r.issues.length
-        ? 'You can fix these issues or export anyway. Missing images will appear as placeholders; all issues are included in the export report.'
+        ? 'Export anyway saves draft images, with placeholders for missing images. You can upload despite text, layout and review warnings. Missing images and other technical errors must be fixed before uploading.'
         : 'All selected images passed the checks. No images have been written yet.'),
-      r.issues.length ? h('div', { class: 'result-list' }, warningList(r.issues)) : null,
+      ...(r.issues.length ? [h('div', { class: 'result-list' }, warningList(r.issues))] : []),
     );
     startBtn.textContent = r.issues.length ? 'Export anyway' : 'Export images';
     startBtn.disabled = !count();
@@ -161,7 +175,7 @@ export function openExport(ctx, previous = null) {
   };
   form.append(summary,
     h('div', { class: 'export-columns' },
-      group('Languages', project.locales.map(l => ({ id: l.id, label: localeLabel(l), note: copyNeedsReview(engine.data.copy[l.id]) ? 'Needs review' : '' })), pick.locales),
+      group('Languages', project.locales.map(l => ({ id: l.id, label: localeLabel(l), note: localeNeedsReview(project, engine.data.copy, l.id) ? 'Needs review' : '' })), pick.locales),
       group('Canvases', Object.entries(project.devices).map(([id, d]) => ({ id, label: d.label, note: `${d.size[0]} × ${d.size[1]} px` })), pick.devices),
       group('Slides', project.slides.map((s, i) => ({ id: s.id, label: `${i + 1}. ${s.name ?? s.id}` })), pick.slides)),
     readiness,
@@ -169,7 +183,7 @@ export function openExport(ctx, previous = null) {
       h('button', { class: 'btn small', onClick: () => { m.close(); state.ui.setupTab = 'devices'; ctx.go({ view: 'setup' }); } }, 'Edit canvases…')),
     h('p', { class: 'hint' }, 'Checks cover the selected images. ', h('a', { href: SPEC_URL, target: '_blank', rel: 'noopener' }, `Apple sizes checked ${SPEC_CHECKED_AT} ↗`), ' · ',
       h('a', { href: PLAY_SPEC_URL, target: '_blank', rel: 'noopener' }, `Google Play checked ${PLAY_SPEC_CHECKED_AT} ↗`)),
-    h('div', { class: 'hint' }, 'RGB PNG · no transparency. A dated folder contains the images, a check report and UPLOAD-GUIDE.html. Saved in ', h('span', { class: 'path mono', id: 'export-dir' }, 'export/'), '.'),
+    h('div', { class: 'hint' }, 'RGB PNG · no transparency. A dated folder contains the images, a check report and UPLOAD-GUIDE.html. ', window.studioDesktop?.chooseExportFolder ? 'Choose where to save each export when you start.' : h('span', null, 'Saved in ', h('span', { class: 'path mono', id: 'export-dir' }, 'export/'), '.')),
   );
   fetch('/api/exports').then(r => r.json()).then(j => { const n = form.querySelector('#export-dir'); if (n) n.textContent = j.dir; }).catch(() => {});
   startBtn.addEventListener('click', async () => {
@@ -189,17 +203,30 @@ export function openExport(ctx, previous = null) {
         onProgress: ({ done, total, label: text }) => { bar.style.width = `${total ? done / total * 100 : 0}%`; label.textContent = `${done} / ${total} · ${text}`; },
       });
       if (closed) return;
+      if (result.canceled) { restore(); return; }
       if (result.checked) {
         restore(); showReport(result);
         readiness.prepend(h('p', { class: 'warn' }, 'The checks changed since your review. Review the updated result before exporting.'));
         return;
       }
-      const reveal = h('button', { class: 'btn primary', onClick: () => fetch('/api/reveal', { method: 'POST' }) }, 'Show in Finder');
-      body.replaceChildren(h('div', { class: 'field' }, h('div', { class: 'label' }, '✓ Export finished'),
+      const checks = uploadChecks(result), unresolved = checks.errors.length > 0;
+      const desktopUpload = typeof window.studioDesktop?.appStore === 'function';
+      const uploadBlocked = unresolved || !desktopUpload;
+      const reveal = h('button', { class: `btn${uploadBlocked ? ' primary' : ''}`, onClick: () => fetch('/api/reveal', { method: 'POST' }) }, 'Show in Finder');
+      const uploadStatus = h('div', { class: 'export-readiness', id: 'export-upload-status' },
+        h('div', { class: 'label' }, uploadBlocked ? 'App Store Connect upload unavailable' : 'Ready to upload to App Store Connect'),
+        checks.errors.length || checks.warnings.length ? checkCounts({ issues: [...checks.errors, ...checks.warnings] }) : null,
+        h('p', { class: 'hint' }, unresolved
+          ? 'Fix the technical errors or select only images without technical errors, then export again. Text, layout and review warnings can be accepted during upload.'
+          : checks.warnings.length ? 'You can upload these images despite the warnings. Review them and choose to upload anyway in the next step.' : 'Choose the app and version, then review the screenshots before uploading.'),
+        !desktopUpload ? h('p', { class: 'hint' }, 'Direct upload requires the latest Screenshot Studio Mac app. Open this project there and export again.') : null,
+        result.issues.length ? h('div', null, h('button', { class: 'btn small', onClick: () => { m.close(); openExport(ctx, pick); } }, 'Review export checks…')) : null);
+      body.replaceChildren(h('div', { class: 'export-body' }, h('div', { class: 'label' }, '✓ Export finished'),
         h('p', null, `${result.written} image${result.written === 1 ? '' : 's'} written (${(result.bytes / 1048576).toFixed(1)} MB). ${result.path}`),
-        override ? h('p', { class: 'warn' }, 'Exported with unresolved checks. Review the report before uploading.') : null,
-        result.issues.length ? warningList(result.issues) : null));
-      m.el.querySelector('.modal-foot').replaceChildren(cancelBtn, reveal);
+        uploadStatus,
+        result.issues.length ? h('div', { class: 'result-list' }, warningList([...checks.errors, ...checks.warnings])) : null));
+      const upload = h('button', { class: 'btn primary', disabled: uploadBlocked, 'aria-describedby': 'export-upload-status', onClick: () => { m.close(); openAppStoreUpload(result.path); } }, 'Upload to App Store Connect…');
+      m.el.querySelector('.modal-foot').replaceChildren(cancelBtn, reveal, upload);
     } catch (error) {
       if (closed) return;
       restore(); report = null; startBtn.disabled = true;

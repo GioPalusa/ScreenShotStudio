@@ -95,6 +95,7 @@
 			);
 			name = "Package and sign Electron";
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
@@ -126,11 +127,11 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 4W4M797J67;
 				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
@@ -143,7 +144,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INSTALL_PATH = "$(LOCAL_APPS_DIR)";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.2.6;
+				MARKETING_VERSION = 0.2.7;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = se.palusa.screenshotstudio;
 				PRODUCT_NAME = "Screenshot Studio";
@@ -170,7 +171,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 4W4M797J67;
 				ENABLE_APP_SANDBOX = NO;
@@ -181,7 +182,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INSTALL_PATH = "$(LOCAL_APPS_DIR)";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.2.6;
+				MARKETING_VERSION = 0.2.7;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = se.palusa.screenshotstudio;
 				PRODUCT_NAME = "Screenshot Studio";

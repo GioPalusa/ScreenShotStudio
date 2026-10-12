@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execBrowserTest as execFile } from './browser-test-runner.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
 import { createNewProject } from '../host/new-project.mjs';
@@ -34,7 +34,7 @@ try {
     const active = () => document.querySelector('.translate-screen[aria-selected="true"]');
     const headline = () => document.querySelector('.lang-row[data-locale="sv-SE"] textarea');
     try {
-      const { engine, state, loadAll, flushSaves } = await import('/app/js/store.js');
+      const store = await import('/app/js/store.js'); const { engine, state, loadAll, flushSaves } = store;
       const { mountStudio } = await import('/app/js/ui.js');
       window.studioDesktop = { onCommand() {}, action() { throw new Error('No duplicate project actions'); } };
       await loadAll(); state.ui.view = 'languages'; state.ui.locale = 'en-US'; state.ui.device = 'iphone'; state.ui.slideId = 'screen-1';
@@ -70,20 +70,42 @@ try {
       button('Editor').click(); button('Translate').click();
       check(state.ui.slideId === 'screen-14' && headline().value === 'Edited screen fourteen', 'Switching views retains screenshot selection');
       check(JSON.parse(localStorage.getItem('mmd-studio-ui-v1')).slideId === 'screen-14', 'Screen selection is remembered');
+      const sourceRow = document.querySelector('.lang-row[data-locale="en-US"]');
+      check(sourceRow.textContent.includes('Original') && ![...sourceRow.querySelectorAll('[data-check]')].some(b=>!b.hidden), 'Original language has no review flags');
+      const targetRow = () => document.querySelector('.lang-row[data-locale="sv-SE"]');
+      const targetButton = text => [...targetRow().querySelectorAll('button')].find(b=>b.textContent.trim()===text);
+      targetButton('Mark screen reviewed').click();
+      check(!store.needsReview('sv-SE','screen-14') && store.needsReview('sv-SE','screen-1'), 'Screen review does not approve other screens');
+      targetButton('Mark design reviewed').click(); check(!store.needsReview('sv-SE'), 'Design review approves all screens in this language');
+      store.undo(); check(store.needsReview('sv-SE','screen-1') && !store.needsReview('sv-SE','screen-14'), 'Whole design review is one undoable edit');
+      store.redo(); check(!store.needsReview('sv-SE'), 'Redo restores whole design approval');
+      headline().value='Changed reviewed text'; headline().dispatchEvent(new Event('input',{bubbles:true}));
+      check(store.needsReview('sv-SE','screen-14','headline') && !store.needsReview('sv-SE','screen-1'), 'Editing approved text flags only changed field');
+      const originalInput=document.querySelector('.langs-head label select');
+      originalInput.value='sv-SE'; originalInput.dispatchEvent(new Event('change',{bubbles:true}));
+      check(engine.project.sourceLocale==='sv-SE' && !store.needsReview('sv-SE') && store.needsReview('en-US'), 'Choosing the original language changes review policy');
+      store.undo(); check(!store.needsReview('en-US') && store.needsReview('sv-SE'), 'Original-language choice can be undone');
+      const { resolveLayers } = await import('/app/js/layouts.js'); const { removeLayer, editBlock } = await import('/app/js/layer-ops.js');
+      const slide=engine.project.slides.find(s=>s.id==='screen-14'), layers=resolveLayers({project:engine.project,slide,deviceId:'iphone',localeId:'en-US'}).layers;
+      store.checkpoint(); removeLayer(editBlock(engine.project,slide,'iphone'),layers.find(l=>l.field==='caption')); store.saveStudio();
+      button('Editor').click(); button('Translate').click();
+      check(targetRow().querySelectorAll('textarea').length===1,'Removed text layer disappears from Translate');
+      check(engine.data.copy['en-US']['screen-14'].caption,'Stored deleted text remains available for undo');
+      store.undo(); check(targetRow().querySelectorAll('textarea').length===2,'Undo restores text row');
       await flushSaves();
-      result.textContent = 'PASS: horizontal thumbnails, selection, locale order, orientation, keyboard focus, edit isolation, saved selection and current-screen translation; no duplicate Project menu';
+      result.textContent = 'PASS: translation navigation, current-screen scope, original-language policy, whole-screen/design review, undo/redo, editing approved text and removed/restored text rows; no duplicate Project menu';
     } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
   `);
   service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
   server = http.createServer((req, res) => service.handle(req, res, server.address().port));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, '--window-size=1100,850', '--virtual-time-budget=18000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/test.html`], { timeout: 45000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => {
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, '--window-size=1100,850', `http://127.0.0.1:${server.address().port}/app/test.html`], { timeout: 45000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => {
     fs.writeFileSync('/tmp/studio-translate-nav-dom.html', output); fs.writeFileSync('/tmp/studio-translate-nav-chrome.log', stderr);
     error ? reject(error) : resolve(output);
   }));
   const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No result';
   assert.match(verdict, /^PASS:/, verdict);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(projectPath, 'copy/sv-SE.json')))['screen-14'].headline, 'Edited screen fourteen');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(projectPath, 'copy/sv-SE.json')))['screen-14'].headline, 'Changed reviewed text');
   console.log(verdict);
 } finally {
   server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true });

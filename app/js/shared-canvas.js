@@ -1,6 +1,7 @@
 // Shared objects have one owner, in row coordinates. All-screens edits can transfer local objects here.
 import { canvasForSlide } from './canvas-orientation.js';
 import { EXPORT_TARGETS, exportTarget } from './export-targets.js';
+import { orderedSlides } from './slide-order.js';
 
 // Studio preview allowances, not store specifications. Store layouts vary by viewing context.
 export const SCREEN_SPACING_PRESETS = [
@@ -33,10 +34,7 @@ export function setSharedSpacing(project, deviceId, preset, customGap) {
 
 export function sharedGeometry(project, deviceId, localeId) {
   const base = project.devices[deviceId], k = base.size[0] / (base.designSize?.[0] ?? base.size[0]);
-  const remaining = new Map(project.slides.map(s => [s.id, s]));
-  const slides = [];
-  for (const id of project.slideOrders?.[localeId] ?? []) if (remaining.has(id)) { slides.push(remaining.get(id)); remaining.delete(id); }
-  slides.push(...remaining.values());
+  const slides = orderedSlides(project, localeId);
   const gap = (base.designSize?.[0] ?? base.size[0]) * (sharedBlock(project, deviceId).gap ?? SHARED_GAP);
   let x = 0;
   const tiles = slides.map(slide => {

@@ -4,6 +4,25 @@ import { orderedSlides, reorderSlides, renameSlide } from '../app/js/project-ops
 import { exportPlan } from '../app/js/export-naming.js';
 const fixture = () => ({ slides: ['a', 'b', 'c'].map(id => ({ id, name: id })), locales: [{ id: 'en-US' }, { id: 'sv' }], devices: { phone: { size: [1290, 2796], target: 'iphone' } } });
 const ids = (p, locale) => orderedSlides(p, locale).map(s => s.id);
+test('languages inherit original order live until explicitly reordered', () => {
+ const p = fixture(); p.locales.push({id:'ar-SA'});
+ p.slideOrders={'en-US':['c','a','b']};
+ assert.deepEqual(ids(p,'ar-SA'),['c','a','b']);
+ assert.equal(p.slideOrders['ar-SA'],undefined,'Inheritance does not write an independent order');
+ p.slideOrders['en-US']=['b','c','a'];
+ assert.deepEqual(ids(p,'ar-SA'),['b','c','a']);
+ reorderSlides(p,'a','b',false,'sv');
+ assert.deepEqual(ids(p,'sv'),['a','b','c']);
+ assert.deepEqual(ids(p,'ar-SA'),['b','c','a']);
+ p.sourceLocale='sv';
+ assert.deepEqual(ids(p,'ar-SA'),['a','b','c']);
+});
+test('explicit original-language-only reorder preserves inherited target orders',()=>{
+ const p=fixture();p.slideOrders={'en-US':['c','a','b']};
+ reorderSlides(p,'b','c',false,'en-US');
+ assert.deepEqual(ids(p,'en-US'),['b','c','a']);
+ assert.deepEqual(ids(p,'sv'),['c','a','b']);
+});
 test('language ordering persists independently and all languages adopts the chosen order', () => {
  const p = fixture(); reorderSlides(p, 'c', 'a', false, 'sv');
  assert.deepEqual(ids(p, 'sv'), ['c','a','b']); assert.deepEqual(ids(p, 'en-US'), ['a','b','c']);

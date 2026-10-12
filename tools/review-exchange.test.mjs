@@ -6,7 +6,7 @@ import { layerTag } from '../app/js/layer-tags.js';
 import { resolveLayers } from '../app/js/layouts.js';
 import { editBlock, patchLayer, setLayoutIndependent } from '../app/js/layer-ops.js';
 const fixture = () => ({
-  project: { reviewId: 'project-1', slides: [{ id: 'one', reviewId: 'screen-1', name: 'First', layouts: { phone: { template: 'custom', layers: [{ id: 'text', type: 'text', field: 'headline' }] } } }], locales: [{ id: 'en-US' }, { id: 'sv' }], devices: { iphone: { layout: 'phone', size: [1320, 2868] } } },
+  project: { reviewId: 'project-1', slides: [{ id: 'one', reviewId: 'screen-1', name: 'First', layouts: { phone: { template: 'custom', layers: [{ id: 'text', type: 'text', field: 'headline' }, { id: 'bullets', type: 'text', field: 'bullets' }] } } }], locales: [{ id: 'en-US' }, { id: 'sv' }], devices: { iphone: { layout: 'phone', size: [1320, 2868] } } },
   copy: { 'en-US': { _meta: { status: 'approved', needsReview: [] }, one: { headline: 'Hello', bullets: ['One', 'Two'] } }, sv: { _meta: { status: 'draft', needsReview: ['*'] }, one: { headline: 'Hej', bullets: ['Ett', 'Två'] } } },
 });
 const reviewRows = ({project, copy}, change = () => {}, locales) => {
@@ -38,7 +38,7 @@ test('one-language export includes only that language; all includes every locale
 test('IDs survive renaming, reordering and Save As; new screens and absent review rows stay untouched', () => {
   const f = fixture(), rows = changed(f);
   f.project.slides[0].name = 'Renamed';
-  f.project.slides.unshift({ id: 'new', reviewId: 'screen-new', layouts: { phone: { template: 'custom' } } });
+  f.project.slides.unshift({ id: 'new', reviewId: 'screen-new', layouts: { phone: { template: 'custom', layers: [{ id: 'headline', type: 'text', field: 'headline' }] } } });
   f.copy.sv.new = { headline: 'Nytillkommen' };
   const plan = planReviewImport(f.project, f.copy, rows), next = applyReviewImport(f.project, f.copy, rows, plan.filter(r => r.status === 'ready'));
   assert.equal(next.copy.sv.one.headline, 'Hej världen'); assert.equal(next.copy.sv.new.headline, 'Nytillkommen');
@@ -55,7 +55,7 @@ test('deleted/recreated screens with reused visible IDs are skipped; a different
 });
 
 test('removed languages and missing fields are skipped', () => {
-  const f = fixture(), rows = changed(f); f.project.locales = [{ id:'sv' }]; delete f.copy.sv.one.bullets; delete f.copy['en-US'].one.bullets;
+  const f = fixture(), rows = changed(f); f.project.locales = [{ id:'sv' }]; delete f.copy.sv.one.bullets; delete f.copy['en-US'].one.bullets; f.project.slides[0].layouts.phone.layers = f.project.slides[0].layouts.phone.layers.filter(l => l.field !== 'bullets');
   const plan = planReviewImport(f.project, f.copy, rows);
   assert.equal(plan.filter(r => r.status === 'skipped').length, 3);
 });
@@ -136,7 +136,7 @@ test('semicolon CSV from regional spreadsheet settings uses the same stable revi
 
 // The language workbench displays this slide's review status, while export checks remain global.
 test('reviewing every field on a slide clears its badge without approving other slides', () => {
-  const project = { devices: {}, slides: [{ id: 'one' }, { id: 'two' }] };
+  const project = { devices: { phone: { size: [1320, 2868] } }, slides: ['one', 'two'].map(id => ({ id, layouts: { phone: { template: 'custom', layers: ['headline', 'caption'].map(field => ({ id: field, type: 'text', field })) } } })) };
   const copy = { sv: { _meta: { status: 'draft', needsReview: ['*'] }, one: { headline: 'Hej', caption: 'Text' }, two: { headline: 'Nästa' } } };
   setFieldReview(project, copy, 'sv', 'one', 'headline', false);
   assert.equal(copyNeedsReview(copy.sv, 'one'), true);

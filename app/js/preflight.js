@@ -1,7 +1,7 @@
 import { canvasForSlide } from './canvas-orientation.js';
 import { PLAY_TARGETS, playSelectionIssues } from './google-play.js';
 import { deviceForLayer } from './profiles.js';
-import { copyNeedsReview } from './copy-review.js';
+import { copyNeedsReview, localeNeedsReview } from './copy-review.js';
 import { EXPORT_TARGETS, acceptedFormat, canvasIssues, exportTarget } from './export-targets.js';
 
 export const WATCH_SIZES = EXPORT_TARGETS.watch.formats.map(f => f.size);
@@ -15,7 +15,7 @@ export function preflightScene(scene, bundle, { fontAvailable = () => true, chec
   const add = (code, message, layer) => warnings.push({ code, message, level: 'warn', ...(layer ? { layer: layer.id } : {}) });
   const { slide, layers, deviceDef, localeId, slideId } = scene;
   const textLayers = layers.filter(l => l.type === 'text' && l._layout);
-  if (textLayers.length && textLayers.some(l => copyNeedsReview(bundle.copy[localeId], l.copySlideId ?? slideId))) add('copy-review', 'Text is awaiting language review.');
+  if (textLayers.length && textLayers.some(l => (bundle.studio ? localeNeedsReview(bundle.studio, bundle.copy, localeId, l.copySlideId ?? slideId, l.field) : copyNeedsReview(bundle.copy[localeId], l.copySlideId ?? slideId, l.field)))) add('copy-review', 'Text is awaiting language review.');
   if (!sceneHasContent(scene) && !slide.exportChecks?.allowEmpty) add('empty', 'This canvas has no visible content.');
   for (const layer of layers) {
     if (layer.type === 'text' && !layer._layout) add('empty-text', `Text field “${layer.field}” is empty.`, layer);
@@ -30,7 +30,6 @@ export function preflightScene(scene, bundle, { fontAvailable = () => true, chec
       if (!fontAvailable(layer.fontFamily || scene.fonts.family)) add('font-missing', `Font unavailable: ${layer.fontFamily || scene.fonts.family}`, layer);
     }
     const capture = scene.assets?.captures?.[layer.id];
-    if (capture?.scope === 'default' && !localeId.startsWith('en') && !layer.languageNeutral) add('shared-capture', 'Uses the shared screenshot. Confirm it is language-neutral in Layers, or add a localized screenshot.', layer);
     const img = layer.type === 'art' ? scene.assets?.art?.[layer.id] : capture?.image;
     const xScale = img ? (layer._screenDrawn?.w ?? box.w) * scene.k / img.naturalWidth : 0;
     const yScale = img ? (layer._screenDrawn?.h ?? box.h) * scene.k / img.naturalHeight : 0;

@@ -1,6 +1,6 @@
 // Portable, spreadsheet-friendly review exchange. No filesystem or UI dependencies.
 import { copyFields, safeCopyKey } from './copy-fields.js';
-import { copyNeedsReview, setFieldReview } from './copy-review.js';
+import { localeNeedsReview, setFieldReview, originalLocale } from './copy-review.js';
 
 export const REVIEW_FORMAT = 'SSS-COPY-1';
 export const REVIEW_COLUMNS = ['format', 'project_id', 'screen_uid', 'screen_id', 'screen_name', 'language', 'field', 'type', 'source_text', 'source_json', 'original_json', 'original_check', 'text', 'decision'];
@@ -59,11 +59,11 @@ export function exportReviewCSV(project, copy, localeIds = project.locales.map(l
   const rows = [REVIEW_COLUMNS];
   for (const locale of project.locales.filter(l => localeIds.includes(l.id))) for (const slide of project.slides) {
     for (const field of copyFields(project, copy, slide, locale.id)) {
-      const original = fieldValue(copy, locale.id, slide.id, field), source = fieldValue(copy, 'en-US', slide.id, field);
+      const original = fieldValue(copy, locale.id, slide.id, field), source = fieldValue(copy, originalLocale(project), slide.id, field);
       const list = Array.isArray(original) || Array.isArray(source) || field === 'bullets';
       const type = list ? (original ?? source ?? []).some(v => /[\r\n]/.test(v)) ? 'json-list' : 'list' : 'text';
       rows.push([REVIEW_FORMAT, project.reviewId, slide.reviewId, slide.id, slide.name ?? slide.id, locale.id, field, type,
-        displayText(source), JSON.stringify(source), JSON.stringify(original), copyNeedsReview(copy[locale.id], slide.id, field) ? 'check' : 'reviewed',
+        displayText(source), JSON.stringify(source), JSON.stringify(original), localeNeedsReview(project, copy, locale.id, slide.id, field) ? 'check' : 'reviewed',
         type === 'json-list' ? JSON.stringify(original ?? []) : displayText(original), '']);
     }
   }
@@ -113,10 +113,10 @@ export function planReviewImport(project, copy, rows) {
     if (!fields.has(fieldKey)) fields.set(fieldKey, copyFields(project, copy, slide, row.language));
     if (!fields.get(fieldKey).includes(row.field)) return skip('Text field no longer exists');
     const current = fieldValue(copy, row.language, slide.id, row.field);
-    const check = copyNeedsReview(copy[row.language], slide.id, row.field);
+    const check = localeNeedsReview(project, copy, row.language, slide.id, row.field);
     const changedText = !equal(row.incoming, row.original);
     const pending = row.decision ? row.decision === 'check' : changedText ? true : check;
-    const currentSource = fieldValue(copy, 'en-US', slide.id, row.field);
+    const currentSource = fieldValue(copy, originalLocale(project), slide.id, row.field);
     Object.assign(item, { current, currentCheck: check, currentSource, pending, deletion: changedText && row.incoming === null });
     if ((!changedText && !row.decision) || (equal(current, row.incoming) && (!row.decision || check === pending))) return { ...item, status: 'unchanged' };
     const reasons = [];

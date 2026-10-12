@@ -1,7 +1,7 @@
 import { frameReferences, replaceFrameReferences } from './frame-ops.js';
-import { copyNeedsReview, setFieldReview } from './copy-review.js';
+import { localeNeedsReview, setFieldReview, setSlideReviewed } from './copy-review.js';
 import { ensureReviewIdentity, applyReviewImport } from './review-exchange.js';
-import { translatedCopy } from './translation.js';
+import { translatedCopies } from './translation.js';
 import { applyExternalImport } from './external-import.js';
 import { imageUsage } from './media.js';
 // Shared state + talking to the local server. Plain JSON files on disk are the source of truth;
@@ -140,7 +140,7 @@ if (typeof window !== 'undefined') {
 // pass the same key and are folded into one undo step; keys are scoped to the slide and device being edited.
 // Removing or duplicating a slide also changes its text: pass `copySlides: [slideId]` and that text is part of the step.
 
-const HISTORY_KEYS = ['sharedCanvas', 'slides', 'templates', 'devices', 'profiles', 'removedProfiles', 'themes', 'panorama'];
+const HISTORY_KEYS = ['sourceLocale', 'sharedCanvas', 'slides', 'templates', 'devices', 'profiles', 'removedProfiles', 'themes', 'panorama'];
 const history = { past: [], future: [], lastKey: null, lastAt: 0, seq: 0 };
 
 function snapshot(copySlides = [], copyLocales = []) {
@@ -288,7 +288,22 @@ export function markReviewed(locale) {
   emit('copy-changed', { locale });
 }
 
-export const needsReview = (locale, slideId, field) => copyNeedsReview(engine.data.copy[locale], slideId, field);
+export const needsReview = (locale, slideId = null, field = null) => localeNeedsReview(engine.project, engine.data.copy, locale, slideId, field);
+
+export function markSlideReviewed(locale, slideId) {
+  checkpoint(null, { copyLocales: [locale] });
+  setSlideReviewed(engine.project, engine.data.copy, locale, slideId);
+  saveCopy(locale);
+  emit('copy-changed', { locale, slideId });
+}
+
+export function setOriginalLocale(locale) {
+  if (!engine.project.locales.some(l => l.id === locale)) return;
+  checkpoint();
+  engine.project.sourceLocale = locale;
+  saveStudio();
+  engine.invalidate({ assets: false });
+}
 
 export function setTextCheck(locale, slideId, field, pending) {
   checkpoint(null, { copyLocales: [locale] });
@@ -318,11 +333,15 @@ export function importReviewedCopy(rows, selected) {
 }
 
 export function applyTranslation(plan, result) {
-  const doc = translatedCopy(engine.project, engine.data.copy, plan, result);
-  if (!plan.fields.length) return;
-  checkpoint(null, { copyLocales: [plan.target] });
-  engine.data.copy[plan.target] = doc;
-  saveCopy(plan.target);
+  applyTranslations([{ plan, result }]);
+}
+
+export function applyTranslations(results) {
+  const docs = translatedCopies(engine.project, engine.data.copy, results);
+  const locales = Object.keys(docs);
+  if (!locales.length) return;
+  checkpoint(null, { copyLocales: locales });
+  for (const locale of locales) { engine.data.copy[locale] = docs[locale]; saveCopy(locale); }
   emit('restored');
 }
 

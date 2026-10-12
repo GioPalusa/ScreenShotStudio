@@ -256,6 +256,10 @@ input[type="color"] { width: 38px; height: 28px; padding: 0; border: 1px solid v
 .langs { height: 100%; overflow: auto; padding: 18px 24px 40px; }
 .langs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 14px; }
 .langs-head h2 { margin: 0; font-size: 16px; }
+.translate-view-options { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.translate-language { flex-basis:190px; display:flex; flex-direction:column; gap:6px; }
+.translate-language .native { color:var(--muted); font-size:12px; }
+.translate-language-actions { flex-basis:100%; }
 .translate-screens { min-width: 0; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .translate-screens-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
 .translate-screens-heading h2 { margin: 0; font-size: 16px; }
@@ -533,6 +537,8 @@ output.mono { min-width: 44px; text-align: right; color: var(--muted); }
 
 /* ---------- export selection ---------- */
 .export-body { display: flex; flex-direction: column; gap: 18px; }
+.uploads { height: 100%; overflow: auto; padding: 28px; }
+.uploads > section { max-width: 960px; margin: 0 auto; }
 .export-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .export-mode { display: flex; align-items: flex-start; gap: 8px; padding: 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
 .export-mode:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
@@ -893,3 +899,8 @@ h1, h2 { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spa
 @media (prefers-reduced-motion: reduce) {
   .btn { transition: none; }
 }
+
+/* Review frozen screenshots before sending them to App Store Connect. */
+.asc-preview { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 16px; margin: 16px 0; }
+.asc-preview-item { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.asc-preview-item img { max-width: 140px; max-height: 240px; object-fit: contain; border-radius: 6px; }

@@ -7,7 +7,7 @@
     "start": "node studio.mjs",
     "export": "node studio.mjs export",
     "test": "node tools/check.mjs",
-    "desktop": "electron .",
+    "desktop": "node node_modules/electron/cli.js .",
     "package": "node tools/package.mjs",
     "test:render": "node tools/render-test.mjs",
     "release:zip": "node tools/release-zip.mjs"
@@ -19,7 +19,7 @@
     "@electron/packager": "20.3.0",
     "electron": "44.6.0"
   },
-  "version": "0.2.6",
+  "version": "0.2.7",
   "productName": "Screenshot Studio",
   "main": "desktop/main.mjs",
   "license": "MIT",
