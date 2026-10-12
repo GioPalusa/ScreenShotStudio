@@ -3,7 +3,7 @@ import Security
 
 // Secrets travel over stdin/stdout, never command arguments or files.
 let args = CommandLine.arguments
-guard args.count == 4, ["openai", "claude"].contains(args[3]) else { exit(2) }
+guard args.count == 4, ["openai", "claude", "app-store-connect"].contains(args[3]) else { exit(2) }
 let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: args[2], kSecAttrAccount as String: args[3]]
 var status: OSStatus = errSecParam

@@ -59,7 +59,7 @@ Languages without their own screen order follow the original language's order, i
 
 ### Export with confidence
 
-Preflight checks identify missing captures, overflow and other issues before export. Final CLI exports can require all checks to pass. Outputs are RGB PNGs at the exact configured dimensions, with a manifest and upload guide.
+Preflight checks identify missing captures, overflow and other issues before export. Final CLI exports can require all checks to pass. Outputs are RGB PNGs at the exact configured dimensions, with a manifest and upload guide. The Mac app asks you to choose an output folder for every export and creates a separate dated subfolder there.
 
 ### Your work stays yours
 

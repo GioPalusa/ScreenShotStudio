@@ -1,0 +1,141 @@
+// Browser UI regression fixture: no real credentials or Apple writes.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { runBrowserTest } from './browser-test-runner.mjs';
+import { createStudioService } from '../host/service.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-asc-ui-'));
+const appPath = path.join(temp, 'app'), projectPath = path.join(temp, 'Test.sss');
+const chrome = [process.env.CHROME_PATH, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].filter(Boolean).find(f => fs.existsSync(f));
+assert.ok(chrome, 'Chrome is required.');
+let service, server;
+try {
+  fs.cpSync(path.join(root, 'app'), appPath, { recursive: true }); createNewProject(projectPath, {});
+  fs.writeFileSync(path.join(appPath, 'asc-test.html'), '<html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><pre id="result">PENDING</pre><script type="module" src="/app/asc-test.js"></script></body></html>');
+  fs.writeFileSync(path.join(appPath, 'asc-test.js'), `
+    import {openAppStoreUpload} from '/app/js/ui/app-store-connect.js';
+    import {uploadScreenGroups,uploadImageKey} from '/app/js/upload-selection.js';
+    import {createUploads,openSavedUpload} from '/app/js/ui/uploads.js';
+    const check=(v,m)=>{if(!v)throw new Error(m)},button=t=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===t);
+    const wait=async fn=>{for(let i=0;i<500;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw new Error('Timeout: '+document.body.textContent)};
+    const calls=[]; let connected=false, cancel=true, done=true, uploadFailed=false, blocked=false, warning=false, pickerCancel=false, technical=false, holdReview=false, releaseReview, duo=false;
+    const summary=()=>({name:'Saved export',path:'/older-export',count:1,locales:['en-US'],canvases:['iPhone'],errors:technical?[{level:'error',message:'Missing image'}]:[],warnings:warning?[{level:'warn',message:'Text exceeds line limit'}]:[]});
+    const apps=[{id:'app-1',attributes:{name:'QA App',bundleId:'test.example'}}];
+    const entry={device:'iphone',canvas:'iPhone',size:[1320,2868],locale:'en-US',slide:'Welcome',position:1,groupId:'GROUP',choices:[{id:'GROUP',label:'iPhone large'}]};
+    window.studioDesktop={appStore:async(op,value)=>{
+      calls.push({op,value});
+      if(op==='choose-export')return pickerCancel?{canceled:true}:{canceled:false,...summary()};
+      if(op==='inspect-export')return summary();
+      if(op==='settings')return {connected};
+      if(op==='connect'){if(cancel)return {canceled:true};connected=true;return {apps};}
+      if(op==='apps')return apps;
+      if(op==='forget'){connected=false;return {};}
+      if(op==='versions')return [{id:'version-1',attributes:{versionString:'2.0',platform:'IOS',appStoreState:'PREPARE_FOR_SUBMISSION'}}];
+      if(op==='prepare' && duo){
+        const candidates=['duo-closed','duo-open'].flatMap(device=>Array.from({length:7},(_,i)=>({...entry,device,canvas:device==='duo-closed'?'iPhone Duo closed':'iPhone Duo open',slide:'Slide '+(i+1),position:i+1,groupId:'DUO',choices:[{id:'DUO',label:'iPhone Duo',maxCount:10}]})));
+        candidates.forEach(e=>e.selected=!value.excludedImages.includes(uploadImageKey(e)));
+        const selected=candidates.filter(e=>e.selected);
+        return {planId:'duo-plan',screens:uploadScreenGroups(candidates),entries:selected,locales:['en-GB','sv','ja'],keptGroups:value.replace?[]:[{locale:'en-GB',label:'iPhone Duo',existing:10,skipped:selected.length}],groups:[{locale:'sv',label:'iPhone Duo',incoming:selected.length,existing:0},{locale:'ja',label:'iPhone Duo',incoming:selected.length,existing:0}],errors:selected.length>10?['Duo exceeds limit of 10']:[],warnings:[],replace:value.replace};
+      }
+      if(op==='prepare'){if(holdReview)await new Promise(resolve=>{releaseReview=resolve});return {planId:'plan-1',entries:[entry],errors:blocked?['Too many screenshots']:[],warnings:summary().warnings,groups:[{locale:'en-US',label:'iPhone large',incoming:1,existing:2}],replace:value.replace};}
+      if(op==='start')return {id:'job-1'};
+      if(op==='status')return {state:uploadFailed?'failed':done?'complete':'running',total:196,uploaded:uploadFailed||!done?1:196,message:uploadFailed?'Image commit failed':done?'196 screenshots uploaded to App Store Connect. Check processing there.':'Uploading 2 / 196 · en-US · Welcome',files:[{filename:'image.png',locale:'en-US',state:'Uploaded',applePlacementState:'ASSET_PROCESSING'}]};
+      return {};
+    }};
+    const choose=async()=>{
+      const select=document.querySelector('select[title="App"]');select.value='app-1';select.dispatchEvent(new Event('change'));
+      await wait(()=>document.querySelector('select[title="App version"]'));
+      const version=document.querySelector('select[title="App version"]');version.value='version-1';version.dispatchEvent(new Event('change'));
+      check(!button('Review screenshots').disabled,'Version enables review');
+    };
+    try{
+      let m=openAppStoreUpload('/frozen-export');await wait(()=>button('Choose .p8 key and connect…'));
+      check(button('Review screenshots').disabled,'Unconnected account blocks review');
+      check(document.body.textContent.includes('macOS Keychain'),'Explain secure storage');
+      button('Choose .p8 key and connect…').click();await wait(()=>document.body.textContent.includes('Connection canceled.'));
+      cancel=false;button('Choose .p8 key and connect…').click();await wait(()=>document.querySelector('select[title="App"]'));
+      await choose();button('Review screenshots').click();await wait(()=>button('Upload screenshots'));
+      check(document.body.textContent.includes('QA App · 2.0 · IOS'),'Review shows exact destination');
+      check(document.body.textContent.includes('Existing language and screen groups are kept'),'Keep existing groups is default');
+      check(!calls.some(c=>c.op==='start'),'Review never uploads');
+      const replace=document.querySelector('input[type="checkbox"]');replace.click();await wait(()=>button('Replace and upload screenshots'));
+      check(document.body.textContent.includes('2 existing to replace'),'Replacement review explains removal');
+      check(calls.filter(c=>c.op==='prepare').at(-1).value.replace,'Replacement sent to host review');
+      button('Replace and upload screenshots').click();await wait(()=>button('Show upload report'));
+      check(document.body.textContent.includes('Upload complete'),'Completion confirms successful upload');
+      check(document.body.textContent.includes('196 / 196 screenshots received by Apple'),'Completion confirms receipt of every image');
+      check(document.body.textContent.includes('Check image processing'),'Processing is handed off to App Store Connect');
+      button('Open App Store Connect').click();await wait(()=>calls.some(c=>c.op==='open-app'));
+      check(calls.find(c=>c.op==='open-app').value.id==='job-1','Open the app from the confirmed upload job');
+      check(!calls.find(c=>c.op==='start').value.exportPath,'Only reviewed plan ID can start');m.close();
+      blocked=true;m=openAppStoreUpload('/frozen-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review screenshots').click();await wait(()=>button('Upload screenshots'));
+      check(button('Upload screenshots').disabled,'Blocking server checks disable upload');m.close();
+      blocked=false;done=false;m=openAppStoreUpload('/frozen-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review screenshots').click();await wait(()=>button('Upload screenshots'));
+      button('Upload screenshots').click();await wait(()=>button('Stop upload')&&document.body.textContent.includes('1 / 196 screenshots received by Apple'));
+      check(!document.body.textContent.includes('Upload complete'),'Partial upload must not show completion');
+      m.close();await wait(()=>calls.some(c=>c.op==='stop'));
+      check(!document.querySelector('[role="dialog"]'),'Closing stops upload and removes dialog');
+      done=true;uploadFailed=true;
+      m=openAppStoreUpload('/frozen-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review screenshots').click();await wait(()=>button('Upload screenshots'));
+      button('Upload screenshots').click();await wait(()=>button('Show upload report'));
+      check(document.body.textContent.includes('1 / 196 screenshots received by Apple'),'Failure retains the successful transfer count');
+      check(!document.body.textContent.includes('Upload complete'),'Failed transfer cannot report complete');m.close();
+      uploadFailed=false;warning=true;
+      m=openAppStoreUpload('/older-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review screenshots').click();await wait(()=>button('Upload anyway'));
+      check(button('Upload anyway').disabled,'Warnings require user acknowledgment');
+      document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').click();
+      check(!button('Upload anyway').disabled,'Accepting warnings enables upload');
+      // Changing the destination/mapping review resets consent, including technical blockers.
+      blocked=true;holdReview=true;document.querySelector('select[title="Apple screen group for iPhone"]').dispatchEvent(new Event('change'));
+      document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').click();
+      document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').click();
+      check(button('Upload anyway').disabled,'Old consent cannot enable upload while a new review is pending');
+      holdReview=false;releaseReview();await wait(()=>button('Upload anyway')&&document.body.textContent.includes('Too many screenshots'));
+      check(!document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').checked,'New review resets warning acknowledgment');
+      document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').click();check(button('Upload anyway').disabled,'Warning consent cannot bypass technical errors');m.close();
+      blocked=false;warning=false;duo=true;
+      m=openAppStoreUpload('/duo-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review screenshots').click();await wait(()=>button('Upload screenshots'));
+      check(document.querySelectorAll('select[title="Apple screen group for iPhone Duo"]').length===1,'Duo has one destination');
+      check(document.body.textContent.includes('14 / 10 screenshots per language'),'Shared count covers both Duo canvases');
+      check(button('Upload screenshots').disabled,'Fourteen Duo images block upload');
+      check(document.body.textContent.includes('en-GB · iPhone Duo: keeping 10 existing screenshots'),'Existing en-GB is explicitly kept');
+      button('Use only iPhone Duo open').click();await wait(()=>document.body.textContent.includes('7 / 10 screenshots per language'));
+      check(!button('Upload screenshots').disabled,'One Duo posture fits and existing en-GB does not block');
+      check(document.body.textContent.includes('3 languages'),'Review accounts for every export language');
+      const include=document.querySelector('[aria-label="Include iPhone Duo closed · Slide 1 in every language"]');include.click();await wait(()=>document.body.textContent.includes('8 / 10 screenshots per language'));
+      check(calls.filter(c=>c.op==='prepare').at(-1).value.excludedImages.length===6,'Mixed selection applies to all languages');
+      check(!button('Upload screenshots').disabled,'Mixed open and closed images fit the shared limit');
+      const replaceDuo=[...document.querySelectorAll('input[type="checkbox"]')].find(i=>i.parentElement.textContent.includes('Replace existing screenshots'));
+      replaceDuo.click();await wait(()=>button('Replace and upload screenshots'));
+      check(calls.filter(c=>c.op==='prepare').at(-1).value.replace,'Replacement remains explicit');
+      check(calls.filter(c=>c.op==='prepare').at(-1).value.excludedImages.length===6,'Replacement preserves Duo selection');m.close();duo=false;warning=true;
+      const view=createUploads();document.body.append(view.el);view.build();
+      pickerCancel=true;button('Choose export folder…').click();await wait(()=>document.body.textContent.includes('Folder selection canceled.'));
+      check(button('Continue to App Store Connect…').disabled,'Canceled picker cannot continue');
+      pickerCancel=false;technical=true;button('Choose export folder…').click();await wait(()=>document.body.textContent.includes('Missing image'));
+      check(button('Continue to App Store Connect…').disabled,'Technical export errors block continuation');
+      technical=false;button('Choose export folder…').click();await wait(()=>!button('Continue to App Store Connect…').disabled);
+      check(document.body.textContent.includes('/older-export'),'Upload view identifies saved export');
+      button('Continue to App Store Connect…').click();await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review screenshots').click();await wait(()=>button('Upload anyway'));
+      check(calls.filter(c=>c.op==='prepare').at(-1).value.exportPath==='/older-export','Saved export reaches host without exporting again');
+      document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').click();button('Upload anyway').click();await wait(()=>button('Show upload report'));
+      check(calls.filter(c=>c.op==='start').at(-1).value.acknowledgeWarnings===true,'Explicit warning acknowledgment reaches host');
+      button('Close').click();view.el.remove();
+      m=openSavedUpload();check(button('Choose export folder…'),'Standalone chooser works without loading a project');m.close();
+      document.querySelector('#result').textContent='PASS: connection cancellation; destination review; explicit replacement; upload receipt, processing handoff and App Store button; partial failure; close stops upload; warning consent and reset; technical errors cannot be bypassed; saved export chooser, cancellation and upload without export; standalone entry; one Duo destination, shared limit, cross-language selection and existing language handling';
+    }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}
+  `);
+  service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
+  server = http.createServer((req, res) => service.handle(req, res, server.address().port));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { stdout } = await runBrowserTest(chrome, ['--headless', '--disable-gpu', '--no-first-run', '--no-sandbox', `--user-data-dir=${path.join(temp, 'chrome')}`, '--window-size=1200,950', `http://127.0.0.1:${server.address().port}/app/asc-test.html`], { timeout: 40000 });
+  const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No result';
+  assert.match(verdict, /^PASS:/, verdict); console.log(verdict);
+} finally {
+  server?.closeAllConnections(); await new Promise(resolve => server ? server.close(resolve) : resolve()); service?.close(); fs.rmSync(temp, { recursive: true, force: true });
+}

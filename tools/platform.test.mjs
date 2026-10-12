@@ -344,3 +344,24 @@ test('frozen project assets can be read through the desktop scheme including can
   const asset = await service.request(new Request(`studio://local${run.projectURL}/assets/art/test.png`));
   assert.equal(asset.status, 200); assert.equal(await asset.text(), 'frozen-image');
 });
+
+
+test('native-selected export folder capability is scoped, single-use and never accepts renderer paths', async t => {
+  const root = temp(t), project = path.join(root, 'document'), output = path.join(root, 'default'), selected = path.join(root, 'selected');
+  fs.mkdirSync(project); fs.mkdirSync(selected);
+  fs.writeFileSync(path.join(project, 'studio.json'), JSON.stringify(fixture()));
+  const service = createStudioService({ appPath: path.join(ROOT, 'app'), projectPath: project, exportPath: output, origin: 'studio://local' }); t.after(() => service.close());
+  const start = destination => service.request(new Request('studio://local/api/export/start', { method: 'POST', body: JSON.stringify({ mode: 'draft', selection: {}, destination }) }));
+  assert.equal((await start(selected)).status, 400);
+  assert.throws(() => service.authorizeExportDestination(project), /outside the project/);
+  const picked = service.authorizeExportDestination(selected);
+  const response = await start(picked.token); assert.equal(response.status, 200);
+  const {id} = await response.json();
+  assert.equal((await start(picked.token)).status, 400);
+  const finish = await service.request(new Request('studio://local/api/export/finish', { method: 'POST', body: JSON.stringify({id, report:{warnings:[]}}) }));
+  const result = await finish.json();assert.equal(finish.status,200);
+  assert.equal(path.dirname(result.path), fs.realpathSync(selected));
+  assert.equal(fs.existsSync(output),false);
+  assert.ok(fs.existsSync(path.join(result.path,'manifest.json')));
+  assert.equal(fs.readdirSync(selected).some(name=>name.startsWith('.partial-')),false);
+});

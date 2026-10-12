@@ -12,12 +12,13 @@ import { createEditor } from './ui/editor.js';
 import { createLanguages } from './ui/languages.js';
 import { createOverview } from './ui/overview.js';
 import { createSetup } from './ui/setup.js';
+import { createUploads } from './ui/uploads.js';
 import { openExport } from './ui/export.js';
 import { openAddLanguage } from './ui/locale-dialogs.js';
 import { openAddDevice } from './ui/devices-view.js';
 import { translateIcon } from './ui/translate-dialog.js';
 
-const VIEWS = [['editor', 'Editor'], ['languages', 'Translate'], ['overview', 'Overview'], ['setup', 'Setup']];
+const VIEWS = [['editor', 'Editor'], ['languages', 'Translate'], ['overview', 'Overview'], ['setup', 'Setup'], ['upload', 'Upload']];
 
 function viewIcon(id) {
   if (id === 'languages') return translateIcon();
@@ -25,6 +26,7 @@ function viewIcon(id) {
     editor: 'M4 20l4-1 12-12a2.1 2.1 0 0 0-3-3L5 16l-1 4M14 7l3 3',
     overview: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
     setup: 'M4 7h4m4 0h8M4 17h8m4 0h4M8 4v6M16 14v6',
+    upload: 'M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6',
   };
   const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
   for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(key, value);
@@ -63,7 +65,7 @@ export function mountStudio(root) {
     undoStep(token) { if (!undoIf(token)) toast('Other changes were made since: step back with ⌘Z instead.', { timeout: 4000 }); },
   };
 
-  const views = { editor: createEditor(ctx), languages: createLanguages(ctx), overview: createOverview(ctx), setup: createSetup(ctx) };
+  const views = { editor: createEditor(ctx), languages: createLanguages(ctx), overview: createOverview(ctx), setup: createSetup(ctx), upload: createUploads() };
   const saveStatus = h('button', { class: 'status save-status', 'aria-live': 'polite' }, state.recovery?.length ? 'Recover unsaved edits…' : state.saving ? 'Saving recovered edits…' : 'All changes saved');
   saveStatus.addEventListener('click', async () => {
     try {
@@ -158,6 +160,7 @@ export function mountStudio(root) {
     if (document.querySelector('.modal-backdrop')) return;
     if (command === 'media') ctx.openMedia();
     if (command === 'shortcuts') openShortcuts();
+    if (command === 'upload') ctx.setView('upload');
   });
 
   window.addEventListener('keydown', (e) => {

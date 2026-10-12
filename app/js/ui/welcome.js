@@ -3,6 +3,7 @@ import { creatorCredit } from './brand.js';
 import { WELCOME_PALETTES } from '../onboarding.js';
 import { TARGET_OPTIONS } from '../export-targets.js';
 import { guideContent, openGetStarted } from './get-started.js';
+import { openSavedUpload } from './uploads.js';
 let palette = structuredClone(WELCOME_PALETTES[0]);
 const desktop = window.studioDesktop;
 const root = document.getElementById('root');
@@ -32,7 +33,8 @@ const create = h('button', { class: 'btn primary welcome-create', onClick: async
 } }, 'Create project…');
 root.append(h('main', { class: 'welcome' }, h('header', { class: 'welcome-header' }, h('strong', null, h('img', { class: 'welcome-app-icon', src: '/app/icons/screenshot-studio.png', alt: '', width: 44, height: 44 }), 'Screenshot Studio'), creatorCredit(), h('button', { class: 'btn', onClick: openGetStarted }, 'Get started guide')), h('div', { class: 'welcome-grid' }, h('section', { class: 'welcome-setup' }, h('p', { class: 'welcome-eyebrow' }, 'A fresh canvas for your next idea'), h('h1', null, 'Make it yours.'), h('p', { class: 'welcome-intro' }, 'Choose your colours. Bring your screenshots. Build a design in your own style.'), h('label', { class: 'field' }, 'Project name', name), h('label', { class: 'field' }, 'Store destination', target), h('fieldset', null, h('legend', null, 'Start with a palette'), choices, h('p', { class: 'hint' }, 'Or customise the colours below. You can change them any time.'), colors, h('label', { class: 'field' }, 'Palette name', paletteName)), error, h('div', { class: 'row wrap' }, create, h('button', { class: 'btn', onClick: () => desktop.action('open') }, 'Open existing project…')), h('p', { class: 'hint' }, 'Saved as a portable .sss project. Your work stays on your Mac.'), recent), preview), h('details', { class: 'welcome-guide' }, h('summary', null, 'From your first screenshot to export'), guideContent())));
 desktop?.onFlush(async () => {});
-desktop?.onCommand(command => { if (command === 'guide') openGetStarted(); });
+document.querySelector('.welcome-header').append(h('button', { class: 'btn', onClick: openSavedUpload }, 'Upload screenshots…'));
+desktop?.onCommand(command => { if (command === 'guide') openGetStarted(); if (command === 'upload' && !document.querySelector('.modal-backdrop')) openSavedUpload(); });
 update();
 
 desktop?.recentProjects().then(projects => {

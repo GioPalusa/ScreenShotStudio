@@ -22,7 +22,7 @@ const inventory = root => {
 };
 export class ExportSessions {
   constructor(project, output) { this.project = project; this.output = output; this.sessions = new Map(); }
-  start(mode, selection) {
+  start(mode, selection, output = this.output) {
     const started = new Date(), localStarted = exportTimestamp(started);
     const id = `${localStarted}_${crypto.randomUUID().slice(0, 8)}`;
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'screenshot-studio-export-'));
@@ -32,7 +32,7 @@ export class ExportSessions {
       copyProject(this.project, source);
       const copied = inventory(source), after = inventory(this.project);
       if (JSON.stringify(before) !== JSON.stringify(copied) || JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Project files changed while preparing export. Please try again.');
-      const run = { id, source, temp, staging: path.join(this.output, `.partial-${id}`), mode, selection, files: [], started: started.toISOString(), localStarted, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, sourceHashes: copied };
+      const run = { id, source, temp, output, staging: path.join(output, `.partial-${id}`), mode, selection, files: [], started: started.toISOString(), localStarted, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, sourceHashes: copied };
       const project = JSON.parse(fs.readFileSync(path.join(source, 'studio.json'), 'utf8'));
       run.plan = new Map(exportPlan(project, selection).map(file => [file.requestPath, file]));
       this.sessions.set(id, run); return run;
@@ -62,7 +62,7 @@ export class ExportSessions {
     if (run.mode === 'final' && run.files.length !== run.plan.size) throw new Error('Final export is incomplete.');
     atomicWrite(path.join(run.staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
     atomicWrite(path.join(run.staging, 'UPLOAD-GUIDE.html'), exportGuide(manifest));
-    const destination = path.join(this.output, `${run.mode}-${id}`);
+    const destination = path.join(run.output, `${run.mode}-${id}`);
     fs.renameSync(run.staging, destination);
     this.abort(id);
     return destination;

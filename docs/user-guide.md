@@ -22,6 +22,10 @@ The app reopens the last-used project if it is still available. On first launch,
 
 Apple bezel artwork is not bundled with the app. Setup → Frames has two prominent steps: **1. Download from Apple** opens Apple Design Resources; **2. Drop your DMG here** accepts the downloaded disk image (or use **Choose DMG…**). macOS presents any agreement included in the image; accept it there to continue, or decline to cancel. PNGs from its folders appear in a preview where you select the frames to copy into your project. Photoshop files are ignored. Studio waits for the mounted volume even if Finder opens or macOS publishes the disk late. Images mounted by Studio are ejected after reading; already mounted images are left in place. **Import PNGs…** remains available for individual files. Imported frames and artwork already stored in existing projects stay intact. Generic Studio illustrations remain available. Duo illustrations are no longer offered; existing projects retain their saved frame choices. New documents contain no app screenshots or imported artwork. Existing `.screenshotstudio` documents remain compatible. User projects and the historical local fixture in `project/` are excluded from public source and every packaged build. Tests use synthetic documents.
 
+## Export screenshots
+
+In the Mac app, choose **Export…**, review the selected images and checks, then start the export. A native folder picker opens every time. Choose a folder outside the project package; this export is saved in its own dated subfolder with PNGs, a manifest and upload guide. Cancelling the folder picker returns to the export options without writing export files. **Show in Finder** reveals the completed export. Browser development mode and CLI exports use their configured output directory.
+
 ## Translation and importing designs
 
 **Translate…** in Translate or text Details accepts an OpenAI or Claude API key for the current dialog. Choose the target language and whether to fill missing text or replace it. Results update that language, remain draft for review, and can be undone.
@@ -66,3 +70,7 @@ Official Developer ID builds check GitHub Releases through Electron’s native u
 ## License and assets
 
 Original source and SVG interface icons use MIT. Dependencies retain their own licenses; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Apple artwork and private screenshots are not included. PALUSA names and logos remain trademarks.
+
+### Upload to App Store Connect
+
+Choose **Upload to App Store Connect…** after export, or open **Upload → Choose export folder…** to upload a saved export later without exporting again. You can also start from **Upload screenshots…** on Welcome or the File menu. Connect an API key, choose the app and editable version, review the image previews and destinations, then upload. Text, layout and translation-review warnings can be accepted with **Upload anyway**; technical errors still block upload. Existing language and screen groups are kept while missing groups upload across every exported language; replacement is explicit. Duo open and closed share one screenshot selection and limit. See [App Store Connect setup and upload guide](app-store-connect.md) for account setup, limits, stopping and reports.

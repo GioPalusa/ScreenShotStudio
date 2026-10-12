@@ -241,6 +241,7 @@ try {
   execFileSync(process.execPath, ['tools/browser-runner-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-render-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/overview-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/app-store-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/export-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/screen-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/warnings-ui-test.mjs'], { cwd: root, stdio: 'inherit' });

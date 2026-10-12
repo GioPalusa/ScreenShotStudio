@@ -1,4 +1,4 @@
-import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, session, shell } from 'electron';
+import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, session, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -12,6 +12,8 @@ import { startupProject } from '../app/js/onboarding.js';
 import { createNewProject } from '../host/new-project.mjs';
 import { importFrameDiskImage } from '../host/disk-image-frames.mjs';
 import { createTranslationSettings } from './translation-settings.mjs';
+import { createAppStoreSettings } from './app-store-settings.mjs';
+import { AppStoreClient, AppStoreUploads, editableVersion, inspectUploadExport } from '../host/app-store-connect.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ORIGIN = 'studio://local';
@@ -33,6 +35,72 @@ ipcMain.handle('studio:translation-settings', async (event, operation, value) =>
   if (operation === 'save') return store.save(value);
   if (operation === 'forget') return store.forget(value);
   throw new Error('Invalid settings action.');
+});
+
+let appStoreSettings, appStoreUploads;
+// Access to older exports is granted only by the native folder picker.
+const selectedUploadExports = new Set();
+function uploadExportPath(value) {
+  if (selectedUploadExports.has(value)) return value;
+  if (service) return service.uploadExportPath(value);
+  throw new Error('Choose an export folder first.');
+}
+const uploadExportSummary = root => {
+  const { files, errors, warnings, completed } = inspectUploadExport(root);
+  return { path: root, name: path.basename(root), count: files.length, locales: [...new Set(files.map(f => f.locale))], canvases: [...new Set(files.map(f => f.canvas))], completed, errors, warnings };
+};
+const getAppStoreSettings = () => appStoreSettings ??= createAppStoreSettings({ root: ROOT, userData: app.getPath('userData'), packaged: app.isPackaged });
+const getAppStoreUploads = async () => appStoreUploads ??= new AppStoreUploads({ client: new AppStoreClient(await getAppStoreSettings().credentials()), reportDirectory: path.join(app.getPath('userData'), 'app-store-upload-reports') });
+ipcMain.handle('studio:app-store', async (event, operation, value = {}) => {
+  if (!trusted(event)) throw new Error('Forbidden');
+  if (operation === 'choose-export') {
+    const picked = await dialog.showOpenDialog(win, { title: 'Choose screenshots to upload', message: 'Choose a dated Screenshot Studio export folder containing manifest.json and its images.', buttonLabel: 'Use export', properties: ['openDirectory'] });
+    if (picked.canceled) return { canceled: true };
+    const root = fs.realpathSync(picked.filePaths[0]);
+    const summary = uploadExportSummary(root);
+    selectedUploadExports.add(root);
+    return { canceled: false, ...summary };
+  }
+  if (operation === 'inspect-export') return uploadExportSummary(uploadExportPath(value.exportPath));
+  const store = getAppStoreSettings();
+  if (operation === 'settings') return store.load();
+  if (operation === 'connect') {
+    if (appStoreUploads && [...appStoreUploads.jobs.values()].some(j => j.state === 'running')) throw new Error('Stop the current upload before changing your connection.');
+    const picked = await dialog.showOpenDialog(win, { title: 'Choose App Store Connect API key', message: 'Choose the AuthKey .p8 file downloaded from App Store Connect. It will be stored in macOS Keychain.', properties: ['openFile'], filters: [{ name: 'App Store Connect private key', extensions: ['p8'] }] });
+    if (picked.canceled) return { canceled: true };
+    const file = picked.filePaths[0];
+    if (!file || fs.statSync(file).size > 4096) throw new Error('Choose a valid .p8 key file.');
+    const credentials = { keyId: value.keyId, issuerId: value.issuerId, privateKey: fs.readFileSync(file, 'utf8') };
+    const client = new AppStoreClient(credentials);
+    const apps = await client.apps(); // Verify before replacing the saved connection.
+    await store.save(credentials); appStoreUploads = undefined;
+    return { connected: true, apps };
+  }
+  if (operation === 'forget') {
+    if (appStoreUploads && [...appStoreUploads.jobs.values()].some(j => j.state === 'running')) throw new Error('Stop the current upload first.');
+    await store.forget(); appStoreUploads = undefined; return { connected: false };
+  }
+  const uploads = await getAppStoreUploads();
+  if (operation === 'apps') return uploads.client.apps();
+  if (operation === 'versions') return (await uploads.client.versions(value.appId)).filter(editableVersion);
+  if (operation === 'prepare') {
+    const root = uploadExportPath(value.exportPath);
+    const plan = await uploads.prepare({ ...value, root });
+    for (const entry of plan.entries) entry.thumbnail = nativeImage.createFromPath(path.join(root, entry.path)).resize({ width: 140 }).toDataURL();
+    for (const screen of plan.screens) for (const image of screen.images) image.thumbnail = nativeImage.createFromPath(path.join(root, image.path)).resize({ width: 140 }).toDataURL();
+    return plan;
+  }
+  if (operation === 'start') return uploads.start(value.planId, { acknowledgeWarnings: value.acknowledgeWarnings });
+  if (operation === 'status') return uploads.status(value.id);
+  if (operation === 'stop') { uploads.stop(value.id); return { stopped: true }; }
+  if (operation === 'open-app') {
+    const job = uploads.status(value.id);
+    await shell.openExternal(`https://appstoreconnect.apple.com/apps/${encodeURIComponent(job.appId)}`); return {};
+  }
+  if (operation === 'report') {
+    uploads.status(value.id); shell.showItemInFolder(path.join(app.getPath('userData'), 'app-store-upload-reports', `${value.id}.json`)); return {};
+  }
+  throw new Error('Invalid App Store Connect action.');
 });
 
 async function flush() {
@@ -140,6 +208,17 @@ async function action(name, options = null) {
 ipcMain.handle('studio:create-project', (event, value) => { if (!trusted(event)) throw new Error('Forbidden'); return action('new', value); });
 ipcMain.handle('studio:action', (event, name) => { if (!trusted(event)) throw new Error('Forbidden'); return action(name); });
 
+ipcMain.handle('studio:choose-export-folder', async event => {
+  if (!trusted(event) || !current || !service) throw new Error('Open a project first.');
+  if (busy) throw new Error('Finish the current project action first.');
+  busy = true;
+  try {
+    const picked = await dialog.showOpenDialog(win, { title: 'Choose export folder', message: 'A new dated folder containing this export will be created here.', defaultPath: app.getPath('documents'), buttonLabel: 'Export here', properties: ['openDirectory', 'createDirectory'] });
+    if (picked.canceled || !picked.filePaths.length) return { canceled: true };
+    return { canceled: false, ...service.authorizeExportDestination(picked.filePaths[0]) };
+  } finally { busy = false; win?.focus(); }
+});
+
 ipcMain.handle('studio:save-review', async (event, value) => {
   if (!trusted(event)) throw new Error('Forbidden');
   if (busy) throw new Error('Finish the current project action first.');
@@ -193,7 +272,8 @@ function buildMenu() {
       { label: 'Save Version', enabled: Boolean(current), click: () => action('snapshot') }, { label: 'Restore Version…', enabled: Boolean(current), click: () => action('restore') },
       { label: 'Recover Automatic Backup…', enabled: Boolean(current), click: () => action('recover-backup') },
       { label: 'Show Project in Finder', enabled: Boolean(current), click: () => action('reveal') },
-      { type: 'separator' }, { label: 'Export…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+E', click: () => action('export') }, { role: 'close' },
+      { type: 'separator' }, { label: 'Export…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+E', click: () => action('export') },
+      { label: 'Upload to App Store Connect…', click: () => win.webContents.send('studio:command', 'upload') }, { role: 'close' },
     ] }, { role: 'editMenu' },
     { label: 'Help', submenu: [{ label: 'Get Started Guide', click: () => win.webContents.send('studio:command', 'guide') }, { label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
     { label: 'View', submenu: [

@@ -17,7 +17,23 @@ import { readImportArchive } from './import-archive.mjs';
 export function createStudioService({ appPath, projectPath, exportPath, origin = null, onChange = () => {} }) {
 const ROOT = path.dirname(appPath), APP = appPath, PROJECT = projectPath, EXPORT = exportPath;
 const sessions = new ExportSessions(PROJECT, EXPORT);
+const exportDestinations = new Map();
+// Called only by the trusted native directory picker, never by a renderer path.
+function authorizeExportDestination(directory) {
+  const selected = fs.realpathSync(directory);
+  if (!fs.statSync(selected).isDirectory()) throw new Error('Choose an export folder.');
+  const project = fs.realpathSync(PROJECT);
+  if (selected === project || selected.startsWith(project + path.sep)) throw new Error('Choose an export folder outside the project package.');
+  const token = crypto.randomUUID();
+  exportDestinations.clear(); exportDestinations.set(token, selected);
+  return { token, path: selected };
+}
 let latestExport = EXPORT;
+const completedExports = new Set();
+function uploadExportPath(exportPath) {
+  if (!completedExports.has(exportPath)) throw new Error('Choose the saved export folder in Upload before uploading.');
+  return exportPath;
+}
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png',
@@ -503,9 +519,14 @@ async function api(req, res, url, method) {
   }
 
   if (p === '/api/export/start' && method === 'POST') {
-    const { mode, selection } = await readJSONBody(req);
+    const { mode, selection, destination } = await readJSONBody(req);
     if (!['draft', 'final'].includes(mode)) throw httpError(400, 'Invalid export mode');
-    const run = sessions.start(mode, selection);
+    let output = EXPORT;
+    if (destination !== undefined) {
+      if (typeof destination !== 'string' || !exportDestinations.has(destination)) throw httpError(400, 'Choose the export folder again.');
+      output = exportDestinations.get(destination); exportDestinations.delete(destination);
+    }
+    const run = sessions.start(mode, selection, output);
     const snapshot = createStudioService({ appPath: APP, projectPath: run.source, exportPath: path.join(run.temp, 'unused') });
     try {
       return json(res, 200, { id: run.id, bundle: snapshot.loadProjectBundle(), projectURL: `/snapshot/${run.id}` });
@@ -515,6 +536,7 @@ async function api(req, res, url, method) {
   if (p === '/api/export/finish' && method === 'POST') {
     const { id, report } = await readJSONBody(req);
     latestExport = sessions.finish(id, report);
+    completedExports.add(latestExport);
     return json(res, 200, { path: latestExport, relative: path.relative(EXPORT, latestExport) });
   }
   if (p === '/api/export/abort' && method === 'POST') { const { id } = await readJSONBody(req); sessions.abort(id); return json(res, 200, { ok: true }); }
@@ -538,11 +560,11 @@ async function api(req, res, url, method) {
   if (p === '/api/exports' && method === 'GET') return json(res, 200, { dir: EXPORT, files: listExports() });
 
   if (p === '/api/reveal' && method === 'POST') {
-    const rel = url.searchParams.get('path') ?? path.relative(EXPORT, latestExport);
-    const target = path.resolve(EXPORT, rel);
-    if (target !== EXPORT && !target.startsWith(EXPORT + path.sep)) return json(res, 400, { error: 'bad path' });
-    fs.mkdirSync(EXPORT, { recursive: true });
-    execFile('open', fs.existsSync(target) && rel ? ['-R', target] : [EXPORT]);
+    const rel = url.searchParams.get('path');
+    const target = rel === null ? latestExport : path.resolve(EXPORT, rel);
+    if (rel !== null && target !== EXPORT && !target.startsWith(EXPORT + path.sep)) return json(res, 400, { error: 'bad path' });
+    if (target === EXPORT) fs.mkdirSync(EXPORT, { recursive: true });
+    execFile('open', target !== EXPORT && fs.existsSync(target) ? ['-R', target] : [EXPORT]);
     return json(res, 200, { ok: true });
   }
 
@@ -579,5 +601,5 @@ async function request(request) {
   finally { request.signal.removeEventListener('abort', cancel); }
   return new Response(request.method === 'HEAD' ? null : Buffer.concat(chunks), { status, headers });
 }
-return { handle, request, loadProjectBundle, startWatching, exportLog, close() { sessions.close(); watcher?.close(); clearTimeout(watchTimer); for (const c of clients) c.end(); } };
+return { handle, request, uploadExportPath, authorizeExportDestination, loadProjectBundle, startWatching, exportLog, close() { exportDestinations.clear(); sessions.close(); watcher?.close(); clearTimeout(watchTimer); for (const c of clients) c.end(); } };
 }
