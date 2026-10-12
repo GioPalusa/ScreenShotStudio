@@ -11,6 +11,7 @@ import { createStudioService } from '../host/service.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const xcode = process.argv.includes('--xcode');
+const debug = xcode && process.env.CONFIGURATION === 'Debug';
 const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const identity = xcode && process.env.EXPANDED_CODE_SIGN_IDENTITY === '-'
   ? ''
@@ -23,6 +24,9 @@ const results = await packager({
   platform: 'darwin', arch: xcode && process.env.ARCHS === 'x86_64' ? 'x64' : process.arch, overwrite: true, prune: true,
   // The project seed and renderer assets use ordinary filesystem paths, including recursive copies.
   asar: false,
+  afterCopy: [async ({ buildPath, arch }) => {
+    execFileSync('/usr/bin/xcrun', ['swiftc', path.join(root, 'desktop/keychain.swift'), '-target', `${arch === 'x64' ? 'x86_64' : 'arm64'}-apple-macos13.0`, '-o', path.join(buildPath, 'desktop/keychain-helper')], { stdio: 'inherit' });
+  }],
   appBundleId: 'se.palusa.screenshotstudio', appVersion: version, buildVersion: process.env.CURRENT_PROJECT_VERSION ?? '1',
   ...(identity ? { osxSign: { identity, preAutoEntitlements: false, optionsForFile: () => ({ hardenedRuntime: true, entitlements: path.join(root, 'distribution', 'Studio.entitlements') }) } } : {}),
   icon,
@@ -67,8 +71,12 @@ for (const result of results) {
     // --deep does not discover Squirrel's executable in framework Resources.
     // Organizer checks every executable for Hardened Runtime before re-signing.
     const shipIt = path.join(app, 'Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt');
-    execFileSync('codesign', ['--force', '--options', 'runtime', '--sign', '-', shipIt], { stdio: 'inherit' });
-    execFileSync('codesign', ['--force', '--deep', '--options', 'runtime', '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
+    // Ad-hoc Debug helpers have no Team ID. Hardened library validation rejects
+    // their Electron framework even when both signatures are valid.
+    const runtimeOptions = debug ? [] : ['--options', 'runtime'];
+    execFileSync('codesign', ['--force', ...runtimeOptions, '--sign', '-', path.join(bundled, 'desktop/keychain-helper')], { stdio: 'inherit' });
+    execFileSync('codesign', ['--force', ...runtimeOptions, '--sign', '-', shipIt], { stdio: 'inherit' });
+    execFileSync('codesign', ['--force', '--deep', ...runtimeOptions, '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
   }
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
   if (xcode) {
@@ -80,6 +88,10 @@ for (const result of results) {
       fs.rmSync(output, { recursive: true, force: true });
       execFileSync('ditto', [path.join(app, 'Contents', entry), output]);
     }
+    // The copied launcher's signature belongs to packager's Info.plist. Let Xcode
+    // sign a fresh root with its processed plist, also on incremental builds.
+    fs.rmSync(path.join(destination, 'Contents', '_CodeSignature'), { recursive: true, force: true });
+    execFileSync('codesign', ['--remove-signature', path.join(destination, 'Contents', 'MacOS', 'Screenshot Studio')], { stdio: 'inherit' });
     console.log(destination);
   } else console.log(app);
 }

@@ -237,7 +237,7 @@ test('editing reviewed copy exposes review action immediately, then approval cle
   globalThis.document = dom();
   store.saves.schedule = () => null; store.saves.cancel = () => {};
   t.after(() => { store.saves.discard(); globalThis.document = originalDocument; });
-  const bundle = fixture(); store.engine.setData({ studio: bundle.studio, copy: bundle.copy });
+  const bundle = fixture(); bundle.studio.slides[0].layouts.square.layers.push({ id: 'headline', type: 'text', field: 'headline' }); bundle.studio.sourceLocale = 'sv'; store.engine.setData({ studio: bundle.studio, copy: bundle.copy });
   const ed = { slide: () => store.engine.project.slides[0], locale: () => store.engine.project.locales[0], refresh() {}, rebuildInspector() {} };
   const panel = buildTextPanel(ed).el;
   const action = () => panel.querySelectorAll('button').find(button => button.textContent === 'Mark reviewed');
@@ -245,7 +245,7 @@ test('editing reviewed copy exposes review action immediately, then approval cle
   const textarea = panel.querySelector('textarea'); textarea.value = 'Changed headline'; textarea.dispatchEvent(new Event('input'));
   assert.ok(action(), 'Approval action must appear without leaving or rebuilding the text inspector');
   assert.equal(panel.querySelector('textarea'), textarea, 'Typing must keep the existing field');
-  const scene = { warnings: [], slide: ed.slide(), layers: [{ id: 'headline', type: 'text', _layout: {}, _box: { x: 0, y: 0, w: 200, h: 80 } }], fonts: {}, W: 1000, H: 1000, k: 1, deviceDef: bundle.studio.devices.square, localeId: 'en-US', slideId: 'a' };
+  const scene = { warnings: [], slide: ed.slide(), layers: [{ id: 'headline', type: 'text', field: 'headline', _layout: {}, _box: { x: 0, y: 0, w: 200, h: 80 } }], fonts: {}, W: 1000, H: 1000, k: 1, deviceDef: bundle.studio.devices.square, localeId: 'en-US', slideId: 'a' };
   assert.deepEqual(preflightScene(scene, store.engine.data).map(w => w.code), ['copy-review']);
   // Suppress only toast lifetime timers; invoke the actual button handler.
   t.mock.method(globalThis, 'setTimeout', () => 0);
@@ -366,9 +366,19 @@ test('layer drag handles reorder through the real edit operation and refuse lock
 
 });
 
+test('original-language selection persists and restores through undo and redo', async t => {
+  const { store, host } = await harness(t);
+  store.setOriginalLocale('sv');
+  assert.equal(store.engine.project.sourceLocale, 'sv');
+  await store.flushSaves(); assert.equal(host.bundle.studio.sourceLocale, 'sv');
+  store.undo(); assert.equal(store.engine.project.sourceLocale, undefined);
+  store.redo(); assert.equal(store.engine.project.sourceLocale, 'sv');
+});
+
 test('manual Check and a reviewed import persist and undo as separate complete actions', async t => {
   const { store } = await harness(t);
   const { exportReviewCSV, readCSV, writeCSV, parseReviewCSV, planReviewImport } = await import('../app/js/review-exchange.js');
+  store.engine.project.slides[0].layouts.square.layers.push({ id: 'headline', type: 'text', field: 'headline' });
   store.setTextCheck('sv', 'a', 'headline', true);
   assert.equal(store.needsReview('sv','a','headline'), true);
   store.undo(); assert.equal(store.needsReview('sv','a','headline'), false);

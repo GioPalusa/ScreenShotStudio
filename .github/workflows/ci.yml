@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -37,7 +37,7 @@ jobs:
       - run: npm run test:render
         env:
           CHROME_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: renderer-diagnostics

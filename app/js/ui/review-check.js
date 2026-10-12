@@ -1,4 +1,5 @@
-import { needsReview, setTextCheck } from '../store.js';
+import { isOriginalLocale } from '../copy-review.js';
+import { engine, needsReview, setTextCheck } from '../store.js';
 import { h } from './helpers.js';
 
 export function checkControl(locale, slide, field, changed = () => {}) {
@@ -8,6 +9,8 @@ export function checkControl(locale, slide, field, changed = () => {}) {
     button.refreshCheck(); changed();
   } });
   button.refreshCheck = () => {
+    button.hidden = isOriginalLocale(engine.project, locale);
+    button.style.display = button.hidden ? 'none' : '';
     const pending = needsReview(locale, slide, field);
     button.setAttribute('aria-pressed', String(pending));
     button.title = pending ? 'Needs review. Click after checking this text to mark it reviewed.' : 'Reviewed. Click to flag this text for another check.';

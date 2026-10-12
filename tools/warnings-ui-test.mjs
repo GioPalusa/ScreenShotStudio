@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execBrowserTest as execFile } from './browser-test-runner.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
 import { createNewProject } from '../host/new-project.mjs';
@@ -42,7 +42,7 @@ try {
     check(popup?.getAttribute('aria-label')==='Screen warnings','Warning badge must open a dialog');
     check(popup.querySelectorAll('.warning-list li').length===3,'Popup must show every current-screen warning');
     check(popup.textContent.includes('Svenska') && popup.textContent.includes(first.name),'Popup must identify the current language and screen');
-    check(popup.textContent.includes('No Swedish text for “headline” - showing English'),'Popup must show full warning text without ellipsis');
+    check(popup.textContent.includes('No Swedish text for “headline” - showing original text'),'Popup must show full warning text without ellipsis');
     check(popup.querySelectorAll('.err').length===1 && popup.querySelectorAll('.warn').length===2,'Missing captures and translation warnings must retain their severities');
     document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
     check(!document.querySelector('[role="dialog"]') && document.activeElement===badge(),'Escape must dismiss warnings and restore keyboard focus');
@@ -86,7 +86,7 @@ try {
   service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
   server = http.createServer((req, res) => service.handle(req, res, server.address().port));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.WARNINGS_TEST_WIDTH ?? 1100},800`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/warnings-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-warnings-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-warnings-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.WARNINGS_TEST_WIDTH ?? 1100},800`, `http://127.0.0.1:${server.address().port}/app/warnings-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-warnings-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-warnings-ui-dom.html', output); error ? reject(error) : resolve(output); }));
   const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
 
   console.log(verdict);

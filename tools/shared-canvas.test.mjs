@@ -11,6 +11,19 @@ const fixture = () => ({ devices: { phone: { size: [800, 1600], designSize: [400
   slides: ['a', 'b', 'c'].map(id => ({ id, layouts: { phone: { template: 'custom', layers: [] } } })),
   sharedCanvas: { phone: { gap: .06, layers: [{ id: 'image', type: 'art', src: 'bridge.png', cx: 412, cy: 400, w: 300, aspect: 1 }] } } });
 
+test('linked language previews keep shared text and devices on the same screens after original reorder', () => {
+  const p = fixture(); p.locales=[{id:'en-GB'},{id:'ar-SA'}];
+  p.slideOrders={'en-GB':['a','c','b']};
+  p.sharedCanvas.phone.layers.push({id:'title',type:'text',field:'headline',copySlideId:'c',x:450,capTop:50,w:300});
+  const before=structuredClone(p);
+  for(const slide of p.slides) {
+    const scene=localeId=>resolveLayers({project:p,slide,deviceId:'phone',localeId}).layers;
+    assert.deepEqual(scene('ar-SA'),scene('en-GB'));
+  }
+  assert.deepEqual(sharedGeometry(p,'phone','ar-SA'),sharedGeometry(p,'phone','en-GB'));
+  assert.deepEqual(p,before,'Preview resolution never rewrites user layouts');
+});
+
 test('row geometry uses actual orientations, a real gap and each language order', () => {
   const p = fixture(); p.slides[1].canvasOrientations = { phone: 'landscape' }; p.slideOrders = { sv: ['c', 'b', 'a'] };
   const row = sharedGeometry(p, 'phone', 'sv');

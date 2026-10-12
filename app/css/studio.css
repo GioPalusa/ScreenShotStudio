@@ -256,6 +256,10 @@ input[type="color"] { width: 38px; height: 28px; padding: 0; border: 1px solid v
 .langs { height: 100%; overflow: auto; padding: 18px 24px 40px; }
 .langs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 14px; }
 .langs-head h2 { margin: 0; font-size: 16px; }
+.translate-view-options { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.translate-language { flex-basis:190px; display:flex; flex-direction:column; gap:6px; }
+.translate-language .native { color:var(--muted); font-size:12px; }
+.translate-language-actions { flex-basis:100%; }
 .translate-screens { min-width: 0; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .translate-screens-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
 .translate-screens-heading h2 { margin: 0; font-size: 16px; }

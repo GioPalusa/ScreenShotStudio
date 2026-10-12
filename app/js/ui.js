@@ -5,7 +5,7 @@ import { openShortcuts } from './ui/shortcuts.js';
 import { openMediaLibrary } from './ui/media-library.js';
 // The studio shell: top bar (language, device, view, export), view switching, shortcuts.
 
-import { engine, state, on, rememberUI, emit, undo, redo, undoIf, retrySaves, recoverEdits, resolveSaveConflict } from './store.js';
+import { engine, state, on, rememberUI, emit, undo, redo, undoIf, retrySaves, recoverEdits, resolveSaveConflict, needsReview } from './store.js';
 import { h, toast, localeLabel, fmtTime, confirmDialog } from './ui/helpers.js';
 import { installTooltips } from './ui/tooltips.js';
 import { createEditor } from './ui/editor.js';
@@ -80,8 +80,7 @@ export function mountStudio(root) {
   // ----- top bar
 
   function localeOptionLabel(l) {
-    const status = engine.data.copy[l.id]?._meta?.status;
-    return `${localeLabel(l)}${status && status !== 'approved' ? '  · draft' : ''}`;
+    return `${localeLabel(l)}${needsReview(l.id) ? '  · draft' : ''}`;
   }
 
   function buildTopbar() {

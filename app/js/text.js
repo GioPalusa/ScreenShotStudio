@@ -83,19 +83,24 @@ function applyContext(ctx, { weight, size, family, lang, dir }) {
  *   size      the largest size to use - text only shrinks, down to minSize, when it has to
  *   maxLines  hard limit; a longer translation shrinks until it fits
  *   boxW      available width
+ *   fitFrame  grow or shrink to the full box width/height, preserving explicit line breaks
  *   marker    list marker for array input, e.g. "–"; continuation lines hang under the text
  *
  * Returns { size, lines:[{text,width,marker,hang}], maxW, ok, overflow, shrink, lineHeightPx }.
  */
 export function layoutText(ctx, text, o) {
   const {
-    family, weight = 700, size: maxSize, minSize = maxSize * 0.5, maxLines = 99, boxW,
+    family, weight = 700, size: requestedSize, minSize: requestedMinSize, maxLines: requestedMaxLines = 99, boxW,
     lang = 'en', dir = 'ltr', lineHeight = 1.2, balanced = true, marker = '', itemGap = 0, oneLine = 0, maxHeight = Infinity, heightIncludesGlyphs = false,
   } = o;
+  const fillFrame = o.fitFrame && Number.isFinite(maxHeight) && maxHeight > 0;
+  const maxSize = fillFrame ? Math.max(boxW, maxHeight) * 4 : requestedSize;
+  const minSize = fillFrame ? 1 : requestedMinSize ?? maxSize * 0.5;
+  const maxLines = fillFrame ? Infinity : requestedMaxLines;
 
   // Wide canvases: if the whole text fits on one line without dropping below `oneLine` x size, prefer
   // that over the hard line breaks the copy was written with for the narrower phone layout.
-  if (oneLine && !Array.isArray(text) && String(text).includes('\n')) {
+  if (!fillFrame && oneLine && !Array.isArray(text) && String(text).includes('\n')) {
     const joined = layoutText(ctx, String(text).replace(/\s*\n\s*/g, ' '), { ...o, oneLine: 0, maxLines: 1, minSize: maxSize * oneLine });
     if (joined.ok) return joined;
   }
@@ -132,7 +137,7 @@ export function layoutText(ctx, text, o) {
     const glyphs = lines.map(line => ctx.measureText(line.text || 'H'));
     const ascent = Math.max(0, ...glyphs.map(m => m.actualBoundingBoxAscent ?? size * 0.75));
     const descent = Math.max(0, ...glyphs.map(m => m.actualBoundingBoxDescent ?? size * 0.2));
-    return { size, lines, maxW, ok: lines.length <= maxLines && maxW <= boxW + 0.5 && height + (heightIncludesGlyphs ? ascent + descent : 0) <= maxHeight };
+    return { size, lines, maxW, ascent, descent, ok: lines.length <= maxLines && maxW <= boxW + 0.5 && height + (heightIncludesGlyphs || fillFrame ? ascent + descent : 0) <= maxHeight };
   };
 
   let result = attempt(maxSize);
@@ -154,7 +159,7 @@ export function layoutText(ctx, text, o) {
     result.overflow = true;
   }
   result.overflow = Boolean(result.overflow);
-  result.shrink = result.size / maxSize;
+  result.shrink = result.size / requestedSize;
   result.lineHeightPx = result.size * lineHeight;
   result.height = result.lines.reduce((h, l, i) => h + (i ? result.lineHeightPx : 0) + l.gapBefore, 0);
   return result;

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execBrowserTest as execFile } from './browser-test-runner.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
 import { createNewProject } from '../host/new-project.mjs';
@@ -70,7 +70,7 @@ try {
     check(viewport().scrollLeft===0,'Fit must reset horizontal scroll');
     const beforeFit=parseFloat(rows[0].querySelector('canvas').style.width);
     document.querySelector('#root').style.width='600px';
-    // Simulate a window resize too: headless virtual time can pause ResizeObserver delivery.
+    // Exercise the same resize notification delivered by the native window.
     window.dispatchEvent(new Event('resize'));
     await waitFor(()=>parseFloat(rows[0].querySelector('canvas').style.width)<beforeFit);
     check(viewport().scrollWidth<=viewport().clientWidth+2,'Fit must recompute when the window area shrinks');
@@ -89,7 +89,7 @@ try {
   service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
   server = http.createServer((req, res) => service.handle(req, res, server.address().port));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.OVERVIEW_TEST_WIDTH ?? 1100},800`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/overview-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-overview-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-overview-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.OVERVIEW_TEST_WIDTH ?? 1100},800`, `http://127.0.0.1:${server.address().port}/app/overview-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-overview-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-overview-ui-dom.html', output); error ? reject(error) : resolve(output); }));
   const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
 
   console.log(verdict);

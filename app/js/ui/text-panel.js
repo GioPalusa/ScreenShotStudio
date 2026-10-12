@@ -5,9 +5,9 @@ import { translateButton } from './translate-dialog.js';
 // Inspector → Text: one editor per text field of the slide (headline, sub text, bullets, any text layer you add),
 // for the language being edited, with a live note on whether it fits.
 
-import { engine, editCopy, getCopy, markReviewed } from '../store.js';
+import { engine, editCopy, getCopy, markReviewed, needsReview } from '../store.js';
 import { resolveLayers } from '../layouts.js';
-import { copyNeedsReview } from '../copy-review.js';
+import { isOriginalLocale } from '../copy-review.js';
 import { h, localeLabel } from './helpers.js';
 
 const FIELD_LABEL = { headline: 'Headline', headlineAccent: 'Accent line', eyebrow: 'Eyebrow', caption: 'Sub text', bullets: 'Bullet list' };
@@ -19,7 +19,7 @@ const FIELD_HELP = {
 
 export const fieldLabel = (field) => FIELD_LABEL[field] ?? field;
 
-/** Fields of a slide: headline, whatever has text in English or the current language, and every text layer of any layout. */
+/** Text fields still referenced by this language's layouts on any canvas. */
 export const slideFields = (slide, localeId) => copyFields(engine.project, engine.data.copy, slide, localeId);
 
 /** Short names of the devices whose layout shows a field. */
@@ -40,14 +40,14 @@ export function buildTextPanel(ed, { fields = null, compact = false } = {}) {
   const banner = h('div');
   let reviewPending;
   function updateReview() {
-    const pending = copyNeedsReview(engine.data.copy[locale.id]);
+    const pending = needsReview(locale.id);
     if (pending === reviewPending) return;
     reviewPending = pending;
     banner.className = `banner${pending ? ' warn' : ''}`;
-    banner.replaceChildren(
-      h('div', null, h('b', null, localeLabel(locale)), h('div', { class: 'hint' }, pending ? 'Text needs review: check the changes before final export' : 'Reviewed text')),
-      pending ? h('button', { class: 'btn small', onClick: () => { markReviewed(locale.id); ed.rebuildInspector(); } }, 'Mark reviewed') : h('span', { class: 'chip ok' }, '✓ Reviewed'),
-    );
+    banner.replaceChildren(...[
+      h('div', null, h('b', null, localeLabel(locale)), h('div', { class: 'hint' }, isOriginalLocale(engine.project, locale.id) ? 'Original text' : pending ? 'Text needs review: check the changes before final export' : 'Reviewed text')),
+      isOriginalLocale(engine.project, locale.id) ? null : pending ? h('button', { class: 'btn small', onClick: () => { markReviewed(locale.id); ed.rebuildInspector(); } }, 'Mark reviewed') : h('span', { class: 'chip ok' }, '✓ Reviewed'),
+    ].filter(Boolean));
   }
   updateReview();
   panel.append(translateButton(ed.ctx, { target: locale.id, slideId: slide.id, fields }, true));

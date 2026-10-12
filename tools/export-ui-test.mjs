@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execBrowserTest as execFile } from './browser-test-runner.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
 import { createNewProject } from '../host/new-project.mjs';
@@ -20,6 +20,8 @@ try {
   fs.cpSync(path.join(root, 'app'), appPath, { recursive: true });
   createNewProject(projectPath, {});
   const project = JSON.parse(fs.readFileSync(path.join(projectPath, 'studio.json')));
+  // Use a real layout warning: original-language text no longer needs translation review.
+  project.slides[0].layouts.iphone.layers.push({ id: 'outside', type: 'shape', cx: 0, cy: 100, w: 100, h: 100 });
   project.slides.push({ id: 'clean', name: 'Clean image', theme: 'starter', layouts: { iphone: { template: 'custom', panorama: false, layers: [{ id: 'art', type: 'art', src: 'image.png', cx: 660, cy: 900, w: 500, h: 500 }] } } });
   fs.writeFileSync(path.join(projectPath, 'studio.json'), JSON.stringify(project));
   fs.mkdirSync(path.join(projectPath, 'assets/art'), { recursive: true });
@@ -41,6 +43,7 @@ try {
       check(counts()==='1 blocking error1 warning','Errors and warnings must be counted separately: '+counts());
       check((await files()).files.length===0,'Automatic checks must not publish images');
       check(document.querySelector('.result-list').textContent.includes('Screenshot'),'Missing capture must be explained');
+      check(!document.querySelector('.result-list').textContent.includes('language review'),'Original text must not need translation review');
       const slides=[...document.querySelectorAll('.export-columns .field')][2].querySelectorAll('input');
       slides[1].click();await waitFor(()=>button('Export anyway')&&!button('Export anyway').disabled);
       check(counts()==='1 blocking error1 warning','Selected missing slide retains its own counts');
@@ -70,7 +73,7 @@ try {
   service = createStudioService({ appPath, projectPath, exportPath: output });
   server = http.createServer((req, res) => { if (req.method === 'POST' && req.url.startsWith('/api/export?')) writes.push(req.url); service.handle(req, res, server.address().port); });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-first-run', '--no-sandbox', `--user-data-dir=${path.join(temp, 'chrome')}`, '--window-size=1200,950', '--virtual-time-budget=30000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/export-test.html`], { timeout: 60000, maxBuffer: 3e6 }, (error, out, stderr) => { fs.writeFileSync('/tmp/studio-export-ui-dom.html', out); fs.writeFileSync('/tmp/studio-export-ui-chrome.log', stderr); error ? reject(error) : resolve(out); }));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-first-run', '--no-sandbox', `--user-data-dir=${path.join(temp, 'chrome')}`, '--window-size=1200,950', `http://127.0.0.1:${server.address().port}/app/export-test.html`], { timeout: 60000, maxBuffer: 3e6 }, (error, out, stderr) => { fs.writeFileSync('/tmp/studio-export-ui-dom.html', out); fs.writeFileSync('/tmp/studio-export-ui-chrome.log', stderr); error ? reject(error) : resolve(out); }));
   const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No result';
   assert.match(verdict, /^PASS:/, verdict);
   const runs = fs.readdirSync(output).filter(f => !f.startsWith('.'));

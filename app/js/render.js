@@ -14,6 +14,8 @@ import { canvasForSlide } from './canvas-orientation.js';
 
 import { decorationBounds } from './decorations.js';
 import { deviceForLayer } from './profiles.js';
+import { captureSourceFor } from './media.js';
+import { originalLocale } from './copy-review.js';
 import { layoutText, drawLines, capHeight } from './text.js';
 import { composeBezel, composeDuo, composeAndroid, composeGeneric, composePlain, fitCapture, buildHoleMask } from './devices.js';
 import { resolveLayers, paintOrder } from './layouts.js';
@@ -67,26 +69,26 @@ export class Engine {
     return { ...(f.default ?? {}), ...(f.byLang?.[lang.split('-')[0]] ?? {}), ...(f.byLang?.[lang] ?? {}), ...(locale.font ?? {}) };
   }
 
-  /** Copy for a field with fallback to English; reports when it had to fall back. */
+  /** Missing translations display the original copy, then legacy English copy. */
   copyFor(localeId, slideId, field) {
     const get = (loc) => this.data.copy[loc]?.[slideId]?.[field];
     const filled = (v) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.every((x) => !String(x).trim()));
     const own = get(localeId);
     if (filled(own)) return { value: own, fallback: false };
-    const english = get('en-US');
-    if (localeId !== 'en-US' && filled(english)) return { value: english, fallback: !localeId.startsWith('en') };
+    for (const source of new Set([originalLocale(this.project), 'en-US'])) {
+      const value = get(source);
+      if (source !== localeId && filled(value)) return { value, fallback: true };
+    }
     return null;
   }
 
   captureSource(localeId, deviceDef, name, layer = {}) {
     if (!name) return null;
     const set = deviceForLayer(this.project, deviceDef, layer).capture;
-    const own = this.data.captures[localeId]?.[set]?.[name];
-    const dflt = this.data.captures.default?.[set]?.[name];
-    const hit = own ?? dflt;
+    const hit = captureSourceFor(this.project, this.data.captures, localeId, set, name);
     if (!hit) return { missing: true, name, set };
-    const scope = own ? localeId : 'default';
-    return { url: `${this.projectURL}/captures/${scope}/${set}/${hit.file}?v=${hit.mtime}`, scope, name, set, localized: Boolean(own) };
+    const { scope, localized } = hit;
+    return { url: `${this.projectURL}/captures/${scope}/${set}/${hit.file}?v=${hit.mtime}`, scope, name, set, localized };
   }
 
   /** The frame a device layer is drawn in: the layer's own choice, else the device's default. */
@@ -300,7 +302,7 @@ export class Engine {
 
     // report
     for (const [id, t] of Object.entries(scene.texts)) {
-      if (t.fallback) scene.warnings.push({ level: 'warn', code: 'missing-translation', layer: id, message: `No ${locale.name} text for “${t.field}” - showing English` });
+      if (t.fallback) scene.warnings.push({ level: 'warn', code: 'missing-translation', layer: id, message: `No ${locale.name} text for “${t.field}” - showing original text` });
       if (t.overflow) scene.warnings.push({ level: 'error', code: 'overflow', layer: id, message: `“${t.field}” does not fit even at the smallest size - shorten it` });
       else if (t.shrink / t.baseShrink < 0.85) scene.warnings.push({ level: 'warn', code: 'shrunk', layer: id, message: `“${t.field}” is ${Math.round((1 - t.shrink / t.baseShrink) * 100)}% smaller than the English version to fit - consider shorter text` });
     }
@@ -338,13 +340,13 @@ export class Engine {
 
   /** How much the English text had to shrink in this layer: the design's own baseline for "fits well". */
   englishShrink(layer, text, lineHeight) {
-    const key = JSON.stringify([text, layer.size, layer.minSize, layer.maxLines, layer.w, layer.weight, layer.lineHeight, layer.oneLine, layer.marker, layer.balanced, layer.maxHeight, layer.boxHeight, layer.fontFamily]);
+    const key = JSON.stringify([text, layer.size, layer.minSize, layer.maxLines, layer.w, layer.weight, layer.lineHeight, layer.oneLine, layer.marker, layer.balanced, layer.maxHeight, layer.boxHeight, layer.fontFamily, layer.textFit]);
     this.baseCache ??= new Map();
     if (!this.baseCache.has(key)) {
       const fonts = this.fontsFor('en-US');
       const list = Array.isArray(text);
       const result = layoutText(measureCtx, text, {
-        family: layer.fontFamily || fonts.family, weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines,
+        family: layer.fontFamily || fonts.family, weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines, fitFrame: layer.textFit === 'frame',
         boxW: layer.w, lang: 'en-US', dir: 'ltr', lineHeight, marker: list ? (layer.marker ?? '-') : (layer.marker ?? ''),
         itemGap: layer.itemGap ?? 0, balanced: layer.balanced !== false, oneLine: layer.oneLine ?? 0, maxHeight: layer.boxHeight ?? layer.maxHeight ?? Infinity, heightIncludesGlyphs: layer.boxHeight !== undefined,
       });
@@ -369,24 +371,29 @@ export class Engine {
     }
     const list = Array.isArray(copy.value);
     const lineHeight = (layer.lineHeight ?? 1.2) * (fonts.lineHeight ?? 1);
-    // English text standing in for a missing translation is English: break it like English, whatever the language is
-    const textLang = copy.fallback ? 'en-US' : locale.lang;
+    // Placeholder copy uses its source language's line-breaking rules.
+    const original = originalLocale(this.project);
+    const originalCopy = this.data.copy[original]?.[layer.copySlideId ?? scene.slideId]?.[layer.field];
+    const textLocale = copy.fallback ? (originalCopy === copy.value ? this.localeInfo(original) : { lang: 'en-US', dir: 'ltr' }) : locale;
+    const textLang = textLocale.lang;
     layer._lang = textLang;
+    layer._dir = textLocale.dir ?? 'ltr';
     const layout = layoutText(measureCtx, copy.value, {
-      family: layer.fontFamily || fonts.family, weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines,
-      boxW: layer.w, lang: textLang, dir: locale.dir ?? 'ltr', lineHeight,
+      family: layer.fontFamily || fonts.family, weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines, fitFrame: layer.textFit === 'frame',
+      boxW: layer.w, lang: textLang, dir: layer._dir, lineHeight,
       marker: list ? (layer.marker ?? '-') : (layer.marker ?? ''), itemGap: layer.itemGap ?? 0, balanced: layer.balanced !== false, oneLine: layer.oneLine ?? 0, maxHeight: layer.boxHeight ?? layer.maxHeight ?? Infinity, heightIncludesGlyphs: layer.boxHeight !== undefined,
     });
     const cap = capHeight(measureCtx, { weight: layer.weight ?? 700, size: layout.size, family: layer.fontFamily || fonts.family });
     let firstBaseline;
-    if ((layer.anchor ?? 'top') === 'bottom') firstBaseline = layer.baseline - layout.height;
-    else firstBaseline = this.resolvePosition(layer.capTop ?? 0, metrics, 'bottom') + cap;
+    const fillFrame = layer.textFit === 'frame' && layer.boxHeight !== undefined;
+    if ((layer.anchor ?? 'top') === 'bottom') firstBaseline = layer.baseline - layout.height - (fillFrame ? layout.descent : 0);
+    else firstBaseline = this.resolvePosition(layer.capTop ?? 0, metrics, 'bottom') + (fillFrame ? layout.ascent : cap);
     layer._layout = layout;
     layer._empty = false;
     layer._baseline = firstBaseline;
     layer._copy = copy;
-    metrics[layer.id] = { top: firstBaseline - cap, bottom: firstBaseline + layout.height };
-    layer._box = { x: layer.x, y: layer.anchor === 'bottom' && layer.boxHeight ? layer.baseline - layer.boxHeight : firstBaseline - cap, w: layer.w, h: layer.boxHeight ?? layout.height + cap, rot: layer.rotate ?? 0 };
+    metrics[layer.id] = { top: firstBaseline - (fillFrame ? layout.ascent : cap), bottom: firstBaseline + layout.height + (fillFrame ? layout.descent : 0) };
+    layer._box = { x: layer.x, y: layer.anchor === 'bottom' && layer.boxHeight ? layer.baseline - layer.boxHeight : firstBaseline - (fillFrame ? layout.ascent : cap), w: layer.w, h: layer.boxHeight ?? layout.height + cap, rot: layer.rotate ?? 0 };
     let baseShrink = layout.shrink;
     if (scene.localeId !== 'en-US') {
       const en = this.copyFor('en-US', layer.copySlideId ?? scene.slideId, layer.field);
@@ -402,7 +409,7 @@ export class Engine {
     if (layer.rotate) { const b = layer._box; ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.rotate(rad(layer.rotate)); ctx.translate(-b.x - b.w / 2, -b.y - b.h / 2); }
     drawLines(ctx, layer._layout, {
       x: layer.x, w: layer.w, firstBaseline: layer._baseline, align: layer.align, block: layer.block,
-      dir: scene.locale.dir ?? 'ltr', weight: layer.weight ?? 700, family: layer.fontFamily || scene.fonts.family, lang: layer._lang ?? scene.locale.lang,
+      dir: layer._dir ?? scene.locale.dir ?? 'ltr', weight: layer.weight ?? 700, family: layer.fontFamily || scene.fonts.family, lang: layer._lang ?? scene.locale.lang,
       color: layer.color ?? scene.theme.ink, opacity: layer.opacity ?? 1, shadow, dx: layer.dx ?? 0,
     });
   }
@@ -566,7 +573,7 @@ export class Engine {
       const device = deviceForLayer(this.project, scene.deviceDef, layer);
       scene.warnings.push({ level: 'error', code: 'capture-missing', layer: layer.id, message: layer.capture ? `Screenshot “${layer.capture}” missing for ${device.label}` : 'No screenshot chosen for this slide' });
     } else if (src && !src.localized && scene.locale.appUI && !scene.locale.lang.startsWith('en')) {
-      scene.warnings.push({ level: 'info', code: 'capture-default', layer: layer.id, message: 'Uses the shared (English) screenshot' });
+      scene.warnings.push({ level: 'info', code: 'capture-default', layer: layer.id, message: 'Uses the standard screenshot' });
     }
     if (!composed) return;
     layer._screenSize = [composed.screen.w, composed.screen.h]; // what the inspector reports about the fit

@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld('studioDesktop', {
   createProject: value => ipcRenderer.invoke('studio:create-project', value),
   recentProjects: () => ipcRenderer.invoke('studio:recent-projects'),
   action: name => ipcRenderer.invoke('studio:action', name),
+  translationSettings: (operation, value) => ipcRenderer.invoke('studio:translation-settings', operation, value),
 });

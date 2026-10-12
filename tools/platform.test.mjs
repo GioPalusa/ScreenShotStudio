@@ -23,6 +23,76 @@ const fixture = layoutProject;
 const temp = t => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-test-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true })); return dir; };
 const queue = opts => new SaveQueue({ schedule: () => 1, cancel: () => {}, ...opts });
 
+test('Save As replaces only a confirmed project and preserves the complete previous document', t => {
+  const root = temp(t), source = path.join(root, 'Source.sss'), dest = path.join(root, 'Copy.sss');
+  for (const [folder, title] of [[source, 'Source'], [dest, 'Previous']]) {
+    fs.mkdirSync(path.join(folder, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(folder, 'studio.json'), JSON.stringify({ title }));
+    fs.writeFileSync(path.join(folder, 'assets', `${title}.png`), title);
+    fs.mkdirSync(path.join(folder, '.versions'));
+    fs.writeFileSync(path.join(folder, '.versions', 'saved.txt'), title);
+  }
+  assert.throws(() => copyProject(source, dest), /never overwritten/);
+  copyProject(source, dest, { replace: true });
+  assert.equal(fs.readFileSync(path.join(dest, 'studio.json'), 'utf8'), '{"title":"Source"}');
+  assert.equal(fs.existsSync(path.join(dest, 'assets', 'Previous.png')), false);
+  const previous = path.join(dest, '.versions', fs.readdirSync(path.join(dest, '.versions'))[0]);
+  assert.equal(fs.readFileSync(path.join(previous, 'studio.json'), 'utf8'), '{"title":"Previous"}');
+  assert.equal(fs.readFileSync(path.join(previous, 'assets', 'Previous.png'), 'utf8'), 'Previous');
+  assert.equal(fs.readFileSync(path.join(previous, '.versions', 'saved.txt'), 'utf8'), 'Previous');
+  assert.equal(fs.readFileSync(path.join(source, 'studio.json'), 'utf8'), '{"title":"Source"}');
+  assert.equal(fs.readdirSync(root).some(name => name.startsWith('.studio-copy-')), false);
+});
+
+test('failed Save As copy or publication leaves the previous document intact', t => {
+  const root = temp(t), source = path.join(root, 'Source.sss'), dest = path.join(root, 'Copy.sss');
+  fs.mkdirSync(source); fs.mkdirSync(dest);
+  fs.writeFileSync(path.join(source, 'studio.json'), 'source');
+  fs.writeFileSync(path.join(dest, 'studio.json'), 'previous');
+  fs.symlinkSync(path.join(source, 'studio.json'), path.join(source, 'linked.json'));
+  assert.throws(() => copyProject(source, dest, { replace: true }), /symbolic links/);
+  assert.equal(fs.readFileSync(path.join(dest, 'studio.json'), 'utf8'), 'previous');
+  fs.unlinkSync(path.join(source, 'linked.json'));
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === dest && path.basename(from).startsWith('.studio-copy-')) throw new Error('Simulated publication failure');
+    return rename(from, to);
+  });
+  assert.throws(() => copyProject(source, dest, { replace: true }), /publication failure/);
+  assert.equal(fs.readFileSync(path.join(dest, 'studio.json'), 'utf8'), 'previous');
+  assert.deepEqual(fs.readdirSync(root).sort(), ['Copy.sss', 'Source.sss']);
+});
+
+test('Save As refuses unrelated destinations, symlinks and projects containing the source', t => {
+  const root = temp(t), source = path.join(root, 'Source.sss');
+  fs.mkdirSync(source); fs.writeFileSync(path.join(source, 'studio.json'), '{}');
+  const unrelated = path.join(root, 'Unrelated.sss'); fs.mkdirSync(unrelated);
+  assert.throws(() => copyProject(source, unrelated, { replace: true }), /existing Screenshot Studio project/);
+  const linked = path.join(root, 'Linked.sss'); fs.symlinkSync(source, linked);
+  assert.throws(() => copyProject(source, linked, { replace: true }), /existing Screenshot Studio project/);
+  assert.throws(() => copyProject(source, source, { replace: true }), /outside the current project/);
+  assert.throws(() => copyProject(source, path.join(source, 'Child.sss')), /outside the current project/);
+  const nested = path.join(source, 'Nested.sss'); fs.mkdirSync(nested);
+  assert.throws(() => copyProject(nested, source, { replace: true }), /folder containing the current project/);
+});
+
+test('Save As preserves a recovery location when publication and rollback both fail', t => {
+  const root = temp(t), source = path.join(root, 'Source.sss'), dest = path.join(root, 'Copy.sss');
+  fs.mkdirSync(source); fs.mkdirSync(dest);
+  fs.writeFileSync(path.join(source, 'studio.json'), 'source');
+  fs.writeFileSync(path.join(dest, 'studio.json'), 'previous');
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === dest) throw new Error('Simulated rename failure');
+    return rename(from, to);
+  });
+  assert.throws(() => copyProject(source, dest, { replace: true }), /previous project is preserved at/);
+  const staging = path.join(root, fs.readdirSync(root).find(name => name.startsWith('.studio-copy-')));
+  const previous = path.join(staging, '.versions', fs.readdirSync(path.join(staging, '.versions'))[0]);
+  assert.equal(fs.readFileSync(path.join(previous, 'studio.json'), 'utf8'), 'previous');
+  assert.equal(fs.readFileSync(path.join(source, 'studio.json'), 'utf8'), 'source');
+});
+
 test('removing a library device preserves existing hardware across localized designs and templates', () => {
   const project = { devices: { phone: { size: [1320, 2868], capture: 'phone' } }, slides: [{ id: 'one', layouts: { phone: { layers: [{ profile: 'iphone' }] } }, localeLayouts: { sv: { phone: { overrides: { hero: { profile: 'iphone' } } } } } }], templates: { reuse: { layouts: { phone: { layers: [{ profile: 'iphone' }] } } } } };
   const frames = { real: { screen: { w: 1206, h: 2622 } } };
@@ -182,6 +252,21 @@ test('manual text height includes glyphs on a single line, not only baseline dis
   assert.equal(tooShort.overflow, true);
   const fits = layoutText(ctx, 'Hello', { family: 'system-ui', size: 100, minSize: 20, boxW: 1000, heightIncludesGlyphs: true, maxHeight: 40 });
   assert.equal(fits.overflow, false); assert.ok(fits.size < 45);
+});
+test('fill-frame text grows, preserves Enter breaks and shrinks to the full glyph bounds', () => {
+  const ctx = { font: '', measureText(text) { const size = Number(/([0-9.]+)px/.exec(this.font)[1]); return { width: text.length * size * 0.5, actualBoundingBoxAscent: size * 0.7, actualBoundingBoxDescent: size * 0.2 }; } };
+  const options = { family: 'system-ui', size: 24, minSize: 20, maxLines: 1, boxW: 500, maxHeight: 300, lineHeight: 1.2, fitFrame: true, oneLine: 0.5 };
+  const fitted = layoutText(ctx, 'Hello\nworld', options);
+  assert.deepEqual(fitted.lines.map(l => l.text), ['Hello', 'world']);
+  assert.equal(fitted.overflow, false); assert.ok(fitted.size > 100);
+  assert.ok(fitted.height + fitted.ascent + fitted.descent <= 300);
+  assert.ok(fitted.height + fitted.ascent + fitted.descent > 298);
+  const bigger = layoutText(ctx, 'Hello\nworld', { ...options, boxW: 1000, maxHeight: 600 });
+  assert.ok(bigger.size > fitted.size * 1.99);
+  const smaller = layoutText(ctx, 'Hello\nworld', { ...options, maxHeight: 30 });
+  assert.ok(smaller.size < options.minSize); assert.equal(smaller.overflow, false);
+  const manual = layoutText(ctx, 'Hello', { ...options, fitFrame: false });
+  assert.equal(manual.size, 24, 'Existing manual sizes must not grow');
 });
 test('alignment and equal spacing preserve layer sizes and locked layers', () => {
   const layers = [0, 40, 100].map((x, i) => ({ id: String(i), _box: { x, y: i * 20, w: 20, h: 10 } }));

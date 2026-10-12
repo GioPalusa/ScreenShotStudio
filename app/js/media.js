@@ -1,5 +1,15 @@
 import { resolveLayers } from './layouts.js';
 import { deviceForLayer, profilesFor } from './profiles.js';
+import { originalLocale } from './copy-review.js';
+
+/** A language override wins; otherwise use the shared image or the original language's image. */
+export function captureSourceFor(project, captures, localeId, set, name) {
+  for (const scope of [...new Set([localeId, 'default', originalLocale(project)])]) {
+    const hit = captures[scope]?.[set]?.[name];
+    if (hit) return { ...hit, scope, localized: scope === localeId };
+  }
+  return null;
+}
 
 export function screenshotCollections(project, captures = {}) {
   const labels = new Map();
@@ -15,7 +25,7 @@ export function captureUsage(project, captures, { scope, set, name }) {
   for (const slide of project.slides) for (const [deviceId, canvas] of Object.entries(project.devices)) for (const locale of project.locales) {
     for (const layer of resolveLayers({ project, slide, deviceId, localeId: locale.id }).layers) {
       if (layer.type !== 'device' || layer.capture !== name || deviceForLayer(project, canvas, layer).capture !== set) continue;
-      const source = captures[locale.id]?.[set]?.[name] ? locale.id : 'default';
+      const source = captureSourceFor(project, captures, locale.id, set, name)?.scope;
       if (source === scope) uses.push({ slideId: slide.id, deviceId, localeId: locale.id, layerId: layer.id });
     }
   }

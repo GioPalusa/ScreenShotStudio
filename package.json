@@ -7,7 +7,7 @@
     "start": "node studio.mjs",
     "export": "node studio.mjs export",
     "test": "node tools/check.mjs",
-    "desktop": "electron .",
+    "desktop": "node node_modules/electron/cli.js .",
     "package": "node tools/package.mjs",
     "test:render": "node tools/render-test.mjs",
     "release:zip": "node tools/release-zip.mjs"

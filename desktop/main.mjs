@@ -11,6 +11,7 @@ import { isProjectFile, projectName, projectFilename } from '../app/js/project-f
 import { startupProject } from '../app/js/onboarding.js';
 import { createNewProject } from '../host/new-project.mjs';
 import { importFrameDiskImage } from '../host/disk-image-frames.mjs';
+import { createTranslationSettings } from './translation-settings.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ORIGIN = 'studio://local';
@@ -23,6 +24,16 @@ const settingsFile = () => path.join(app.getPath('userData'), 'projects.json');
 const allowedExternal = url => ['https://www.palusa.se', 'https://developer.apple.com/', 'https://support.google.com/googleplay/', 'https://developer.android.com/'].some(origin => origin.endsWith('/') ? url.startsWith(origin) : url === origin || url.startsWith(origin + '/'));
 const saveSettings = () => atomicWrite(settingsFile(), JSON.stringify(settings, null, 2));
 const trusted = event => event.sender === win?.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`);
+let translationSettings;
+const getTranslationSettings = () => translationSettings ??= createTranslationSettings({ root: ROOT, userData: app.getPath('userData'), packaged: app.isPackaged });
+ipcMain.handle('studio:translation-settings', async (event, operation, value) => {
+  if (!trusted(event)) throw new Error('Forbidden');
+  const store = getTranslationSettings();
+  if (operation === 'load') return store.load(value);
+  if (operation === 'save') return store.save(value);
+  if (operation === 'forget') return store.forget(value);
+  throw new Error('Invalid settings action.');
+});
 
 async function flush() {
   if (!win || !service) return;
@@ -63,7 +74,7 @@ async function chooseDestination(title, name, { allowReplace = false } = {}) {
     // The native panel confirms replacement of its returned path. If adding the
     // project extension changes that path, confirm the actual destination too.
     if (path.resolve(dest) !== path.resolve(result.filePath)) {
-      const confirmation = await dialog.showMessageBox(win, { type: 'warning', message: `Replace “${path.basename(dest)}”?`, detail: 'A new project will replace it. The previous project will be kept as a saved version.', buttons: ['Cancel', 'Replace'], defaultId: 0, cancelId: 0 });
+      const confirmation = await dialog.showMessageBox(win, { type: 'warning', message: `Replace “${path.basename(dest)}”?`, detail: 'The project being saved will replace it. The previous project will be kept as a saved version.', buttons: ['Cancel', 'Replace'], defaultId: 0, cancelId: 0 });
       if (confirmation.response !== 1) return null;
     }
   }
@@ -85,8 +96,11 @@ async function action(name, options = null) {
       const replace = fs.existsSync(dest);
       await flush(); createNewProject(dest, options, { replace }); await openProject(dest, { created: true });
     } else if (name === 'save-as') {
-      const dest = await chooseDestination('Save project as', `${projectName(path.basename(current))} copy`); if (!dest) return;
-      await flush(); copyProject(current, dest); await openProject(dest);
+      const dest = await chooseDestination('Save project as', `${projectName(path.basename(current))} copy`, { allowReplace: true }); if (!dest) return;
+      const replace = fs.existsSync(dest);
+      await flush();
+      if (replace && fs.lstatSync(dest).isDirectory() && fs.realpathSync(dest) === current) return;
+      copyProject(current, dest, { replace }); await openProject(dest);
     } else if (name === 'save') await flush();
     else if (name === 'snapshot') {
       await flush();

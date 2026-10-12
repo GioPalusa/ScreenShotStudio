@@ -3,7 +3,7 @@
 import { engine, state, flushSaves } from '../store.js';
 import { preflightScene, preflightSelection } from '../preflight.js';
 import { SPEC_URL, SPEC_CHECKED_AT, PLAY_SPEC_URL, PLAY_SPEC_CHECKED_AT } from '../export-targets.js';
-import { copyNeedsReview } from '../copy-review.js';
+import { localeNeedsReview } from '../copy-review.js';
 import { Engine, renderToBytes } from '../render.js';
 import { h, modal, toast, localeLabel } from './helpers.js';
 import { warningList } from './warnings.js';
@@ -161,7 +161,7 @@ export function openExport(ctx, previous = null) {
   };
   form.append(summary,
     h('div', { class: 'export-columns' },
-      group('Languages', project.locales.map(l => ({ id: l.id, label: localeLabel(l), note: copyNeedsReview(engine.data.copy[l.id]) ? 'Needs review' : '' })), pick.locales),
+      group('Languages', project.locales.map(l => ({ id: l.id, label: localeLabel(l), note: localeNeedsReview(project, engine.data.copy, l.id) ? 'Needs review' : '' })), pick.locales),
       group('Canvases', Object.entries(project.devices).map(([id, d]) => ({ id, label: d.label, note: `${d.size[0]} × ${d.size[1]} px` })), pick.devices),
       group('Slides', project.slides.map((s, i) => ({ id: s.id, label: `${i + 1}. ${s.name ?? s.id}` })), pick.slides)),
     readiness,

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execBrowserTest as execFile } from './browser-test-runner.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
 import { createNewProject } from '../host/new-project.mjs';
@@ -113,7 +113,7 @@ try {
   service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
   server = http.createServer((req, res) => service.handle(req, res, server.address().port));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, '--virtual-time-budget=15000', '--dump-dom', `http://127.0.0.1:${server.address().port}/app/screen-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-screen-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-screen-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `http://127.0.0.1:${server.address().port}/app/screen-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-screen-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-screen-ui-dom.html', output); error ? reject(error) : resolve(output); }));
   const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
   const saved = JSON.parse(fs.readFileSync(path.join(projectPath, 'studio.json'))); assert.equal(saved.slides.find(s => s.id === 'second').name, 'Editor name'); assert.equal(saved.slideOrders.sv[0], 'second');
   console.log(verdict);

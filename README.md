@@ -45,9 +45,17 @@ Work on an entire screenshot row in **Edit all screens**, or refine one screen a
 
 Arrange text, screenshots, shapes and artwork as layers. Move, resize, rotate and align objects on the canvas. Save reusable designs, duplicate screens, and undo changes. Device illustrations and imported frames are separate from the output canvas, so a design can adapt to different store formats.
 
+Select a text layer and choose **Text size → Fill frame** in Details to grow or shrink the text to its frame. Enter keeps a line break; resizing the frame updates the text size. **Max size** keeps the existing size limit, and **Auto text height** lets the frame follow the text again.
+
 ### Every language in one project
 
 Edit translations alongside the design, preview right-to-left layouts, and export or import review CSVs. Each language keeps its own copy and review status. One portable project produces every language × canvas × screen.
+
+Choose the original language in Translate; its text does not need translation review. **Translate all…** translates every screen to all target languages in one run, with one Undo for the result. Translate with OpenAI or Claude using a suggested model, or choose **Load models from API** to fetch the models available to your key. Model selections and lists are remembered per provider; the Mac app stores API keys in macOS Keychain, outside your project. **Forget saved key** removes a provider's key. Browser development mode remembers models without saving keys. Removed text layers disappear from Translate while their saved copy remains available for undo. **Mark screen reviewed** approves one screen; **Mark design reviewed** approves every screen in that language.
+
+A language-specific screenshot overrides the standard screenshot. When it is absent, the standard screenshot is used automatically; if there is no separate standard image, the original language's screenshot is used.
+
+Languages without their own screen order follow the original language's order, including the shared canvas. Missing translated text previews the original copy with its original text direction.
 
 ### Export with confidence
 

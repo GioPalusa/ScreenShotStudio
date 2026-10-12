@@ -904,6 +904,7 @@ export function createEditor(ctx) {
     ed.scene = scene;
     updateChips(report);
     ed.panel?.updateGeometry?.();
+    stageApi.render();
   }
 
   canvas.addEventListener('rendered', (e) => {
@@ -925,7 +926,7 @@ export function createEditor(ctx) {
       chipsEl.append(h('span', { class: 'chip info' }, `Editing saved design · affects ${n} slide${n === 1 ? '' : 's'}`), h('button', { class: 'btn small', onClick: () => ed.editTemplate(null) }, 'Done'));
     }
     const slide = currentSlide();
-    if (!state.ui.allScreens && !ed.editTemplateId && (slide.layouts?.[state.ui.device]?.independent || ed.localeScope())) chipsEl.append(h('span', { class: 'chip info', title: 'This image has its own layout. Shared design changes do not reach it.' }, 'Unique design'));
+    if (!state.ui.allScreens && !ed.editTemplateId && ed.localeScope()) chipsEl.append(h('span', { class: 'chip info', title: 'Only this screen in this language has its own layout.' }, 'Unique design'));
     const issues = visibleWarnings(report);
     if (!issues.length) { if (!ed.editTemplateId) chipsEl.append(h('button', { class: 'chip ok', title: 'The preview rendered. Run export checks to verify text, images and output sizes.', onClick: () => ctx.openExport() }, 'Check export…')); return; }
     chipsEl.append(warningButton({ issues, name: state.ui.allScreens ? 'All screens' : slide.name ?? slide.id,
@@ -1061,22 +1062,16 @@ export function createEditor(ctx) {
     if (state.ui.allScreens) return h('div', { class: 'layout-scope shared-scope' }, h('b', null, 'Editing all screens'), h('div', { class: 'hint' }, 'Objects can continue across screens by default. Use Screen edges in Details to keep an object on one screen.'));
     if (ed.layerById(ed.selectedId)?._sharedId) return h('div', { class: 'layout-scope shared-scope' }, h('b', null, 'Shared object'), h('div', { class: 'hint' }, 'Edits update every screen this object overlaps.'), h('button', { class: 'btn small', onClick: selectAllScreens }, 'Open all screens'));
     const slide = currentSlide(), project = engine.project, deviceId = state.ui.device, localeId = state.ui.locale;
-    const unique = Boolean(slide.layouts?.[deviceId]?.independent || slide.localeLayouts?.[localeId]?.[deviceId]?.independent);
-    return h('div', { class: 'layout-scope' }, h('label', { class: 'scope-check', title: 'Give this image its own layout, separate from its saved design, other canvas sizes and languages.' },
+    const unique = Boolean(slide.localeLayouts?.[localeId]?.[deviceId]?.independent);
+    return h('div', { class: 'layout-scope' }, h('label', { class: 'scope-check', title: 'Give only this screen in the selected language its own layout.' },
       h('input', { type: 'checkbox', checked: unique, disabled: Boolean(ed.editTemplateId), onChange: async e => {
         const enabled = e.target.checked;
         if (!enabled && !(await confirmDialog({ title: 'Use the shared design again?', body: 'Unique layout changes for this canvas and language will be discarded. Text translations and colours are kept. You can undo this change.', confirmLabel: 'Use shared design' }))) { e.target.checked = true; return; }
         if (engine.project !== project || currentSlide() !== slide || state.ui.device !== deviceId || state.ui.locale !== localeId) return;
         checkpoint();
-        if (enabled) {
-          setLayoutIndependent(project, slide, deviceId, true);
-          setLayoutIndependent(project, slide, deviceId, true, localeId);
-        } else {
-          setLayoutIndependent(project, slide, deviceId, false, localeId);
-          setLayoutIndependent(project, slide, deviceId, false);
-        }
+        setLayoutIndependent(project, slide, deviceId, enabled, localeId);
         ed.editTemplateId = null; saveStudio(); ed.refresh({ immediate: true, inspector: true });
-      } }), h('span', null, h('b', null, 'Unique design'), h('small', null, 'Excluded from the shared layout.'))));
+      } }), h('span', null, h('b', null, 'Unique design'), h('small', null, 'This screen and language only.'))));
   }
 
   // ---------------------------------------------------------------------------------------------

@@ -5,12 +5,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 import { encodePNG } from '../tools/png.mjs';
 import { ExportSessions } from './export-sessions.mjs';
 import { atomicWrite, revision, assertInside } from './files.mjs';
 import { migrateDocument, validateDocument } from '../app/js/document.js';
 import { installedFonts } from './fonts.mjs';
-import { translateText } from './translation.mjs';
+import { translateText, listTranslationModels } from './translation.mjs';
 import { readImportArchive } from './import-archive.mjs';
 
 export function createStudioService({ appPath, projectPath, exportPath, origin = null, onChange = () => {} }) {
@@ -315,11 +316,14 @@ async function api(req, res, url, method) {
   if (p === '/api/project' && method === 'GET') return json(res, 200, loadProjectBundle());
   if (p === '/api/fonts' && method === 'GET') return json(res, 200, await installedFonts());
   if (p === '/api/import/archive' && method === 'POST') return json(res, 200, readImportArchive(await readBody(req, 64 * 1024 * 1024)));
-  if (p === '/api/translate' && method === 'POST') {
+  if (['/api/translate', '/api/translate/models'].includes(p) && method === 'POST') {
     const controller = new AbortController();
     const cancel = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', cancel);
-    try { return json(res, 200, await translateText(await readJSONBody(req, 192 * 1024), { signal: controller.signal })); }
+    try {
+      const input = await readJSONBody(req, 192 * 1024);
+      return json(res, 200, await (p.endsWith('/models') ? listTranslationModels : translateText)(input, { signal: req.signal ? AbortSignal.any([controller.signal, req.signal]) : controller.signal }));
+    }
     finally { res.removeListener('close', cancel); }
   }
 
@@ -565,10 +569,14 @@ async function request(request) {
   if (url.host !== 'local') return new Response('Forbidden', { status: 403 });
   const req = Readable.from(request.body ? [Buffer.from(await request.arrayBuffer())] : []);
   req.method = request.method; req.url = url.pathname + url.search;
+  req.signal = request.signal;
   req.headers = Object.fromEntries(request.headers); req.headers.host = 'local';
   let status = 200, headers = {}, chunks = [];
-  const res = { writeHead(code, h = {}) { status = code; headers = h; }, write(data) { chunks.push(Buffer.from(data)); }, end(data) { if (data) chunks.push(Buffer.from(data)); } };
+  const res = Object.assign(new EventEmitter(), { writableEnded: false, writeHead(code, h = {}) { status = code; headers = h; }, write(data) { chunks.push(Buffer.from(data)); }, end(data) { if (data) chunks.push(Buffer.from(data)); this.writableEnded = true; } });
+  const cancel = () => res.emit('close');
+  request.signal.addEventListener('abort', cancel, { once: true });
   try { await handle(req, res, 0); } catch (error) { return new Response(error.message, { status: 500 }); }
+  finally { request.signal.removeEventListener('abort', cancel); }
   return new Response(request.method === 'HEAD' ? null : Buffer.concat(chunks), { status, headers });
 }
 return { handle, request, loadProjectBundle, startWatching, exportLog, close() { sessions.close(); watcher?.close(); clearTimeout(watchTimer); for (const c of clients) c.end(); } };

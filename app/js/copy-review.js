@@ -1,5 +1,21 @@
 import { copyFields } from './copy-fields.js';
 
+export const originalLocale = project => project.locales?.find(l => l.id === project.sourceLocale)?.id ?? project.locales?.[0]?.id;
+export const isOriginalLocale = (project, locale) => originalLocale(project) === locale;
+
+/** Review applies to translations and only to fields still used by the design. */
+export function localeNeedsReview(project, copy, locale, slideId = null, field = null) {
+  if (isOriginalLocale(project, locale)) return false;
+  return project.slides.filter(s => slideId === null || s.id === slideId).some(slide =>
+    copyFields(project, copy, slide, locale).some(key => (field === null || key === field) && copyNeedsReview(copy[locale], slide.id, key)));
+}
+
+export function setSlideReviewed(project, copy, locale, slideId) {
+  const slide = project.slides.find(s => s.id === slideId);
+  if (!slide) return;
+  for (const field of copyFields(project, copy, slide, locale)) setFieldReview(project, copy, locale, slideId, field, false);
+}
+
 // One review policy for the editor, exchange files and final-export validation.
 export function copyNeedsReview(doc, slideId = null, field = null) {
   const meta = doc?._meta;

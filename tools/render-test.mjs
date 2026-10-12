@@ -238,6 +238,7 @@ try {
   assert.deepEqual(pixel(rotated, 550, 775), [255, 255, 255]);
   console.log('Decoration rendering: original affine image/path, moved and resized image, moved route, and 90-degree rotation passed pixel checks.');
   console.log('Design library: 24 final RGB exports passed across three designs, four canvas formats and two languages, with zero preflight warnings.');
+  execFileSync(process.execPath, ['tools/browser-runner-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-render-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/overview-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/export-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
@@ -246,6 +247,7 @@ try {
   execFileSync(process.execPath, ['tools/profiles-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/viewport-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/details-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/translation-view-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/translation-import-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/frame-import-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
