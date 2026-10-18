@@ -31,7 +31,7 @@ const results = await packager({
   ...(identity ? { osxSign: { identity, preAutoEntitlements: false, optionsForFile: () => ({ hardenedRuntime: true, entitlements: path.join(root, 'distribution', 'Studio.entitlements') }) } } : {}),
   icon,
   appCategoryType: 'public.app-category.graphics-design',
-  ignore: [/^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs$|mcp(?:\/|$))/, /^\/tests(?:\/|$)/],
+  ignore: [/^\/ai-workspace(?:\/|$)/, /(?:^|\/)[^/]+\.(?:sss|screenshotstudio)(?:\/|$)/i, /^\/(?:\.agents|\.codex|\.aws)(?:\/|$)/, /(?:^|\/)\.env(?:$|\.)|\.(?:p12|p8|pem|key|mobileprovision)$/i, /^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs$|mcp(?:\/|$))/, /^\/tests(?:\/|$)/],
   extendInfo: {
     CFBundleIconFile: 'ScreenshotStudio.icns',
     CFBundleDocumentTypes: [{ CFBundleTypeIconFile: 'ScreenshotStudio.icns', CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
@@ -59,6 +59,15 @@ for (const result of results) {
   };
   for (const folder of ['app', 'host', 'desktop', 'starter', 'skills']) compare(folder);
   assert.equal(fs.existsSync(path.join(bundled, 'project')), false, 'Private example project must not ship');
+  assert.equal(fs.existsSync(path.join(bundled, 'ai-workspace')), false, 'Local AI workspace must not ship');
+  const checkPublication = folder => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      assert.ok(!/\.(?:sss|screenshotstudio)$/i.test(entry.name), 'User project packages must not ship');
+      assert.ok(!/^\.env(?:$|\.)|\.(?:p12|p8|pem|key|mobileprovision)$/i.test(entry.name), 'Credential files must not ship');
+      if (entry.isDirectory()) checkPublication(path.join(folder, entry.name));
+    }
+  };
+  checkPublication(bundled);
   assert.equal(fs.existsSync(path.join(bundled, 'app/assets/frames')), false, 'Apple bezel artwork must not ship');
   const seed = JSON.parse(fs.readFileSync(path.join(bundled, 'starter', 'studio.json'), 'utf8'));
   assert.equal(Object.keys(seed.themes).length, 1);
