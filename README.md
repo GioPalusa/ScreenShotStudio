@@ -26,9 +26,9 @@
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-![Screenshot Studio editing the complete four-screen Pulse design](docs/assets/editor-demo.jpg)
+![Screenshot Studio 0.2.8 in dark mode, editing a four-screen Pulse design](docs/assets/editor-demo-0.2.8.jpg)
 
-*The built-in four-screen Pulse starter design, shown in the editor with original sample app content.*
+*The four-screen Pulse starter design in Screenshot Studio 0.2.8, with the new dark appearance and original sample app content.*
 
 > [!NOTE]
 > Build this with us. Designers, translators, developers and people shipping their first app are welcome. Share designs and ideas in [Discussions](https://github.com/GioPalusa/ScreenShotStudio/discussions), or tell us what needs improving in [Issues](https://github.com/GioPalusa/ScreenShotStudio/issues).
