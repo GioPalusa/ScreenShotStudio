@@ -2,6 +2,8 @@
 
 Call `catalog` for current sizes and `storeImages` workflow, then `read_project` for the latest document, revisions and active `projectSession`.
 
+For Apple artwork, follow `catalog.assetGuidance` and [the App Store review procedure](apple-assets.md). Header and search creatives have distinct purposes from app-in-use screenshots. Inspect template safe areas across placements before publishing.
+
 Use `add_store_images` rather than cloning screenshot slides into store artwork:
 
 ```json

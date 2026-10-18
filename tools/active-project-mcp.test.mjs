@@ -82,9 +82,13 @@ test('active MCP schemas default to the open project and require session identit
   const client = new Client({ name: 'active-test', version: '1' }), [a, b] = InMemoryTransport.createLinkedPair();
   t.after(() => client.close()); await server.connect(b); await client.connect(a);
   const list = (await client.listTools()).tools;
-  assert.equal(list.length, 9); assert.equal(list.some(t => t.name === 'create_project'), false);
+  assert.equal(list.length, 12); assert.equal(list.some(t => t.name === 'create_project'), false);
   assert.ok(!list.find(t => t.name === 'read_project').inputSchema.required?.includes('project'));
   assert.ok(list.find(t => t.name === 'save_document').inputSchema.required.includes('projectSession'));
+  for (const name of ['edit_layers', 'preview_project', 'preflight_project']) {
+    assert.ok(list.find(t => t.name === name).inputSchema.required.includes('projectSession'));
+    assert.equal((await client.callTool({ name, arguments: { ...(name === 'edit_layers' ? { revision: 'missing', edits: [{ op: 'remove', device: 'iphone', id: 'missing' }] } : {}), projectSession: 'old-session' } })).isError, true);
+  }
   const first = await client.callTool({ name: 'read_project', arguments: {} }); assert.equal(first.structuredContent.project, f.contexts[0].project);
   f.setCurrent(f.contexts[1]);
   const second = await client.callTool({ name: 'read_project', arguments: {} }); assert.equal(second.structuredContent.project, f.contexts[1].project);

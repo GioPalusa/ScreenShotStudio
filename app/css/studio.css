@@ -33,6 +33,15 @@ button { cursor: pointer; }
 .content { min-width: 0; min-height: 0; position: relative; }
 
 /* ---------- controls ---------- */
+.export-body.upload-transfer { gap: 16px; }
+.upload-outcome { text-align: center; padding: 20px 12px 8px; }
+.upload-outcome h3 { margin: 12px 0 8px; font-size: 24px; }
+.upload-outcome p { margin: 6px 0; }
+.upload-outcome-icon { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--panel-2); font-size: 34px; font-weight: 600; }
+.upload-outcome.success .upload-outcome-icon { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--panel)); }
+.upload-outcome.failed .upload-outcome-icon { color: var(--warn); }
+.export-body.upload-transfer > .label, .export-body.upload-transfer > .hint { margin: 0; text-align: center; justify-content: center; }
+.upload-result-actions { justify-content: center; flex-wrap: wrap; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line);
@@ -1060,9 +1069,6 @@ a { color: var(--link); }
 .product-mark.large { width: 64px; height: 64px; }
 .product-mark.large img { width: 40px; height: 40px; }
 :root[data-theme="dark"] .product-mark img { filter: brightness(0) invert(1); }
-.appearance-control { display: inline-flex; align-items: center; gap: 6px; flex: none; color: var(--muted); }
-.appearance-control .sf-symbol { width: 16px; height: 16px; }
-.appearance-control select { width: 94px; color: var(--text); }
 .input { border-color: var(--input-line); }
 .input:focus { outline-color: var(--focus); }
 .view-nav button[aria-pressed="true"] { border-color: var(--accent-text); }
@@ -1075,15 +1081,12 @@ a { color: var(--link); }
 .layer-tag:hover, .layer-tag:focus-visible, .neighbor-controls button[aria-pressed="true"],
 .workspace-screen-labels button:hover { color: var(--link); }
 
-/* Keep appearance within the existing toolbar at normal Mac window widths. */
+/* Keep the toolbar compact at normal Mac window widths. */
 .topbar { gap: 8px 6px; }
 .topbar > .product-mark { width: 40px; height: 40px; }
 .topbar > .product-mark img { width: 24px; height: 24px; }
 .topbar .view-nav button { padding-inline: 8px; gap: 6px; }
 .topbar .select-wrap select { width: 180px; }
-.topbar .appearance-control select { width: 82px; }
-
-.topbar .appearance-control .sf-symbol { display: none; }
 .topbar .guide-button { padding-inline: 10px; gap: 5px; font-size: 12px; }
 
 /* Store artwork leads; shared editing belongs to the phone row beneath it. */

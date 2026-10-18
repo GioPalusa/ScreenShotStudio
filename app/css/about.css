@@ -6,7 +6,6 @@
 .creator-credit .palusa-logo.dark { display: none; }
 :root[data-theme="dark"] .creator-credit .palusa-logo.light { display: none; }
 :root[data-theme="dark"] .creator-credit .palusa-logo.dark { display: block; }
-.about .appearance-control { justify-content: center; margin-top: 20px; }
 .creator-credit a { color: var(--link); }
 
 .about { overflow: auto; }

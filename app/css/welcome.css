@@ -24,7 +24,7 @@
 .welcome-page { background-repeat: no-repeat; background-attachment: fixed; }
 
 .welcome-header { flex-wrap: wrap; }
-.welcome-header .appearance-control { margin-left: auto; }
+.welcome-header .guide-button { margin-left: auto; }
 .welcome .welcome-preview { background: var(--preview-bg); color: var(--preview-ink); }
 .welcome-setup { box-shadow: none; }
 .welcome-page::before { content: ""; display: block; height: 2px; background: linear-gradient(90deg, #C0338B, #2EAAE1); }

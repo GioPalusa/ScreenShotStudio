@@ -23,7 +23,7 @@ export function openAppStoreUpload(exportPath) {
     if (uploading && jobId) void api('stop', { id: jobId }).catch(() => {});
   } });
   close.addEventListener('click', () => dialog.close());
-  const fail = error => { if (!closed) { status.className = 'err'; status.textContent = error.message; } };
+  const fail = error => { if (!closed) { status.hidden = false; status.className = 'err'; status.textContent = error.message; } };
   const say = message => { status.className = 'hint'; status.textContent = message; };
   const field = (label, control) => h('label', { class: 'field' }, h('span', { class: 'label' }, label), control);
   const invalidate = () => { generation++; plan = null; next.disabled = !versionId; next.textContent = 'Review images'; };
@@ -133,21 +133,37 @@ export function openAppStoreUpload(exportPath) {
     try {
       const job = await api('status', { id: jobId });
       if (closed) return;
-      say(job.message); steps.replaceChildren(transferSteps(job.state === 'complete' ? 4 : 3));
+      const running = job.state === 'running';
+      const complete = job.state === 'complete' && Number.isInteger(job.total) && job.total >= 0 && job.uploaded === job.total;
+      const detailsOpen = body.querySelector('details')?.open ?? false;
+      source.hidden = true; steps.hidden = true;
+      say(job.message);
+      status.hidden = complete;
+      body.className = 'export-body upload-transfer';
       body.replaceChildren(
-        ...(job.state === 'complete' ? [h('h3', null, 'Upload complete'), h('p', null, destination)] : []),
+        h('div', { class: `upload-outcome${complete ? ' success' : running ? '' : ' failed'}`, role: 'status', 'aria-live': 'polite' },
+          h('span', { class: 'upload-outcome-icon', 'aria-hidden': 'true' }, complete ? '✓' : running ? '↑' : '!'),
+          h('h3', null, complete ? 'Upload successful' : running ? 'Uploading to Apple' : job.state === 'stopped' ? 'Upload stopped' : 'Upload needs attention'),
+          h('p', null, destination),
+          complete ? h('p', { class: 'hint' }, job.total ? 'All images received. Placement and order confirmed.' : 'Existing images kept. No new images were needed.') : null),
         ...(job.total ? [h('p', { class: 'label' }, `${job.uploaded} / ${job.total} screenshots received by Apple`)] : []),
-        ...(job.locales ? [h('p', null, `${job.locales.length} languages · ${job.keptGroups?.length ?? 0} existing language/screen groups kept`)] : []),
-        h('progress', { class: 'upload-progress', max: job.total || 1, value: job.uploaded, 'aria-label': 'Images received by Apple' }),
-        h('details', { class: 'disclosure' }, h('summary', null, 'Transfer details'), h('div', { class: 'result-list' }, job.files.map(f => h('p', null, `${f.locale} · ${f.filename} · ${f.state}`)))),
+        ...(job.locales?.length ? [h('p', { class: 'hint' }, `${job.locales.length} languages${job.keptGroups?.length ? ` · ${job.keptGroups.length} existing groups kept` : ''}`)] : []),
+        ...(running ? [h('progress', { class: 'upload-progress', max: job.total || 1, value: job.uploaded, 'aria-label': 'Images received by Apple' })] : []),
+        h('details', { class: 'disclosure', open: detailsOpen }, h('summary', null, 'Transfer details'), h('div', { class: 'result-list' }, (job.files ?? []).map(f => h('p', null, `${f.locale} · ${f.filename} · ${f.state}`)))),
       );
-      if (job.state === 'running') { timer = setTimeout(poll, 1000); return; }
-      uploading = false; close.textContent = 'Close';
-      if (job.state !== 'complete') status.className = 'err';
-      body.append(h('p', { class: 'hint' }, job.state === 'complete' ? 'Apple has received all screenshots, and their placement and order are confirmed. Check image processing and any further issues in App Store Connect. You can close this window.' : 'Some images or placements may already exist in App Store Connect. Review the report and the app version before uploading again. Stopping does not undo completed changes.'),
-        h('button', { class: 'btn primary', onClick: () => api('open-app', { id: jobId }).catch(fail) }, 'Open App Store Connect'),
-        h('button', { class: 'btn', onClick: () => api('report', { id: jobId }).catch(fail) }, 'Show upload report'));
+      if (running) { timer = setTimeout(poll, 1000); return; }
+      uploading = false; close.textContent = complete ? 'Done' : 'Close'; close.className = 'btn primary';
+      if (!complete) status.className = 'err';
+      body.append(h('p', { class: 'hint' }, complete ? 'Check image processing in App Store Connect. You can close this window.' : 'Some images may already be uploaded. Check App Store Connect before trying again.'),
+        h('div', { class: 'row upload-result-actions' },
+          h('button', { class: 'btn', onClick: () => api('open-app', { id: jobId }).catch(fail) }, 'Open App Store Connect'),
+          h('button', { class: 'btn', onClick: () => api('report', { id: jobId }).catch(fail) }, 'Show upload report')));
       next.hidden = true;
+      const title = complete ? 'Upload successful' : 'Upload to App Store Connect';
+      dialog.el.querySelector('.modal-head h3').textContent = complete ? 'App Store Connect' : title;
+      dialog.el.querySelector('[role="dialog"]').setAttribute('aria-label', title);
+      dialog.el.querySelector('.modal-body').scrollTop = 0;
+      close.focus({ preventScroll: true });
     } catch (error) { fail(error); if (!closed) timer = setTimeout(poll, 3000); }
   }
   next.addEventListener('click', async () => {
@@ -158,6 +174,9 @@ export function openAppStoreUpload(exportPath) {
       const result = await api('start', { planId: plan.planId, acknowledgeWarnings }); jobId = result.id;
       if (closed) { await api('stop', { id: jobId }); return; }
       uploading = true; close.textContent = 'Stop and close'; next.textContent = 'Stop upload'; next.disabled = false;
+      source.hidden = true; steps.hidden = true;
+      body.replaceChildren(h('h3', null, 'Starting upload…'), h('p', { class: 'hint' }, destination));
+      dialog.el.querySelector('.modal-body').scrollTop = 0;
       await poll();
     } catch (error) { plan = null; next.textContent = 'Review images'; next.disabled = false; fail(error); }
   });

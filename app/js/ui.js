@@ -1,4 +1,3 @@
-import { appearanceControl } from './ui/appearance-control.js';
 import { icon } from './ui/icons.js';
 import { productMark } from './ui/brand.js';
 import { orderedSlides } from './project-ops.js';
@@ -115,7 +114,7 @@ export function mountStudio(root) {
       h('button', { class: 'btn', title: 'Media library · ⇧⌘M', onClick: () => ctx.openMedia() }, 'Media'),
       h('button', { class: 'btn guide-button', title: 'Guides, MCP connection and skills', onClick: openGetStarted }, icon('book'), 'Guide & MCP'),
       h('div', { class: 'spacer' }),
-      h('div', { class: 'row topbar-actions' }, appearanceControl(), saveStatus,
+      h('div', { class: 'row topbar-actions' }, saveStatus,
         h('button', { class: 'btn primary', title: 'Export screenshots  ⌘E', onClick: ctx.openExport }, 'Export…')),
     );
   }

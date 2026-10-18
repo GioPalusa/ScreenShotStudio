@@ -19,8 +19,8 @@ Papper text and secondary #A9A3B4. Input outlines, status colours and focus
 rings have distinct semantic roles. The magenta-to-sky gradient is confined to
 a two-pixel edge seam; there are no gradient fields behind content.
 
-**System, Light and Dark** are available in the workspace and Welcome screen,
-and in the Mac app's View → Appearance menu. The preference belongs to the app,
+**System, Light and Dark** are available in the Mac app's View → Appearance menu.
+The preference belongs to the app,
 not a project. Mac preferences are saved outside documents, synchronize all app
 windows, and update native controls. Browser development mode keeps the choice
 in local storage. System appearance follows OS changes. Changing appearance

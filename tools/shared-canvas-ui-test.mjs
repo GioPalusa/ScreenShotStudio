@@ -27,7 +27,7 @@ try {
   const waitFor = async fn => { for (let i = 0; i < 500; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); } throw new Error('Timed out waiting for UI'); };
   const button = name => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === name);
   try {
-    const { engine, state, loadAll, flushSaves, undo, redo } = await import('/app/js/store.js');
+    const { engine, state, loadAll, flushSaves, undo, redo, validateSelection } = await import('/app/js/store.js');
     const { createEditor } = await import('/app/js/ui/editor.js');
     const { sharedBlock } = await import('/app/js/shared-canvas.js');
     const { moveLayerTo } = await import('/app/js/layer-ops.js');
@@ -168,6 +168,17 @@ try {
     ed.addLayer('device'); await deviceRendered;
     check(document.querySelector('.rail-list [data-id="c"] .warning-mark')?.textContent==='⚠','Missing capture shows a warning triangle after rendering');
     check(!document.querySelector('.rail-list .dot'),'Editor warning badges use triangles');
+    const phoneSource=JSON.stringify(engine.project.sharedCanvas.phone);
+    engine.project.devices.ipad={...engine.project.devices.phone,label:'iPad',size:[600,800],layout:'tablet'};
+    state.ui.device='ipad';state.ui.screenshotDevice='ipad';state.ui.allScreens=false;editor.build();
+    document.querySelector('.all-screens-option').click();
+    await waitFor(()=>ed.scene?.allScreens&&ed.scene.deviceId==='ipad');
+    validateSelection();check(state.ui.allScreens&&state.ui.device==='ipad','Selection validation preserves iPad all-screens mode');
+    check(document.querySelector('.all-screens-option').getAttribute('aria-label').includes('iPad'),'Shared button identifies iPad');
+    ed.addLayer('shape');await waitFor(()=>sharedBlock(engine.project,'ipad').layers.length===1);
+    check(JSON.stringify(engine.project.sharedCanvas.phone)===phoneSource,'iPad shared edits preserve the phone row');
+    undo();await waitFor(()=>!engine.project.sharedCanvas?.ipad?.layers?.length);
+    await flushSaves();await loadAll();check(state.ui.device==='ipad'&&state.ui.allScreens,'iPad shared mode survives reload');
     result.textContent='PASS: All screens first, store spacing presets, fractional custom spacing, undo, visible gaps, shared image on both screens, edits from a single screen, isolated local overflow, grouped screen choices, default sharing in workspace, editable scope and persistent containment, copy/paste with independent text, undo/redo, unique IDs, shared duplication/deletion, text editing, persistence and warning triangles';
   } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
   </script></body></html>`);

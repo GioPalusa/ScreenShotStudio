@@ -22,7 +22,7 @@ const post = async (url, data) => {
   const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
   const body = await response.json(); if (!response.ok) throw new Error(body.error ?? 'Export failed'); return body;
 };
-const fontAvailable = stack => {
+export const fontAvailable = stack => {
   // Check the first requested face; a silent fallback changes the composition.
   const family = (stack ?? 'sans-serif').split(',')[0].trim().replace(/^['"]|['"]$/g, '');
   if (/^(serif|sans-serif|monospace|system-ui|ui-rounded|ui-serif|ui-sans-serif)$/.test(family)) return true;
@@ -292,6 +292,12 @@ export async function runHeadless(params) {
     for (const id of devices) if (!project.devices[id]) throw new Error(`Unknown device “${id}”. Known: ${Object.keys(project.devices).join(', ')}`);
     const slides = slideIds ? project.slides.filter((s) => slideIds.includes(s.id)) : project.slides;
     if (slideIds && slides.length !== slideIds.length) throw new Error(`Unknown slide in “${slideIds.join(',')}”. Known: ${project.slides.map((s) => s.id).join(', ')}`);
+    if (params.get('inspect') === '1') {
+      const { inspectProject } = await import('../agent-inspection.js');
+      const inspection = await inspectProject({ locales, devices, slides, checkOnly: params.get('checkOnly') === '1' });
+      await post('/api/export-done', { inspection });
+      return;
+    }
     let last = 0;
     const results = await runExport({
       locales, devices, slides, mode: params.get('strict') === '1' ? 'final' : 'draft', allowPlaceholders: params.get('placeholders') === '1',

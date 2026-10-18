@@ -9,6 +9,8 @@ import { assertInside } from './files.mjs';
 import { EXPORT_TARGETS } from '../app/js/export-targets.js';
 import { STARTER_DESIGNS, STARTER_PALETTES, previewStarterDesign } from '../app/js/design-library.js';
 import { addStoreImages, STORE_IMAGE_SETS } from '../app/js/store-images.js';
+import { editingInventory, editLayers } from '../app/js/agent-edits.js';
+import { APP_STORE_ASSET_GUIDANCE } from '../app/js/app-store-asset-guidance.js';
 
 export const STORE_IMAGE_CATALOG = {
   tool: 'add_store_images', sets: STORE_IMAGE_SETS,
@@ -74,9 +76,44 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
     if (boundProject && !file.startsWith(boundProject + path.sep) && !file.startsWith(path.join(root, 'inputs') + path.sep)) throw new Error('Use images in the active project or its adjacent inputs folder.');
     return file;
   };
+  const inspect = (input, checkOnly) => withProject(input.project, async (s, source) => {
+    const bundle = s.loadProjectBundle(), project = bundle.studio;
+    const selection = {
+      locales: input.locales ?? (checkOnly ? project.locales.map(l => l.id) : [project.sourceLocale ?? project.locales[0].id]),
+      devices: input.devices ?? Object.keys(project.devices), slides: input.slides ?? project.slides.map(s => s.id),
+    };
+    for (const [key, available] of [['locales', project.locales.map(l => l.id)], ['devices', Object.keys(project.devices)], ['slides', project.slides.map(s => s.id)]]) {
+      const ids = selection[key];
+      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length || ids.some(id => !available.includes(id))) throw new Error(`Choose valid, unique ${key} IDs.`);
+    }
+    const base = boundProject ? path.join(boundProject, 'export', 'previews') : path.join(root, 'previews');
+    fs.mkdirSync(base, { recursive: true });
+    const destination = fs.mkdtempSync(path.join(base, 'ai-'));
+    try {
+      let result;
+      if (exportProject) result = await exportProject({ source, destination, mode: 'inspect', ...selection, checkOnly });
+      else {
+        const args = [path.join(ROOT, 'studio.mjs'), 'inspect', '--project', source, '--output', destination];
+        for (const [flag, key] of [['locale', 'locales'], ['device', 'devices'], ['slide', 'slides']]) args.push(`--${flag}`, selection[key].join(','));
+        if (checkOnly) args.push('--check-only');
+        await run(process.execPath, args, { cwd: ROOT, timeout: 31 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+        result = JSON.parse(fs.readFileSync(path.join(destination, 'inspection.json'), 'utf8'));
+        fs.unlinkSync(path.join(destination, 'inspection.json'));
+      }
+      if (!result?.report || !result.selection || !checkOnly && !result.image) throw new Error('Inspection produced no usable result.');
+      const { image, ...info } = result;
+      if (checkOnly) return info;
+      const file = path.join(destination, 'series.jpg'); fs.writeFileSync(file, Buffer.from(image, 'base64'));
+      const metadata = { ...info, file, mode: 'preview', next: 'Inspect this draft series. Resolve the reported issues before final export; translations remain draft until reviewed.' };
+      return { content: [{ type: 'text', text: JSON.stringify(metadata) }, { type: 'image', mimeType: 'image/jpeg', data: image }], structuredContent: metadata };
+    } catch (error) {
+      fs.rmSync(destination, { recursive: true, force: true });
+      throw new Error(`Inspection failed. ${error.stderr ?? error.message}`);
+    } finally { if (checkOnly) fs.rmSync(destination, { recursive: true, force: true }); }
+  });
   return {
-    catalog: async () => ({ workspace: boundProject ?? root, ...(boundProject ? { project: boundProject, inputDirectory: path.join(root, 'inputs'), mode: 'active-app' } : {}), targets: EXPORT_TARGETS, storeImages: STORE_IMAGE_CATALOG, designs: STARTER_DESIGNS, palettes: STARTER_PALETTES,
-      workflow: 'Create a project, read it, save editable studio/copy data using revisions, import real captures and optional AI artwork, export draft, inspect PNGs, resolve checks, export final.',
+    catalog: async () => ({ workspace: boundProject ?? root, ...(boundProject ? { project: boundProject, inputDirectory: path.join(root, 'inputs'), mode: 'active-app' } : {}), targets: EXPORT_TARGETS, assetGuidance: APP_STORE_ASSET_GUIDANCE, storeImages: STORE_IMAGE_CATALOG, designs: STARTER_DESIGNS, palettes: STARTER_PALETTES,
+      workflow: boundProject ? 'Read the open project and its editing inventory. Use edit_layers for targeted changes, save_copy for text, preview_project for a whole series, preflight_project for all selected languages, then export_project for final delivery.' : 'Create or read a project, import real captures, edit_layers and save_copy, preview_project to inspect the series, preflight_project, then export_project for final delivery.',
       capturePath: 'captures/<locale ID or default>/<device.capture>/<slide.capture>.png',
       artLayer: { id: 'artwork', type: 'art', src: '<file returned by import_media>', cx: 660, cy: 1400, w: 800, h: 800 },
     }),
@@ -88,7 +125,16 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
       createNewProject(destination, { target, ...(palette ? { palette } : {}) });
       return { project: destination, ...await withProject(destination, s => s.loadProjectBundle()) };
     },
-    read_project: async ({ project }) => withProject(project, s => s.loadProjectBundle()),
+    read_project: async ({ project }) => withProject(project, s => { const bundle = s.loadProjectBundle(); return { ...bundle, editing: editingInventory(bundle.studio) }; }),
+    edit_layers: async ({ project, edits, revision }) => withProject(project, async s => {
+      const bundle = s.loadProjectBundle();
+      if (expected(revision) !== bundle.revisions.studio) throw new Error('409: The document changed. Read the project again and reconcile this edit.');
+      const studio = editLayers(bundle.studio, edits);
+      const saved = await request(s, '/api/studio', { body: studio, revision: expected(revision) });
+      return { ...saved, edited: edits.length, editing: editingInventory(studio) };
+    }),
+    preview_project: input => inspect(input, false),
+    preflight_project: input => inspect(input, true),
     add_store_images: async ({ project, store, sizes, afterSlide, revision }) => withProject(project, async s => {
       const bundle = s.loadProjectBundle();
       if (afterSlide && !bundle.studio.slides.some(slide => slide.id === afterSlide)) throw new Error('Unknown slide to insert after.');

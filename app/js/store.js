@@ -1,4 +1,4 @@
-import { orderedSlides, phoneCanvasId } from './slide-order.js';
+import { orderedSlides, isStoreCanvas } from './slide-order.js';
 import { frameReferences, replaceFrameReferences } from './frame-ops.js';
 import { localeNeedsReview, setFieldReview, setSlideReviewed } from './copy-review.js';
 import { ensureReviewIdentity, applyReviewImport } from './review-exchange.js';
@@ -64,8 +64,7 @@ export function validateSelection() {
   if (!studio.devices[ui.device]) ui.device = Object.keys(studio.devices)[0];
   if (studio.devices[ui.device]?.screenScope !== 'store-image') ui.screenshotDevice = ui.device;
   if (!studio.devices[ui.screenshotDevice] || studio.devices[ui.screenshotDevice].screenScope === 'store-image') ui.screenshotDevice = Object.keys(studio.devices).find(id => studio.devices[id].screenScope !== 'store-image');
-  ui.phoneDevice = phoneCanvasId(studio, ui.device, ui.phoneDevice);
-  if (ui.allScreens && ui.device !== ui.phoneDevice) ui.allScreens = false;
+  if (ui.allScreens && isStoreCanvas(studio.devices[ui.device])) ui.allScreens = false;
   const slides = orderedSlides(studio, ui.locale, ui.device);
   if (!slides.some(s => s.id === ui.slideId)) ui.slideId = slides[0]?.id ?? null;
 }

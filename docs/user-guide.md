@@ -90,8 +90,7 @@ Upload uses Apple’s creative asset library category and the corresponding sear
 
 ### App appearance
 
-Choose **System**, **Light** or **Dark** in the appearance control in the toolbar
-or on Welcome. The Mac app also has **View → Appearance**. System follows your
+Choose **System**, **Light** or **Dark** in **View → Appearance**. System follows your
 Mac's appearance; an explicit choice stays in effect until you change it.
 The preference is shared across app windows and remembered between launches.
 It changes the workspace colours, while your screenshot artwork keeps its own

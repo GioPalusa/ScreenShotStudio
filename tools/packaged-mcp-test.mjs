@@ -18,6 +18,7 @@ const root = path.join(bundle, 'Contents', 'Resources', 'app');
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/SKILL.md')));
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/editing.md')));
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/store-images.md')));
+assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/apple-assets.md')));
 assert.ok(fs.existsSync(path.join(root, 'node_modules/@modelcontextprotocol/sdk/package.json')));
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-packaged-mcp-'));
 const client = new Client({ name: 'packaged-studio-verification', version: '1.0.0' });
@@ -26,13 +27,18 @@ let errors = '';
 const call = (name, args) => client.callTool({ name, arguments: args }, undefined, { timeout: 90000 });
 try {
   const probe = await testAgentConnection({ command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--workspace', workspace] });
-  assert.equal(probe.tools, 10);
+  assert.equal(probe.tools, 13);
   const connecting = client.connect(transport, { timeout: 30000 });
   transport.stderr?.on('data', bytes => { if (errors.length < 10000) errors += bytes.toString(); });
   await connecting;
-  assert.equal((await client.listTools()).tools.length, 10);
+  assert.equal((await client.listTools()).tools.length, 13);
   const catalog = await call('catalog', {}); assert.equal(catalog.structuredContent.workspace, fs.realpathSync(workspace));
   const created = await call('create_project', { project: 'Demo.sss' }); assert.ok(!created.isError, JSON.stringify(created));
+  const check = await call('preflight_project', { project: 'Demo.sss' });
+  assert.ok(!check.isError, JSON.stringify(check)); assert.equal(check.structuredContent.ready, false);
+  const preview = await call('preview_project', { project: 'Demo.sss' });
+  assert.ok(!preview.isError, JSON.stringify(preview)); assert.equal(preview.content[1].mimeType, 'image/jpeg');
+  assert.ok(fs.existsSync(preview.structuredContent.file));
   const draft = await call('export_project', { project: 'Demo.sss', allowPlaceholders: true });
   assert.ok(!draft.isError, JSON.stringify(draft));
   const file = draft.structuredContent.files[0]; const png = fs.readFileSync(file.absolutePath);
@@ -66,7 +72,7 @@ try {
   const activeClient = new Client({ name: 'packaged-active-verification', version: '1.0' });
   try {
     const connection = { command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--active-app', '--app-data', appData] };
-    assert.equal((await testAgentConnection(connection)).tools, 9);
+    assert.equal((await testAgentConnection(connection)).tools, 12);
     await activeClient.connect(new StdioClientTransport({ ...connection, stderr: 'pipe' }), { timeout: 30000 });
     const first = (await activeClient.callTool({ name: 'read_project', arguments: {} })).structuredContent;
     assert.equal(first.project, projectA); first.studio.slides[0].name = 'Active app edit';

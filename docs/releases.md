@@ -30,6 +30,16 @@ The first updater-enabled release still needs to be signed, notarized and publis
 
 Sources: [Electron autoUpdater](https://www.electronjs.org/docs/latest/api/auto-updater), [Electron updating guide](https://www.electronjs.org/docs/latest/tutorial/updates), [update service asset names](https://github.com/electron/update.electronjs.org#asset-naming-convention).
 
+## 0.2.9 (10) — 18 October 2026
+
+- A compact upload view with a clear success check, verified receipt count and Done action. Interrupted or incomplete uploads remain distinct from success.
+- Edit all screens now follows the selected screenshot canvas, including iPad, with isolated shared edits and undo support.
+- New MCP tools for targeted layer edits, whole-series previews and renderer-based preflight, plus reusable design, refinement and translation prompts.
+- Apple asset guidance in the MCP catalog, preview/preflight results and bundled skill, with overlay-copy advisories and a visual-review checklist.
+- Appearance selection lives in View → Appearance; duplicate selectors were removed from the toolbar, Welcome and About.
+
+- Apple silicon (arm64), macOS 13 or later.
+
 ## 0.2.8 (9) — 18 October 2026
 
 - PALUSA appearance with System, Light and Dark modes across the editor, Welcome and About.

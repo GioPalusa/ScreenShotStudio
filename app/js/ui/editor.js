@@ -2,7 +2,7 @@ import { sharedBlock, sharedGeometry, sharedLayerId, patchSharedLayer, offsetLay
 import { canvasForSlide } from '../canvas-orientation.js';
 import { orientationPicker } from './canvas-orientation.js';
 import { orderedSlides, insertSlideAfter, removeDevice } from '../project-ops.js';
-import { screenCanvasId, isStoreCanvas, isStoreSlide, phoneCanvasId } from '../slide-order.js';
+import { screenCanvasId, isStoreCanvas, isStoreSlide, screenshotCanvasId } from '../slide-order.js';
 import { addStoreImages } from '../store-images.js';
 import { moveScreen, renameScreen } from './slide-actions.js';
 import { editLayerTag } from './layer-tag.js';
@@ -575,12 +575,12 @@ export function createEditor(ctx) {
   // slide rail
 
   function buildRail() {
-    const phone = phoneCanvasId(engine.project, state.ui.device, state.ui.phoneDevice);
+    const phone = screenshotCanvasId(engine.project, state.ui.device, state.ui.screenshotDevice);
     const count = phone ? orderedSlides(engine.project, state.ui.locale, phone).length : 0;
     allScreens.hidden = !phone || !count;
     allScreens.setAttribute('aria-pressed', String(Boolean(state.ui.allScreens && state.ui.device === phone)));
     screenCount.textContent = `${count} screen${count === 1 ? '' : 's'}`;
-    allScreens.setAttribute('aria-label', `Edit phone screens on ${engine.project.devices[phone]?.label ?? 'phone'} · ${count} screens`);
+    allScreens.setAttribute('aria-label', `Edit all screens on ${engine.project.devices[phone]?.label ?? 'canvas'} · ${count} screens`);
     for (const button of rail.querySelectorAll('.rail-foot .btn:not(.primary)')) button.disabled = Boolean(state.ui.allScreens);
     const slides = orderedSlides(engine.project, state.ui.locale);
     const deviceFor = slide => screenCanvasId(engine.project, slide, state.ui.device, state.ui.screenshotDevice);
@@ -798,11 +798,11 @@ export function createEditor(ctx) {
   }
 
   function selectAllScreens() {
-    const phone = phoneCanvasId(engine.project, state.ui.device, state.ui.phoneDevice);
+    const phone = screenshotCanvasId(engine.project, state.ui.device, state.ui.screenshotDevice);
     if (!phone) return;
     const slides = orderedSlides(engine.project, state.ui.locale, phone);
     if (!slides.length) return;
-    state.ui.device = phone; state.ui.phoneDevice = phone; state.ui.screenshotDevice = phone;
+    state.ui.device = phone; state.ui.screenshotDevice = phone;
     if (!slides.some(slide => slide.id === state.ui.slideId)) state.ui.slideId = slides[0].id;
     layerAliases.clear();
     state.ui.allScreens = true; ed.editTemplateId = null; ed.selectedIds.clear(); ed.selectedId = null; ed.scene = null;

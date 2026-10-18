@@ -3,6 +3,7 @@ import { SHORTCUTS } from '../shortcuts.js';
 import { GET_STARTED } from '../onboarding.js';
 import { h, modal, toast } from './helpers.js';
 import { icon } from './icons.js';
+import { AGENT_PROMPTS } from '../agent-prompts.js';
 const steps = items => h('ol', { class: 'getting-started guide-steps' }, items.map(([title, body, symbol = 'square.stack.3d.up'], index) =>
   h('li', null, h('span', { class: 'guide-pictogram' }, icon(symbol)), h('div', null, h('strong', null, h('span', { class: 'guide-step-number' }, `${index + 1}. `), title), h('p', null, body)))));
 const more = (title, ...body) => h('details', { class: 'disclosure guide-more' }, h('summary', null, title), h('div', { class: 'disclosure-body' }, ...body));
@@ -26,20 +27,20 @@ export function openGetStarted(initial = 'start') {
         h('h3', null, 'Store images'), h('p', null, 'Add screens → Store images creates an App Store Search result image and Header image, or a Google Play feature graphic.')))],
     ['mcp', 'Connect MCP', () => h('div', null, setup(),
       steps([['Connect', 'Choose your AI app and set up the connection.', 'square.on.square'], ['Restart your AI app', 'Look for Screenshot Studio in its tools.', 'arrow.uturn.forward'], ['Start creating', 'Keep Screenshot Studio open on the project you want to edit.', 'textformat']]),
-      more('Tool details', h('p', null, 'Ask the agent to call read_project to read your open project, catalog to see available formats, and add_store_images to add store artwork. The connection needs no API key. Uploads happen in the Mac app.')))],
+      more('Tool details', h('p', null, 'The agent reads your open project, makes targeted layer edits, and shows the whole series as a compact preview. Preflight checks all selected languages and sizes before export. The connection needs no API key. Uploads happen in the Mac app.')))],
     ['skills', 'Install the skill', () => h('div', null, setup(),
       h('p', null, 'Install the skill, then restart your AI app. It teaches the agent how to create editable screenshots.'),
-      h('h3', null, 'Try a first request'), code('Use the Screenshot Studio skill and MCP to create four editable App Store screenshots for my app. Read captures from inputs/ in the configured workspace. Start with the main benefit, keep copy short, and show me a draft before final export.'),
+      h('h3', null, 'Try a first request'), code('Use Screenshot Studio on my open project. Create a benefit-led series from my real captures for iPhone, iPad and both Duo sizes already in the project. Keep text editable, follow my app’s visual style, and show the full series before final export.'),
       more('Installation details', h('p', null, 'Codex reads ~/.agents/skills; Claude Code reads ~/.claude/skills. AI translations stay draft until you review them.')))],
     ['shortcuts', 'Keyboard shortcuts', () => h('div', { class: 'shortcut-grid' }, SHORTCUTS.map(([group, items]) => h('section', null, h('h3', null, group), h('dl', null, items.map(([key, label]) => h('div', { class: 'shortcut-row' }, h('dt', null, label), h('dd', null, h('kbd', null, key))))))))],
     ['ideas', 'What you can do', () => h('div', null, h('h3', null, 'From captures to editable designs'), steps([
       ['Tell a story', 'Give the agent your app’s main benefits and real screenshots.', 'rectangle.3.group'],
       ['Reach more people', 'Add languages and store sizes to the same project.', 'globe'],
       ['Add artwork', 'Generate an image and import it as an editable layer.', 'photo'],
-      ['Preview and refine', 'Check one screen before exporting the full set.', 'eye'],
+      ['Preview and refine', 'See the complete series across your chosen sizes.', 'eye'],
       ['Finish in the app', 'Fine-tune your design, review text and upload.', 'square.and.arrow.up'],
     ]), more('Example prompts', code('Read my open project. Add an App Store Header image and Search result image. Keep the artwork and copy editable, then show me a preview.'),
-      code('Preview the first screen in English and Swedish. Check text and screenshot framing. Keep Swedish as draft for my review.')))],
+      ...Object.values(AGENT_PROMPTS).map(prompt => h('section', null, h('h4', null, prompt.title), code(prompt.text)))))],
   ];
   const body = h('div', { class: 'guide-page' });
   const nav = h('nav', { class: 'row wrap guide-nav', 'aria-label': 'Guide pages' });

@@ -11,7 +11,7 @@ function exportProject(input) {
   queue = result.catch(() => {});
   return result;
 }
-async function renderExport({ source, destination, mode, locales, devices, slides, allowPlaceholders }) {
+async function renderExport({ source, destination, mode, locales, devices, slides, allowPlaceholders, checkOnly }) {
   const service = createStudioService({ appPath: appPath, projectPath: source, exportPath: destination, origin: ORIGIN, onExportLog: line => console.error(line) });
   activeService = service;
   let timer;
@@ -20,6 +20,7 @@ async function renderExport({ source, destination, mode, locales, devices, slide
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${ORIGIN}/app/`)) event.preventDefault(); });
   const params = new URLSearchParams({ headless: '1' });
+  if (mode === 'inspect') { params.set('inspect', '1'); if (checkOnly) params.set('checkOnly', '1'); }
   for (const [name, ids] of [['locale', locales], ['device', devices], ['slide', slides]]) if (ids) params.set(name, ids.join(','));
   if (mode === 'final') params.set('strict', '1');
   if (allowPlaceholders) params.set('placeholders', '1');
@@ -33,6 +34,10 @@ async function renderExport({ source, destination, mode, locales, devices, slide
     await Promise.all([win.loadURL(`${ORIGIN}/app/index.html?${params}`), completed]);
     const log = service.exportLog;
     if (log.errors.length || !log.done || mode === 'final' && log.warnings.length) throw new Error([...log.errors, ...log.warnings].join('\n') || 'Export did not complete.');
+    if (mode === 'inspect') {
+      if (!log.inspection) throw new Error('Inspection produced no result.');
+      return log.inspection;
+    }
   } finally { clearTimeout(timer); win.destroy(); service.close(); activeWindow = null; activeService = null; }
 }
 
