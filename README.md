@@ -43,13 +43,13 @@ Work on an entire screenshot row in **Edit all screens**, or refine one screen a
 
 ### Keep every design editable
 
-Arrange text, screenshots, shapes and artwork as layers. Move, resize, rotate and align objects on the canvas. Save reusable designs, duplicate screens, and undo changes. Device illustrations and imported frames are separate from the output canvas, so a design can adapt to different store formats.
+Arrange text, screenshots, shapes and artwork as layers. Move, resize, rotate and align objects on the canvas. Save reusable designs, duplicate screens, and undo changes. Device illustrations and imported frames are separate from the output canvas, so a design can adapt to different store formats. Installed frames are shared across all projects on your Mac; used artwork is retained in the document for portability.
 
 Select a text layer and choose **Text size → Fill frame** in Details to grow or shrink the text to its frame. Enter keeps a line break; resizing the frame updates the text size. **Max size** keeps the existing size limit, and **Auto text height** lets the frame follow the text again.
 
 ### Every language in one project
 
-Edit translations alongside the design, preview right-to-left layouts, and export or import review CSVs. Each language keeps its own copy and review status. One portable project produces every language × canvas × screen.
+Edit translations alongside the design, preview right-to-left layouts, and export or import review CSVs. Each language keeps its own copy and review status. Original text remains visible above each translation, including manual edits. One portable project produces every language × canvas × screen.
 
 Choose the original language in Translate; its text does not need translation review. **Translate all…** translates every screen to all target languages in one run, with one Undo for the result. Translate with OpenAI or Claude using a suggested model, or choose **Load models from API** to fetch the models available to your key. Model selections and lists are remembered per provider; the Mac app stores API keys in macOS Keychain, outside your project. **Forget saved key** removes a provider's key. Browser development mode remembers models without saving keys. Removed text layers disappear from Translate while their saved copy remains available for undo. **Mark screen reviewed** approves one screen; **Mark design reviewed** approves every screen in that language.
 
@@ -59,7 +59,7 @@ Languages without their own screen order follow the original language's order, i
 
 ### Export with confidence
 
-Preflight checks identify missing captures, overflow and other issues before export. Final CLI exports can require all checks to pass. Outputs are RGB PNGs at the exact configured dimensions, with a manifest and upload guide. The Mac app asks you to choose an output folder for every export and creates a separate dated subfolder there.
+Preflight checks identify missing captures, overflow and other issues before export. Final CLI exports can require all checks to pass. Outputs are RGB PNGs at the exact configured dimensions, with a manifest and upload guide. Each completed export is kept inside the .sss project and appears in Export and Upload when you reopen it. The Mac app also asks for an output folder for an additional dated copy.
 
 ### Your work stays yours
 
@@ -81,6 +81,8 @@ Version 0.2.6 introduces native updates. Install it manually once if you have an
 2. Add your screenshots and select a device illustration or import your own frames.
 3. Pick a design, edit the layers and translate your copy.
 4. Preview every screen and export your PNGs.
+
+Open **Help → MCP and Skills Guide** for connection instructions, skill installation and examples. **Add screens → Store images** creates App Store **Search result image** + **Header image** canvases together, or a Google Play **Feature graphic** (1024 × 500 px). They have their own screens and export destinations. Individual formats remain available in Setup → Canvases. MCP exposes the same sets through `catalog` and `add_store_images`; search/header exports upload through the app’s Upload view.
 
 See the [user guide](docs/user-guide.md) for the full workflow.
 
@@ -104,6 +106,10 @@ npm run package      # ad-hoc signed Mac developer build
 Renderer tests require Chrome; set `CHROME_PATH` if it is installed elsewhere. An ad-hoc development build is separate from the signed and notarized official release.
 
 ## Under the hood
+
+### Create screenshots with an AI agent
+
+The local MCP server and companion skill let an AI agent create editable projects, write multilingual copy, import your app captures and optional generated artwork, and render and inspect screenshot exports. Open **Help → MCP and Skills Guide** to choose Codex or Claude Code, install the bundled skill and connect MCP to the project open in the app. Project switches are followed automatically. The downloaded app includes the server and renderer; no separate Node, Chrome or source checkout is needed. See [AI screenshot setup and tools](docs/ai-screenshots.md).
 
 - Plain JavaScript ES modules, with no frontend build step.
 - Pure document, layout and edit modules shared by the renderer and Node tests.

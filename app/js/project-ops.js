@@ -45,25 +45,28 @@ export function resizeDevice(project, deviceId, size, { mode = 'scale' } = {}) {
 }
 
 /** Add a device. With `reuseFrom` it shares that device's layouts, scaled to the new width. Returns the new id. */
-export function addDevice(project, { label, short, size, layout, capture, frame, appStore, target = 'custom', reuseFrom = null }) {
+export function addDevice(project, { label, short, size, layout, capture, frame, appStore, target = 'custom', reuseFrom = null, screenScope = null }) {
   const id = uniqueId(Object.keys(project.devices), slugify(short || label, 'device'));
   const device = {
     label, short: short || label, size: size.map((n) => Math.round(n)), layout, capture: capture || id,
     frame: structuredClone(frame ?? { type: 'plain' }), target,
     ...(appStore ? { appStore } : {}),
+    ...(screenScope ? { screenScope } : {}),
   };
   if (reuseFrom && project.devices[reuseFrom]) {
     const donor = project.devices[reuseFrom];
+    if (donor.screenScope) device.screenScope = donor.screenScope;
     device.layout = donor.layout;
     const designWidth = donor.designSize?.[0] ?? donor.size[0];
     if (device.size[0] !== designWidth) device.designSize = [designWidth, Math.round((designWidth * device.size[1]) / device.size[0])];
     if (project.sharedCanvas?.[reuseFrom]) project.sharedCanvas[id] = structuredClone(project.sharedCanvas[reuseFrom]);
     // a layout the donor has for itself alone (rather than for its whole family) comes along too
     for (const owner of [...project.slides, ...Object.values(project.templates ?? {})]) {
+      if (owner.canvasIds?.includes(reuseFrom)) owner.canvasIds.push(id);
       if (owner.layouts?.[reuseFrom]) owner.layouts[id] = structuredClone(owner.layouts[reuseFrom]);
     }
   }
-  if (!reuseFrom) {
+  if (!reuseFrom && !screenScope) {
     for (const slide of project.slides) { slide.layouts ??= {}; slide.layouts[id] = { template: 'custom', panorama: false }; }
   }
   project.devices[id] = device;
@@ -73,6 +76,10 @@ export function addDevice(project, { label, short, size, layout, capture, frame,
 /** Remove a device and any layout written for it specifically (layouts shared by class are left alone). */
 export function removeDevice(project, id) {
   delete project.devices[id];
+  for (const slide of project.slides) if (slide.canvasIds) slide.canvasIds = slide.canvasIds.filter(canvasId => canvasId !== id);
+  const removed = project.slides.filter(slide => slide.canvasIds?.length === 0).map(slide => slide.id);
+  project.slides = project.slides.filter(slide => !removed.includes(slide.id));
+  for (const locale of Object.keys(project.slideOrders ?? {})) project.slideOrders[locale] = project.slideOrders[locale].filter(slideId => !removed.includes(slideId));
   if (project.sharedCanvas) delete project.sharedCanvas[id];
   for (const slide of project.slides) if (slide.canvasOrientations) delete slide.canvasOrientations[id];
   for (const slide of project.slides) { if (slide.layouts?.[id]) delete slide.layouts[id]; for (const variants of Object.values(slide.localeLayouts ?? {})) delete variants[id]; }

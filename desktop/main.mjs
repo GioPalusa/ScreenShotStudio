@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createAppearance, appearanceBackground } from './appearance.mjs';
 import { createUpdater, RELEASES_URL } from './updater.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
@@ -11,21 +12,65 @@ import { isProjectFile, projectName, projectFilename } from '../app/js/project-f
 import { startupProject } from '../app/js/onboarding.js';
 import { createNewProject } from '../host/new-project.mjs';
 import { importFrameDiskImage } from '../host/disk-image-frames.mjs';
+import { createActiveProjectTools } from '../host/active-project-tools.mjs';
+import { startActiveAgentLink } from './active-agent-link.mjs';
+import { createDesktopExporter } from './mcp-renderer.mjs';
+import { createAgentSetup } from './agent-setup.mjs';
+import { testAgentConnection } from './agent-connection.mjs';
 import { createTranslationSettings } from './translation-settings.mjs';
 import { createAppStoreSettings } from './app-store-settings.mjs';
-import { AppStoreClient, AppStoreUploads, editableVersion, inspectUploadExport } from '../host/app-store-connect.mjs';
+import { AppStoreClient, AppStoreUploads, editableVersion, inspectUploadExport, readExportImage } from '../host/app-store-connect.mjs';
+
+import { exportPreviews, exportContentsInfo } from '../app/js/export-previews.js';
+
+function exportThumbnail(bytes) {
+  const image = nativeImage.createFromBuffer(bytes);
+  if (image.isEmpty()) throw new Error('Preview unavailable.');
+  const { width, height } = image.getSize();
+  const scale = Math.min(1, 320 / Math.max(width, height));
+  return image.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'good' }).toPNG();
+}
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ORIGIN = 'studio://local';
 protocol.registerSchemesAsPrivileged([{ scheme: 'studio', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let win, aboutWindow, service, current, closing = false, busy = false, closingRequest = false, pendingOpen = null, readyForFiles = false;
-let updater, updaterClosedService = false;
+let updater, updaterClosedService = false, appearance;
 const waits = new Map();
 let settings = { recent: [] };
 const settingsFile = () => path.join(app.getPath('userData'), 'projects.json');
-const allowedExternal = url => ['https://www.palusa.se', 'https://developer.apple.com/', 'https://support.google.com/googleplay/', 'https://developer.android.com/'].some(origin => origin.endsWith('/') ? url.startsWith(origin) : url === origin || url.startsWith(origin + '/'));
+const allowedExternal = url => ['https://www.palusa.se', 'https://developer.apple.com/', 'https://support.google.com/googleplay/', 'https://developer.android.com/', 'https://github.com/GioPalusa/ScreenShotStudio'].some(origin => origin.endsWith('/') ? url.startsWith(origin) : url === origin || url.startsWith(origin + '/'));
 const saveSettings = () => atomicWrite(settingsFile(), JSON.stringify(settings, null, 2));
 const trusted = event => event.sender === win?.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`);
+let agentSetup, activeAgent, desktopExporter;
+let projectSession = crypto.randomUUID();
+let agentInstalling = false;
+const getAgentSetup = () => agentSetup ??= createAgentSetup({ root: ROOT, home: app.getPath('home'), codexHome: process.env.CODEX_HOME || path.join(app.getPath('home'), '.codex'), executable: app.getPath('exe'), packaged: app.isPackaged, appData: app.getPath('userData') });
+ipcMain.handle('studio:agent-setup', async (event, operation, value = {}) => {
+  if (!trusted(event)) throw new Error('Forbidden');
+  const setup = getAgentSetup();
+  if (operation === 'preview') return { ...setup.preview(value.client), activeProject: current, projectName: current ? projectName(path.basename(current)) : null };
+  if (agentInstalling) throw new Error('Wait for the current AI setup action to finish.');
+  agentInstalling = true;
+  try {
+    if (operation === 'install-skill') return setup.installSkill(value.client, value.skillRevision);
+    if (operation === 'test') return await testAgentConnection(setup.connection());
+    if (operation === 'configure') {
+      await testAgentConnection(setup.connection());
+      return setup.configure(value.client, value.configRevision);
+    }
+    throw new Error('Unknown AI setup action.');
+  } finally { agentInstalling = false; }
+});
+
+ipcMain.handle('studio:appearance', (event, operation, value) => {
+  const allowed = [win, aboutWindow].some(window => window && !window.isDestroyed() && event.sender === window.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`));
+  if (!allowed || !appearance) throw new Error('Forbidden');
+  if (operation === 'get') return appearance.get();
+  if (operation === 'set') return appearance.set(value);
+  throw new Error('Invalid appearance action.');
+});
+
 let translationSettings;
 const getTranslationSettings = () => translationSettings ??= createTranslationSettings({ root: ROOT, userData: app.getPath('userData'), packaged: app.isPackaged });
 ipcMain.handle('studio:translation-settings', async (event, operation, value) => {
@@ -45,9 +90,15 @@ function uploadExportPath(value) {
   if (service) return service.uploadExportPath(value);
   throw new Error('Choose an export folder first.');
 }
-const uploadExportSummary = root => {
+const uploadExportSummary = (root, limit = 4) => {
   const { files, errors, warnings, completed } = inspectUploadExport(root);
-  return { path: root, name: path.basename(root), count: files.length, locales: [...new Set(files.map(f => f.locale))], canvases: [...new Set(files.map(f => f.canvas))], completed, errors, warnings };
+  const sample = exportPreviews(files, limit);
+  const previews = sample.images.map(file => {
+    let src;
+    try { src = 'data:image/png;base64,' + exportThumbnail(readExportImage(root, file)).toString('base64'); } catch { /* Full validation errors remain in the summary. */ }
+    return { label: file.slide ?? file.filename, locale: file.locale, src, device: file.device, slide: file.slide };
+  });
+  return { ...exportContentsInfo(files), previews, previewLocale: sample.locale, previewTotal: sample.total, path: root, name: path.basename(root), count: files.length, locales: [...new Set(files.map(f => f.locale))], canvases: [...new Set(files.map(f => f.canvas))], completed, errors, warnings };
 };
 const getAppStoreSettings = () => appStoreSettings ??= createAppStoreSettings({ root: ROOT, userData: app.getPath('userData'), packaged: app.isPackaged });
 const getAppStoreUploads = async () => appStoreUploads ??= new AppStoreUploads({ client: new AppStoreClient(await getAppStoreSettings().credentials()), reportDirectory: path.join(app.getPath('userData'), 'app-store-upload-reports') });
@@ -56,12 +107,13 @@ ipcMain.handle('studio:app-store', async (event, operation, value = {}) => {
   if (operation === 'choose-export') {
     const picked = await dialog.showOpenDialog(win, { title: 'Choose screenshots to upload', message: 'Choose a dated Screenshot Studio export folder containing manifest.json and its images.', buttonLabel: 'Use export', properties: ['openDirectory'] });
     if (picked.canceled) return { canceled: true };
-    const root = fs.realpathSync(picked.filePaths[0]);
-    const summary = uploadExportSummary(root);
+    let root = fs.realpathSync(picked.filePaths[0]);
+    let summary = uploadExportSummary(root);
+    if (service && !summary.errors.length) { root = service.retainSavedExport(root); summary = uploadExportSummary(root); }
     selectedUploadExports.add(root);
     return { canceled: false, ...summary };
   }
-  if (operation === 'inspect-export') return uploadExportSummary(uploadExportPath(value.exportPath));
+  if (operation === 'inspect-export') return uploadExportSummary(uploadExportPath(value.exportPath), Infinity);
   const store = getAppStoreSettings();
   if (operation === 'settings') return store.load();
   if (operation === 'connect') {
@@ -86,7 +138,7 @@ ipcMain.handle('studio:app-store', async (event, operation, value = {}) => {
   if (operation === 'prepare') {
     const root = uploadExportPath(value.exportPath);
     const plan = await uploads.prepare({ ...value, root });
-    for (const entry of plan.entries) entry.thumbnail = nativeImage.createFromPath(path.join(root, entry.path)).resize({ width: 140 }).toDataURL();
+    for (const entry of exportPreviews(plan.entries, Infinity).images) entry.thumbnail = 'data:image/png;base64,' + exportThumbnail(readExportImage(root, entry)).toString('base64');
     for (const screen of plan.screens) for (const image of screen.images) image.thumbnail = nativeImage.createFromPath(path.join(root, image.path)).resize({ width: 140 }).toDataURL();
     return plan;
   }
@@ -120,10 +172,10 @@ ipcMain.on('studio:flushed', (event, token, error) => {
 async function openProject(folder, { created = false } = {}) {
   // Validate the entire candidate while the current document and editor remain usable.
   const candidatePath = fs.realpathSync(folder);
-  const candidate = createStudioService({ appPath: path.join(ROOT, 'app'), projectPath: candidatePath, exportPath: path.join(candidatePath, 'export'), origin: ORIGIN, onChange: value => win?.webContents.send('studio:changed', value) });
+  const candidate = createStudioService({ createThumbnail: exportThumbnail, appPath: path.join(ROOT, 'app'), projectPath: candidatePath, exportPath: path.join(candidatePath, 'export'), frameLibraryPath: path.join(app.getPath('userData'), 'frames'), origin: ORIGIN, onChange: value => win?.webContents.send('studio:changed', value) });
   try { candidate.loadProjectBundle(); await flush(); }
   catch (error) { candidate.close(); throw error; }
-  service?.close(); current = candidatePath; service = candidate;
+  service?.close(); current = candidatePath; service = candidate; projectSession = crypto.randomUUID();
   service.startWatching();
   await win.loadURL(`${ORIGIN}/app/index.html${created ? '?new=1' : ''}`);
   win.setTitle(`${projectName(path.basename(current))} — Screenshot Studio`);
@@ -158,7 +210,7 @@ async function action(name, options = null) {
       const result = await dialog.showOpenDialog(win, { title: 'Open Screenshot Studio project', properties: ['openDirectory', 'treatPackageAsDirectory'] });
       if (!result.canceled) await openProject(result.filePaths[0]);
     } else if (name === 'new' || name === 'welcome') {
-      if (!options) { await flush(); service?.close(); service = null; current = null; buildMenu(); await win.loadURL(`${ORIGIN}/app/welcome.html`); win.setTitle('Welcome — Screenshot Studio'); return; }
+      if (!options) { await flush(); service?.close(); service = null; current = null; projectSession = crypto.randomUUID(); buildMenu(); await win.loadURL(`${ORIGIN}/app/welcome.html`); win.setTitle('Welcome — Screenshot Studio'); return; }
       if (typeof options.name !== 'string' || !options.name.trim() || options.name.length > 80 || /[\\/]/.test(options.name)) throw new Error('Give your project a name without slashes.');
       const dest = await chooseDestination('Create project', options.name.trim(), { allowReplace: true }); if (!dest) return;
       const replace = fs.existsSync(dest);
@@ -249,7 +301,7 @@ ipcMain.handle('studio:import-frame-dmg', async (event, source) => {
 
 function showAbout() {
   if (aboutWindow && !aboutWindow.isDestroyed()) { aboutWindow.show(); aboutWindow.focus(); return; }
-  aboutWindow = new BrowserWindow({ width: 480, height: 420, title: 'About Screenshot Studio', resizable: false, minimizable: false, maximizable: false, backgroundColor: nativeTheme.shouldUseDarkColors ? '#101C36' : '#EEEAE3', webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  aboutWindow = new BrowserWindow({ width: 480, height: 500, title: 'About Screenshot Studio', resizable: false, minimizable: false, maximizable: false, backgroundColor: appearanceBackground(nativeTheme.shouldUseDarkColors), webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   aboutWindow.webContents.setWindowOpenHandler(({ url }) => { if (allowedExternal(url)) void shell.openExternal(url); return { action: 'deny' }; });
   aboutWindow.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${ORIGIN}/app/`)) event.preventDefault(); });
   void aboutWindow.loadURL(`${ORIGIN}/app/about.html?version=${encodeURIComponent(app.getVersion())}`);
@@ -275,8 +327,9 @@ function buildMenu() {
       { type: 'separator' }, { label: 'Export…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+E', click: () => action('export') },
       { label: 'Upload to App Store Connect…', click: () => win.webContents.send('studio:command', 'upload') }, { role: 'close' },
     ] }, { role: 'editMenu' },
-    { label: 'Help', submenu: [{ label: 'Get Started Guide', click: () => win.webContents.send('studio:command', 'guide') }, { label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
+    { label: 'Help', submenu: [{ label: 'Get Started Guide', click: () => win.webContents.send('studio:command', 'guide') }, { label: 'MCP and Skills Guide', click: () => win.webContents.send('studio:command', 'guide:mcp') }, { label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
     { label: 'View', submenu: [
+      { label: 'Appearance', submenu: ['system', 'light', 'dark'].map(value => ({ label: value === 'system' ? 'Follow System' : value[0].toUpperCase() + value.slice(1), type: 'radio', checked: (appearance?.get() ?? 'system') === value, click: () => { try { appearance.set(value); } catch (error) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save appearance', detail: error.message }); } } })) },
       { label: 'Welcome Screen', click: () => action('welcome') },
       { label: 'Media Library…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Shift+M', click: () => win.webContents.send('studio:command', 'media') },
       { label: 'Keyboard Shortcuts…', enabled: Boolean(current), click: () => win.webContents.send('studio:command', 'shortcuts') },
@@ -292,7 +345,11 @@ else {
     app.dock?.setIcon(path.join(ROOT, 'app', 'icons', 'screenshot-studio.png'));
     try { settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) }; } catch { /* first launch */ }
     settings.recent = Array.isArray(settings.recent) ? settings.recent.filter(p => typeof p === 'string' && p) : [];
-    const welcomeService = createStudioService({ appPath: path.join(ROOT, 'app'), projectPath: path.join(ROOT, 'starter'), exportPath: path.join(ROOT, 'starter', 'export'), origin: ORIGIN });
+    appearance = createAppearance({ nativeTheme, read: () => settings.appearance, write: value => {
+      const previous = settings.appearance; settings.appearance = value;
+      try { saveSettings(); } catch (error) { settings.appearance = previous; throw error; }
+    }, windows: () => [win, aboutWindow], onChange: buildMenu });
+    const welcomeService = createStudioService({ createThumbnail: exportThumbnail, appPath: path.join(ROOT, 'app'), projectPath: path.join(ROOT, 'starter'), exportPath: path.join(ROOT, 'starter', 'export'), origin: ORIGIN });
     protocol.handle('studio', req => {
       if (req.initiatorOrigin && req.initiatorOrigin !== ORIGIN) return new Response('Forbidden', { status: 403 });
       if (service) return service.request(req);
@@ -300,7 +357,7 @@ else {
       return new Response('Open or create a project first.', { status: 403 });
     });
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-    win = new BrowserWindow({ width: 1480, height: 950, minWidth: 1000, minHeight: 680, title: 'Screenshot Studio', backgroundColor: nativeTheme.shouldUseDarkColors ? '#101C36' : '#EEEAE3', webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+    win = new BrowserWindow({ width: 1480, height: 950, minWidth: 1000, minHeight: 680, title: 'Screenshot Studio', backgroundColor: appearanceBackground(nativeTheme.shouldUseDarkColors), webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
     win.webContents.setWindowOpenHandler(({ url }) => { if (allowedExternal(url)) void shell.openExternal(url); return { action: 'deny' }; });
     win.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${ORIGIN}/app/`)) event.preventDefault(); });
     win.on('close', event => {
@@ -309,6 +366,20 @@ else {
       if (closingRequest || busy) return; closingRequest = true;
       flush().then(() => { closing = true; service?.close(); win.destroy(); app.quit(); }).catch(error => dialog.showMessageBox(win, { type: 'error', message: 'Your edits are not saved', detail: error.message })).finally(() => { closingRequest = false; });
     });
+    desktopExporter = createDesktopExporter(path.join(ROOT, 'app'));
+    const activeTools = createActiveProjectTools({
+      getCurrent: () => current && service ? { project: current, service, session: projectSession } : null,
+      flush,
+      locked: async callback => {
+        if (busy || closing || closingRequest) throw new Error('Screenshot Studio is finishing a document action. Try again when it is ready.');
+        busy = true;
+        try { return await callback(); } finally { busy = false; }
+      },
+      changed: files => win?.webContents.send('studio:changed', { type: 'changed', files }),
+      exportProject: input => desktopExporter.exportProject(input),
+    });
+    activeAgent = await startActiveAgentLink({ appData: app.getPath('userData'), invoke: activeTools.invoke });
+    app.once('will-quit', () => { activeAgent?.close(); desktopExporter?.close(); });
     const arg = process.argv.find(isProjectFile);
     const explicit = pendingOpen ?? arg;
     const initial = startupProject({ explicit, recent: settings.recent }, folder => fs.statSync(path.join(folder, 'studio.json')).isFile());

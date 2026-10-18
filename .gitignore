@@ -1,5 +1,6 @@
 # Generated PNGs: rebuild any time with `node studio.mjs export` (or Export in the studio).
 export/
+ai-workspace/
 .DS_Store
 
 node_modules/

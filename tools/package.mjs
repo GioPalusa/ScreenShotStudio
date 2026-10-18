@@ -31,17 +31,23 @@ const results = await packager({
   ...(identity ? { osxSign: { identity, preAutoEntitlements: false, optionsForFile: () => ({ hardenedRuntime: true, entitlements: path.join(root, 'distribution', 'Studio.entitlements') }) } } : {}),
   icon,
   appCategoryType: 'public.app-category.graphics-design',
-  ignore: [/^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs)/, /^\/tests(?:\/|$)/],
+  ignore: [/^\/ai-workspace(?:\/|$)/, /(?:^|\/)[^/]+\.(?:sss|screenshotstudio)(?:\/|$)/i, /^\/(?:\.agents|\.codex|\.aws)(?:\/|$)/, /(?:^|\/)\.env(?:$|\.)|\.(?:p12|p8|pem|key|mobileprovision)$/i, /^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs$|mcp(?:\/|$))/, /^\/tests(?:\/|$)/],
   extendInfo: {
     CFBundleIconFile: 'ScreenshotStudio.icns',
-    CFBundleDocumentTypes: [{ CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
-    UTExportedTypeDeclarations: [{ UTTypeIdentifier: 'se.palusa.screenshotstudio.project', UTTypeDescription: 'Screenshot Studio project', UTTypeConformsTo: ['com.apple.package'], UTTypeTagSpecification: { 'public.filename-extension': PROJECT_EXTENSIONS } }],
+    CFBundleDocumentTypes: [{ CFBundleTypeIconFile: 'ScreenshotStudio.icns', CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
+    UTExportedTypeDeclarations: [{ UTTypeIdentifier: 'se.palusa.screenshotstudio.project', UTTypeIconFile: 'ScreenshotStudio.icns', UTTypeDescription: 'Screenshot Studio project', UTTypeConformsTo: ['com.apple.package'], UTTypeTagSpecification: { 'public.filename-extension': PROJECT_EXTENSIONS } }],
   },
 });
 for (const result of results) {
   const app = path.join(result, 'Screenshot Studio.app');
   const bundled = path.join(app, 'Contents', 'Resources', 'app');
   assert.ok(fs.readFileSync(icon).equals(fs.readFileSync(path.join(app, 'Contents', 'Resources', 'ScreenshotStudio.icns'))), 'Packaged app icon differs');
+  const info = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path.join(app, 'Contents/Info.plist')], { encoding: 'utf8' }));
+  const projectType = info.UTExportedTypeDeclarations.find(type => type.UTTypeIdentifier === 'se.palusa.screenshotstudio.project');
+  const documentType = info.CFBundleDocumentTypes.find(type => type.LSItemContentTypes.includes(projectType.UTTypeIdentifier));
+  assert.equal(projectType.UTTypeIconFile, 'ScreenshotStudio.icns', 'Project file type must reference the bundled icon');
+  assert.equal(documentType.CFBundleTypeIconFile, projectType.UTTypeIconFile, 'Document and exported type icons must match');
+  assert.deepEqual(projectType.UTTypeTagSpecification['public.filename-extension'], PROJECT_EXTENSIONS, 'All supported project extensions must receive the icon');
   let checked = 0;
   const compare = relative => {
     for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
@@ -51,8 +57,17 @@ for (const result of results) {
       else { assert.ok(fs.readFileSync(path.join(root, file)).equals(fs.readFileSync(path.join(bundled, file))), `Packaged file differs: ${file}`); checked++; }
     }
   };
-  for (const folder of ['app', 'host', 'desktop', 'starter']) compare(folder);
+  for (const folder of ['app', 'host', 'desktop', 'starter', 'skills']) compare(folder);
   assert.equal(fs.existsSync(path.join(bundled, 'project')), false, 'Private example project must not ship');
+  assert.equal(fs.existsSync(path.join(bundled, 'ai-workspace')), false, 'Local AI workspace must not ship');
+  const checkPublication = folder => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      assert.ok(!/\.(?:sss|screenshotstudio)$/i.test(entry.name), 'User project packages must not ship');
+      assert.ok(!/^\.env(?:$|\.)|\.(?:p12|p8|pem|key|mobileprovision)$/i.test(entry.name), 'Credential files must not ship');
+      if (entry.isDirectory()) checkPublication(path.join(folder, entry.name));
+    }
+  };
+  checkPublication(bundled);
   assert.equal(fs.existsSync(path.join(bundled, 'app/assets/frames')), false, 'Apple bezel artwork must not ship');
   const seed = JSON.parse(fs.readFileSync(path.join(bundled, 'starter', 'studio.json'), 'utf8'));
   assert.equal(Object.keys(seed.themes).length, 1);
@@ -79,6 +94,7 @@ for (const result of results) {
     execFileSync('codesign', ['--force', '--deep', ...runtimeOptions, '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
   }
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
+  execFileSync(process.execPath, [path.join(root, 'tools/packaged-mcp-test.mjs'), app], { cwd: root, stdio: 'inherit', timeout: 180000 });
   if (xcode) {
     const destination = path.join(process.env.TARGET_BUILD_DIR, process.env.FULL_PRODUCT_NAME);
     fs.mkdirSync(path.join(destination, 'Contents'), { recursive: true });

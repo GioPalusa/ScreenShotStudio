@@ -1,30 +1,53 @@
 # Screenshot Studio · PALUSA
 
-The application chrome follows PALUSA's graphic profile 2.1 (11 October 2026).
-The source manual is `Documents/Design & Presentations/Grafisk profil/index.html`.
+The app follows [PALUSA graphic profile 3.0](https://palusa.se/profile/),
+17 October 2026. The application guidance and supplied design brief define the
+product treatment: a calm workspace, system typography, familiar rounded Mac
+controls, and a small amount of signature colour.
 
-Light surfaces use Sand #EEEAE3, white cards, Bläck #272330 and secondary text
-#6D6576. Primary actions use Magenta #C0338B with white text and #8A2464 on
-hover. A small Magenta–Himmel band identifies the workspace. Large headings
-use Helvetica Neue; compact controls retain the Mac system font.
+Screenshot Studio uses **Korall #E62044**, its assigned product colour, for
+primary actions and selection edges. White button text has a 4.51:1 contrast
+ratio; hover uses Korall 700 #AF1733. Small accented text uses #AF1733 in light
+mode and #F7B0BD in dark mode. The five-square **Ram** glyph comes directly from
+the supplied glyph sheet, with its positions, proportions and colours intact.
+It is monochrome white on dark surfaces. The original app/Dock icon is retained,
+as specified in the profile.
 
-Dark surfaces use Midnatt #101C36, raised #16264A, Is #F3F8FA, secondary
-#A3B2CC and Himmel #B1DFF3 actions with #123C52 text. Document palettes and
-rendered screenshot artwork remain controlled by each document.
+Light appearance uses Papper #F7F5F2, white panels, Sand #EEEAE3 and Bläck
+#272330. Dark appearance uses Kol #121019, Natt #1C1924, raised #2E2A38,
+Papper text and secondary #A9A3B4. Input outlines, status colours and focus
+rings have distinct semantic roles. The magenta-to-sky gradient is confined to
+a two-pixel edge seam; there are no gradient fields behind content.
 
-`app/icons/palusa-logo.svg` is the unchanged original logo supplied with the
-manual. It appears directly on the Welcome and About surfaces without an added plate.
-Only add a protective background when the actual surface makes it necessary
-for legibility; use a suitable monochrome application first where appropriate.
+**System, Light and Dark** are available in the workspace and Welcome screen,
+and in the Mac app's View → Appearance menu. The preference belongs to the app,
+not a project. Mac preferences are saved outside documents, synchronize all app
+windows, and update native controls. Browser development mode keeps the choice
+in local storage. System appearance follows OS changes. Changing appearance
+updates the existing DOM, preserving focus, scroll, open controls and artwork.
+
+Tokens live in `app/css/appearance.css`. The early `app/js/appearance.js` script
+applies the saved choice before painting. The native controller is
+`desktop/appearance.mjs`. Document palettes and exported PNGs remain controlled
+entirely by each document.
+
+The supplied PALUSA logo appears directly on Welcome and About. Light surfaces
+use the original full-colour artwork; dark surfaces use the supplied white
+monochrome version. The logo is not placed on a decorative plate.
+
+## Sources
+
+- [Design brief 3.0](https://palusa.se/profile/downloads/palusa-designbrief.md)
+- [Colour roles and app guidance](https://palusa.se/profile/#digital)
+- [Steget and product glyphs](https://palusa.se/profile/#symbol)
 
 ## App icon
 
-The source artwork is `app/icons/screenshot-studio.png`, generated with the
-built-in imagegen tool. `node tools/build-icon.mjs` creates the ten macOS
-icon sizes and `distribution/ScreenshotStudio.icns`. Packaging verifies that
-the resulting .icns is included, and the Xcode Info.plist uses the same name.
-Development runs also set the Dock image explicitly.
+The source artwork remains `app/icons/screenshot-studio.png`.
+`node tools/build-icon.mjs` creates its macOS sizes and
+`distribution/ScreenshotStudio.icns`. This branding update does not regenerate
+that artwork.
 
-Generation prompt:
-
-> Use case: logo-brand. Create a polished macOS application icon for Screenshot Studio, a screenshot composition editor by PALUSA. Single square icon, 1024x1024. Transparent outside a centered rounded-square tile with generous macOS icon margins. Tile in warm off-white/sand #EEEAE3, soft tactile ceramic finish and subtle dimensional edge. Main motif: two overlapping upright screenshot cards, rear card in sky blue #2EAAE1, front card in magenta #C0338B with a few clean pale image-layout rectangles; four elegant white crop-corner marks frame the composition. Very simple bold silhouette readable at 32px, refined shallow relief, restrained soft shadow, straight-on view, minimal Scandinavian design. Violet #564797 only in subtle depth. No letters, no words, no camera lens, no Electron atom, no logos, no watermark. This is the final icon asset, not a presentation or mockup.
+Both `.sss` and legacy `.screenshotstudio` packages reference this bundled icon
+in the document type and exported UTI declarations, in both Xcode and Electron
+packaging. Packaging verifies those references and the actual icon resource.

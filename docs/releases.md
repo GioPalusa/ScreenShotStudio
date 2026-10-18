@@ -29,3 +29,13 @@ The ZIP name must include `-darwin` (or `-mac`/`-osx`) and the architecture. A D
 The first updater-enabled release still needs to be signed, notarized and published. To prove end-to-end updates, install that release, publish a newer signed release with the same signing identity and bundle ID, then verify download, save acknowledgement, restart and the new version. Unit tests do not establish that installation evidence.
 
 Sources: [Electron autoUpdater](https://www.electronjs.org/docs/latest/api/auto-updater), [Electron updating guide](https://www.electronjs.org/docs/latest/tutorial/updates), [update service asset names](https://github.com/electron/update.electronjs.org#asset-naming-convention).
+
+## 0.2.8 (9) — 18 October 2026
+
+- PALUSA appearance with System, Light and Dark modes across the editor, Welcome and About.
+- Simpler translation, export and upload flows, compact primary-screen previews and visual upload summaries.
+- App Store search/header artwork and Google Play feature graphics share the screenshot project, translation and export workflow.
+- Store artwork stays first in the sidebar; shared editing opens phone screens. Guide & MCP replaces the question-mark button.
+- App-connected MCP tools and agent setup; document icons for both project extensions.
+- Improved text-fit diagnostics, excluded local user workspaces from app bundles, and updated Electron to 44.7.0.
+- Apple silicon (arm64), macOS 13 or later.

@@ -29,7 +29,7 @@ export class ExportSessions {
     const source = path.join(temp, 'source');
     try {
       const before = inventory(this.project);
-      copyProject(this.project, source);
+      copyProject(this.project, source, { includeExports: false });
       const copied = inventory(source), after = inventory(this.project);
       if (JSON.stringify(before) !== JSON.stringify(copied) || JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Project files changed while preparing export. Please try again.');
       const run = { id, source, temp, output, staging: path.join(output, `.partial-${id}`), mode, selection, files: [], started: started.toISOString(), localStarted, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, sourceHashes: copied };
@@ -62,7 +62,17 @@ export class ExportSessions {
     if (run.mode === 'final' && run.files.length !== run.plan.size) throw new Error('Final export is incomplete.');
     atomicWrite(path.join(run.staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
     atomicWrite(path.join(run.staging, 'UPLOAD-GUIDE.html'), exportGuide(manifest));
+    const archiveRoot = path.join(this.project, 'export');
+    const archive = path.join(archiveRoot, `${run.mode}-${id}`);
     const destination = path.join(run.output, `${run.mode}-${id}`);
+    if (path.resolve(archive) !== path.resolve(destination)) {
+      const archiveStaging = path.join(archiveRoot, `.partial-${id}`);
+      fs.mkdirSync(archiveRoot, { recursive: true });
+      try {
+        fs.cpSync(run.staging, archiveStaging, { recursive: true, errorOnExist: true, force: false });
+        fs.renameSync(archiveStaging, archive);
+      } catch (error) { fs.rmSync(archiveStaging, { recursive: true, force: true }); throw error; }
+    }
     fs.renameSync(run.staging, destination);
     this.abort(id);
     return destination;

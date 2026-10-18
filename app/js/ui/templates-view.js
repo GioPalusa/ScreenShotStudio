@@ -37,7 +37,8 @@ export function buildTemplatesView(ctx) {
         h('div', { class: 'hint' }, `Canvas sizes: ${Object.keys(tpl.layouts ?? {}).join(', ')}`),
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn small primary', onClick: () => ctx.editTemplate(id) }, 'Edit saved design'),
-          h('button', { class: 'btn small', onClick: () => useOn(id) }, 'Load on screens…'),
+          h('button', { class: 'btn small', onClick: () => useOn(id) }, 'Load on screens…')),
+        h('details', { class: 'disclosure' }, h('summary', null, 'Manage design'), h('div', { class: 'row wrap disclosure-body' },
           h('button', { class: 'btn small', onClick: async () => {
             const name = await promptDialog({ title: 'Rename saved design', label: 'Name', value: tpl.name ?? id, confirmLabel: 'Rename' });
             if (name) { checkpoint(); renameTemplate(project, id, name); saveStudio(); ctx.go({}); }
@@ -50,7 +51,7 @@ export function buildTemplatesView(ctx) {
             saveStudio();
             ctx.go({});
             toast('Saved design deleted', { action: { label: 'Undo', onClick: () => ctx.undoStep(token) } });
-          } }, 'Delete'))));
+          } }, 'Delete')))));
   }
 
   async function useOn(id) {

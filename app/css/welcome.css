@@ -4,24 +4,27 @@
 .welcome-header .creator-credit{border:0;padding:0;margin-left:auto}.welcome-header{gap:20px}.welcome-header .creator-credit img{width:110px;height:36px}.welcome-header .creator-credit{font-size:11px}
 
 
-.welcome-page { overflow: auto; background: radial-gradient(ellipse at 4% 5%, #F7DDEC80, transparent 48%), radial-gradient(ellipse at 95% 20%, #DFF1FA90, transparent 48%), var(--bg); }
+.welcome-page { overflow: auto; background: var(--bg); }
 .welcome-header > strong { display: flex; align-items: center; gap: 10px; font-size: 15px; letter-spacing: -.02em; }
 .welcome-app-icon { width: 44px; height: 44px; object-fit: contain; }
 .welcome-header .creator-credit img { width: 176px; height: 58px; padding: 8px; background: transparent; border-radius: 0; }
 .welcome h1 { font-weight: 700; }
-.welcome-eyebrow { color: var(--accent-hover); font-weight: 600; }
+.welcome-eyebrow { color: var(--link); font-weight: 600; }
 .welcome-setup { padding: 24px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
 .welcome-grid { gap: 40px; }
 .welcome-preview { margin-top: 0; border: 1px solid var(--line); box-shadow: var(--shadow); }
 .welcome-create { min-height: 40px; padding: 0 20px; }
 .palette-choice { background: var(--panel-2); }
 .welcome-guide { padding: 20px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; }
-@media (prefers-color-scheme: dark) {
-  .welcome-page { background: radial-gradient(ellipse at 4% 5%, #4B193A60, transparent 48%), radial-gradient(ellipse at 95% 20%, #123C5280, transparent 48%), var(--bg); }
-}
 @media (max-width: 1000px) { .welcome-setup { padding: 20px; } .welcome-grid { gap: 24px; } }
 
 .welcome .field{margin-bottom:14px}.welcome fieldset{margin:16px 0 8px}.welcome-intro{margin-bottom:20px}.welcome-colors{margin:12px 0}.welcome-setup h1{font-size:44px}.welcome-setup .hint{margin:8px 0}
 
 /* Keep the atmosphere continuous when the welcome content scrolls. */
 .welcome-page { background-repeat: no-repeat; background-attachment: fixed; }
+
+.welcome-header { flex-wrap: wrap; }
+.welcome-header .appearance-control { margin-left: auto; }
+.welcome .welcome-preview { background: var(--preview-bg); color: var(--preview-ink); }
+.welcome-setup { box-shadow: none; }
+.welcome-page::before { content: ""; display: block; height: 2px; background: linear-gradient(90deg, #C0338B, #2EAAE1); }

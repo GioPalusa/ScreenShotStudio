@@ -135,8 +135,14 @@ export function layoutText(ctx, text, o) {
     // distance from the first baseline to the last (what has to fit between two fixed points on the slide)
     const height = lines.reduce((h, l, i) => h + (i ? size * lineHeight : 0) + l.gapBefore, 0);
     const glyphs = lines.map(line => ctx.measureText(line.text || 'H'));
-    const ascent = Math.max(0, ...glyphs.map(m => m.actualBoundingBoxAscent ?? size * 0.75));
-    const descent = Math.max(0, ...glyphs.map(m => m.actualBoundingBoxDescent ?? size * 0.2));
+    // Only glyphs reaching past the first/last baseline extend the block. A tall
+    // accent on a middle line must not be added above the first line as well.
+    let baseline = 0, ascent = 0, descent = 0;
+    glyphs.forEach((m, i) => {
+      baseline += (i ? size * lineHeight : 0) + lines[i].gapBefore;
+      ascent = Math.max(ascent, (m.actualBoundingBoxAscent ?? size * 0.75) - baseline);
+      descent = Math.max(descent, baseline + (m.actualBoundingBoxDescent ?? size * 0.2) - height);
+    });
     const measuredHeight = height + (heightIncludesGlyphs || fillFrame ? ascent + descent : 0);
     const overflowReasons = [];
     if (!(lines.length <= maxLines)) overflowReasons.push({ code: 'lines', actual: lines.length, limit: maxLines });

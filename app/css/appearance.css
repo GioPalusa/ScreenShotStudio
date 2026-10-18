@@ -1,0 +1,77 @@
+/* PALUSA 3.0 · quiet product surfaces, Coral identity, system typography. */
+:root {
+  --bg: #F7F5F2;
+  --panel: #FFFFFF;
+  --panel-2: #EEEAE3;
+  --line: #D8D4DE;
+  --input-line: #877F91;
+  --text: #272330;
+  --muted: #6D6576;
+  --accent: #E62044;
+  --accent-hover: #AF1733;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #FDE0E6;
+  --accent-text: #641B2A;
+  --link: #AF1733;
+  --focus: #AF1733;
+  --sky: #2EAAE1;
+  --selection: #AF1733;
+  --ok: #366D2D;
+  --warn: #7A4B00;
+  --err: #AF1733;
+  --danger-fill: #AF1733;
+  --error-bg: #641B2A;
+  --shadow: 0 2px 8px #27233008, 0 16px 48px #27233012;
+  --radius: 16px;
+  --stage: #EEECF0;
+  --checker-a: #D8D4DE;
+  --checker-b: #F7F5F2;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #121019;
+  --panel: #1C1924;
+  --panel-2: #2E2A38;
+  --line: #494150;
+  --input-line: #92879F;
+  --text: #F7F5F2;
+  --muted: #A9A3B4;
+  --accent-soft: #3D1C2B;
+  --accent-text: #F7B0BD;
+  --link: #F7B0BD;
+  --focus: #F7B0BD;
+  --selection: #F7B0BD;
+  --ok: #C3DFB7;
+  --warn: #FFE4A3;
+  --err: #FDE0E6;
+  --shadow: 0 2px 8px #0002, 0 16px 48px #0004;
+  --stage: #121019;
+  --checker-a: #36313F;
+  --checker-b: #25212D;
+  color-scheme: dark;
+}
+/* Fallback before JavaScript runs, and for static preview pages. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+  --bg: #121019;
+  --panel: #1C1924;
+  --panel-2: #2E2A38;
+  --line: #494150;
+  --input-line: #92879F;
+  --text: #F7F5F2;
+  --muted: #A9A3B4;
+  --accent-soft: #3D1C2B;
+  --accent-text: #F7B0BD;
+  --link: #F7B0BD;
+  --focus: #F7B0BD;
+  --selection: #F7B0BD;
+  --ok: #C3DFB7;
+  --warn: #FFE4A3;
+  --err: #FDE0E6;
+  --shadow: 0 2px 8px #0002, 0 16px 48px #0004;
+  --stage: #121019;
+  --checker-a: #36313F;
+  --checker-b: #25212D;
+  color-scheme: dark;
+  }
+}

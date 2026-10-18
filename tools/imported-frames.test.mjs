@@ -81,3 +81,29 @@ test('older portable documents retain their previously bundled Apple artwork thr
   assert.deepEqual(fs.readFileSync(path.join(projectPath, `assets/frames/${name}.png`)), png);
   await request('/api/export/abort', 'POST', { id: run.id });
 });
+
+test('installed frames are shared across projects and used artwork survives a move without the library', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-library-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const library = path.join(root, 'app-data', 'frames');
+  const first = path.join(root, 'First.sss'), second = path.join(root, 'Second.sss');
+  createNewProject(first, {}); createNewProject(second, {});
+  const make = projectPath => createStudioService({ appPath, projectPath, exportPath: path.join(projectPath, 'export'), frameLibraryPath: library, origin: 'studio://local' });
+  const service = make(first); t.after(() => service.close());
+  const png = encodePNG({ width: 20, height: 40, channels: 4, data: Buffer.alloc(20 * 40 * 4, 255) });
+  const meta = { size: [20, 40], screen: { x: 2, y: 4, w: 16, h: 32, radius: 2 } };
+  assert.equal((await service.request(new Request('studio://local/api/frame?name=shared', { method: 'POST', body: png }))).status, 200);
+  assert.equal((await service.request(new Request('studio://local/api/frame-meta?name=shared', { method: 'PUT', body: JSON.stringify(meta) }))).status, 200);
+  assert.ok(fs.existsSync(path.join(library, 'shared.png')));
+  assert.equal(fs.existsSync(path.join(first, 'assets/frames/shared.png')), false);
+  const other = make(second); t.after(() => other.close());
+  const bundle = other.loadProjectBundle(); assert.deepEqual(bundle.frames.shared, meta);
+  assert.equal((await other.request(new Request('studio://local/project/assets/frames/shared.png'))).status, 200);
+  bundle.studio.devices[Object.keys(bundle.studio.devices)[0]].frame = { type: 'bezel', name: 'shared' };
+  assert.equal((await other.request(new Request('studio://local/api/studio', { method: 'PUT', body: JSON.stringify(bundle.studio) }))).status, 200);
+  assert.ok(fs.readFileSync(path.join(second, 'assets/frames/shared.png')).equals(png));
+  fs.rmSync(library, { recursive: true });
+  const portable = createStudioService({ appPath, projectPath: second, exportPath: path.join(second, 'export'), origin: 'studio://local' }); t.after(() => portable.close());
+  assert.deepEqual(portable.loadProjectBundle().frames.shared, meta);
+  assert.equal((await portable.request(new Request('studio://local/project/assets/frames/shared.png'))).status, 200);
+});

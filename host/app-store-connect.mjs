@@ -1,3 +1,4 @@
+import { CREATIVE_TARGETS } from '../app/js/export-targets.js';
 // App Asset Library API. Secrets and signed upload URLs never leave the host.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -69,13 +70,13 @@ export class AppStoreClient {
   apps() { return this.list('/v1/apps?limit=200'); }
   versions(appId, options) { return this.list(`/v1/apps/${id(appId)}/appStoreVersions?limit=200`, options); }
   localizations(versionId, options) { return this.list(`/v1/appStoreVersions/${id(versionId)}/appStoreVersionLocalizations?limit=200`, options); }
-  placements(localizationId, options) { return this.list(`/v1/appStoreVersionLocalizations/${id(localizationId)}/placements?filter[placementType]=APP_SCREENSHOT&sort=placementGroupPosition&limit=200`, options); }
+  placements(localizationId, options) { return this.list(`/v1/appStoreVersionLocalizations/${id(localizationId)}/placements?filter[placementType]=APP_SCREENSHOT,PRODUCT_PAGE_HEADER_ASSET,APP_STORE_SEARCH_RESULTS_ASSET&sort=placementGroupPosition&limit=200`, options); }
   async uploadImage(libraryId, file, group, signal, progress) {
     const bytes = readExportImage(file.root, file);
     // Names are unique across the app's entire asset library, including unplaced
     // images from an earlier attempt. Keep the UUID outside the truncated label.
     const referenceName = `${`Screenshot Studio · ${file.locale} · ${file.device} · ${file.slide}`.slice(0, 160)} · ${crypto.randomUUID()}`;
-    const reservation = (await this.request('/v1/appAssetLibraryImages', { method: 'POST', signal, body: resource('appAssetLibraryImages', { fileName: file.filename, fileSize: bytes.length, category: 'APP_SCREENSHOTS_AND_PREVIEWS', referenceName }, { assetLibrary: relation('appAssetLibraries', libraryId) }) })).data;
+    const reservation = (await this.request('/v1/appAssetLibraryImages', { method: 'POST', signal, body: resource('appAssetLibraryImages', { fileName: file.filename, fileSize: bytes.length, category: group.category ?? 'APP_SCREENSHOTS_AND_PREVIEWS', referenceName }, { assetLibrary: relation('appAssetLibraries', libraryId) }) })).data;
     if (!reservation?.id) throw new Error('Apple did not return an image reservation.');
     progress({ imageId: reservation.id, state: 'Uploading' });
     const operations = reservation.attributes?.uploadOperations;
@@ -116,7 +117,7 @@ export function inspectUploadExport(root) {
   if (manifest.format !== 2 || !['draft', 'final'].includes(manifest.mode) || !manifest.completed || !Array.isArray(manifest.files) || !manifest.files.length || !Array.isArray(manifest.report?.issues) || !Array.isArray(manifest.report?.skipped) || !Array.isArray(manifest.report?.warnings)) throw new Error('Choose a completed Screenshot Studio export folder containing manifest.json and its images.');
   const checks = uploadChecks(manifest.report);
   const files = manifest.files.filter(f => f.store === 'app-store').map(file => ({ ...file, root }));
-  if (!files.length) checks.errors.push({ level: 'error', message: 'This export contains no App Store screenshots.' });
+  if (!files.length) checks.errors.push({ level: 'error', message: 'This export contains no App Store images.' });
   const paths = new Set();
   for (const file of files) {
     try {
@@ -152,10 +153,37 @@ export function screenshotGroups(catalog, platform) {
     return [{ id: mapping.placementGroupId, label: mapping.placementGroupId === 'IPHONE_DUO_PROFILE' ? 'iPhone Duo' : mapping.placementGroupId.replace(/_/g, ' ').toLowerCase(), maxCount: limit, specs }];
   });
 }
+/** Creative placements use the same reserve/upload/commit flow with a separate category. */
+export function creativeGroups(catalog, platform) {
+  if (platform !== 'IOS') return [];
+  return Object.entries(CREATIVE_TARGETS).flatMap(([target, spec]) => {
+    const type = catalog.placementTypes?.find(t => t.placementTypeId === spec.placementType);
+    const policy = catalog.features?.find(f => f.featureId === 'APP_STORE_VERSIONS')?.placementPolicies?.find(p => p.placementType === spec.placementType);
+    if (!type?.acceptsAssetCategories?.includes('CREATIVE_ASSETS') || !policy) return [];
+    return (type.specMappings ?? []).flatMap(mapping => {
+      const maxCount = policy.groupLimits?.find(l => l.groupIds?.includes(mapping.placementGroupId))?.maxCount;
+      if (!Number.isSafeInteger(maxCount) || maxCount < 1) return [];
+      const specs = (catalog.imageSpecs ?? []).filter(s => mapping.specs?.includes(s.specId) && s.mimeTypes?.includes('image/png') && s.fileExtensions?.includes('.png'));
+      return [{ id: mapping.placementGroupId, label: spec.label, target, placementType: spec.placementType, category: 'CREATIVE_ASSETS', maxCount, specs }];
+    });
+  });
+}
+const placementType = group => group.placementType ?? 'APP_SCREENSHOT';
+const inGroup = (placement, group) => placement.attributes?.placementGroup === group.id && (placement.attributes?.placementType ?? 'APP_SCREENSHOT') === placementType(group);
+
+function matchesImageSpec(file, spec) {
+  const d = spec.dimensions;
+  if (!d || file.bytes > spec.maxFileSize || file.size[0] < d.minWidth || file.size[0] > d.maxWidth || file.size[1] < d.minHeight || file.size[1] > d.maxHeight) return false;
+  if (d.minWidth === d.maxWidth && d.minHeight === d.maxHeight) return true;
+  if (!spec.aspectRatio) return true;
+  const [width, height] = spec.aspectRatio.split(':').map(Number);
+  return width > 0 && height > 0 && file.size[0] * height === file.size[1] * width;
+}
 export function matchScreenshot(file, groups) {
-  return groups.flatMap(group => {
-    const specs = group.specs.filter(s => s.dimensions?.minWidth === file.size[0] && s.dimensions?.maxWidth === file.size[0] && s.dimensions?.minHeight === file.size[1] && s.dimensions?.maxHeight === file.size[1] && file.bytes <= s.maxFileSize);
-    return specs.length ? [{ id: group.id, label: group.label, maxCount: group.maxCount, specIds: specs.map(s => s.specId) }] : [];
+  return groups.filter(group => CREATIVE_TARGETS[file.target] ? group.target === file.target : !group.target).flatMap(group => {
+    const specs = group.specs.filter(spec => matchesImageSpec(file, spec));
+    return specs.length ? [{ id: group.id, label: group.label, maxCount: group.maxCount,
+      ...(group.target ? { target: group.target, placementType: group.placementType, category: group.category } : {}), specIds: specs.map(s => s.specId) }] : [];
   });
 }
 
@@ -173,8 +201,9 @@ export class AppStoreUploads {
     const version = versions.find(v => v.id === versionId);
     if (!editableVersion(version)) throw new Error('Choose an editable app version.');
     if (!library.data?.id) throw new Error('Apple did not return an asset library.');
-    const groups = screenshotGroups(reference.data?.[0]?.attributes ?? {}, version.attributes.platform);
-    if (!groups.some(g => g.specs.length)) throw new Error('Could not find screenshot specifications for this app version in Apple\'s catalog. Try reviewing again.');
+    const catalog = reference.data?.[0]?.attributes ?? {};
+    const groups = [...(files.some(file => !CREATIVE_TARGETS[file.target]) ? screenshotGroups(catalog, version.attributes.platform) : []), ...creativeGroups(catalog, version.attributes.platform)];
+    if (!groups.some(g => g.specs.length) && files.some(file => !CREATIVE_TARGETS[file.target])) throw new Error('Could not find image specifications for this app version in Apple\'s catalog. Try reviewing again.');
     const remote = new Map();
     for (const locale of new Set(files.map(f => f.locale))) {
       const localization = locales.find(l => l.attributes?.locale === locale);
@@ -186,11 +215,14 @@ export class AppStoreUploads {
       const choices = matchScreenshot(file, groups), chosen = mappings[file.device] || (choices.length === 1 ? choices[0].id : '');
       const group = choices.find(g => g.id === chosen);
       const selected = !excluded.has(uploadImageKey(file));
-      if (selected && !group) errors.push(`${file.canvas}: ${choices.length ? 'choose an Apple screen group' : `Apple does not accept ${file.size.join(' × ')} px for this platform`}.`);
+      if (selected && !group) {
+        const unavailable = CREATIVE_TARGETS[file.target] && !groups.some(g => g.target === file.target);
+        errors.push(`${file.canvas}: ${unavailable ? 'Apple has not enabled this creative placement for the selected app version in its asset catalog' : choices.length ? 'choose an Apple screen group' : `Apple does not accept ${file.size.join(' × ')} px for this placement`}.`);
+      }
       const entry = { ...file, choices, group, groupId: group?.id, selected, localizationId: remote.get(file.locale).id };
       if (selected && group) {
-        const key = `${file.locale}:${group.id}`;
-        if (!batches.has(key)) batches.set(key, { locale: file.locale, localizationId: entry.localizationId, group, entries: [], existing: remote.get(file.locale).placements.filter(p => p.attributes?.placementGroup === group.id) });
+        const key = `${file.locale}:${placementType(group)}:${group.id}`;
+        if (!batches.has(key)) batches.set(key, { locale: file.locale, localizationId: entry.localizationId, group, entries: [], existing: remote.get(file.locale).placements.filter(p => inGroup(p, group)) });
         batches.get(key).entries.push(entry);
       }
       return entry;
@@ -242,7 +274,7 @@ export class AppStoreUploads {
     const version = (await this.client.versions(plan.appId, { signal })).find(v => v.id === plan.versionId);
     if (!editableVersion(version)) throw new Error('This app version is no longer editable.');
     for (const batch of plan.batches) {
-      const placements = (await this.client.placements(batch.localizationId, { signal })).filter(p => p.attributes?.placementGroup === batch.group.id);
+      const placements = (await this.client.placements(batch.localizationId, { signal })).filter(p => inGroup(p, batch.group));
       if (JSON.stringify(placements.map(p => p.id)) !== JSON.stringify(batch.existing.map(p => p.id))) throw new Error('Screenshots changed in App Store Connect. Review them again.');
     }
   }
@@ -257,7 +289,7 @@ export class AppStoreUploads {
     for (const batch of plan.batches) for (const file of batch.entries) {
       signal.throwIfAborted();
       job.message = `Uploading ${job.files.length + 1} / ${plan.entries.length} · ${file.locale} · ${file.slide}`;
-      const record = { filename: file.filename, locale: file.locale, group: batch.group.id, state: 'Preparing' };
+      const record = { filename: file.filename, locale: file.locale, group: batch.group.id, placementType: placementType(batch.group), state: 'Preparing' };
       job.files.push(record); this.saveReport(job);
       record.imageId = await this.client.uploadImage(plan.libraryId, file, batch.group, signal, update => { Object.assign(record, update); this.saveReport(job); });
       job.uploaded++; this.saveReport(job);
@@ -274,19 +306,19 @@ export class AppStoreUploads {
       for (const file of batch.entries) {
         signal.throwIfAborted(); const record = job.files[index++];
         job.message = `Placing ${file.locale} · ${file.slide}`;
-        const placement = (await this.client.request('/v1/appAssetLibraryPlacements', { method: 'POST', signal, body: resource('appAssetLibraryPlacements', { placementType: 'APP_SCREENSHOT', placementGroup: batch.group.id }, { image: relation('appAssetLibraryImages', record.imageId), appStoreVersionLocalization: relation('appStoreVersionLocalizations', batch.localizationId) }) })).data;
+        const placement = (await this.client.request('/v1/appAssetLibraryPlacements', { method: 'POST', signal, body: resource('appAssetLibraryPlacements', { placementType: placementType(batch.group), placementGroup: batch.group.id }, { image: relation('appAssetLibraryImages', record.imageId), appStoreVersionLocalization: relation('appStoreVersionLocalizations', batch.localizationId) }) })).data;
         if (!placement?.id) throw new Error('Apple did not return a screenshot placement.');
         record.placementId = placement.id; record.state = 'Placed'; ordered.push(placement.id); this.saveReport(job);
       }
-      await this.client.request('/v1/appAssetLibraryPlacementOrderingRequests', { method: 'POST', signal, body: resource('appAssetLibraryPlacementOrderingRequests', { placementGroup: batch.group.id }, { orderedPlacements: { data: ordered.map(placementId => ({ type: 'appAssetLibraryPlacements', id: placementId })) }, appStoreVersionLocalization: relation('appStoreVersionLocalizations', batch.localizationId) }) });
-      const verified = (await this.client.placements(batch.localizationId, { signal })).filter(p => p.attributes?.placementGroup === batch.group.id);
+      if (placementType(batch.group) === 'APP_SCREENSHOT') await this.client.request('/v1/appAssetLibraryPlacementOrderingRequests', { method: 'POST', signal, body: resource('appAssetLibraryPlacementOrderingRequests', { placementGroup: batch.group.id }, { orderedPlacements: { data: ordered.map(placementId => ({ type: 'appAssetLibraryPlacements', id: placementId })) }, appStoreVersionLocalization: relation('appStoreVersionLocalizations', batch.localizationId) }) });
+      const verified = (await this.client.placements(batch.localizationId, { signal })).filter(p => inGroup(p, batch.group));
       if (JSON.stringify(verified.map(p => p.id)) !== JSON.stringify(ordered)) throw new Error('Could not verify screenshot order in App Store Connect. Review the upload report.');
-      for (const record of job.files.filter(f => f.locale === batch.locale && f.group === batch.group.id)) {
+      for (const record of job.files.filter(f => f.locale === batch.locale && f.group === batch.group.id && f.placementType === placementType(batch.group))) {
         record.state = 'Uploaded'; record.placementVerified = true;
         record.applePlacementState = verified.find(p => p.id === record.placementId)?.attributes?.state;
       }
       this.saveReport(job);
     }
-    job.state = 'complete'; job.message = `${job.files.length} screenshots uploaded to App Store Connect. Check processing there.`; job.completed = new Date().toISOString(); this.saveReport(job);
+    job.state = 'complete'; job.message = `${job.files.length} images uploaded to App Store Connect. Check processing there.`; job.completed = new Date().toISOString(); this.saveReport(job);
   }
 }

@@ -1,3 +1,4 @@
+import { slideSupportsCanvas } from './slide-order.js';
 import { resolveLayers } from './layouts.js';
 import { deviceForLayer, profilesFor } from './profiles.js';
 import { originalLocale } from './copy-review.js';
@@ -23,6 +24,7 @@ export function screenshotCollections(project, captures = {}) {
 export function captureUsage(project, captures, { scope, set, name }) {
   const uses = [];
   for (const slide of project.slides) for (const [deviceId, canvas] of Object.entries(project.devices)) for (const locale of project.locales) {
+    if (!slideSupportsCanvas(project, slide, deviceId)) continue;
     for (const layer of resolveLayers({ project, slide, deviceId, localeId: locale.id }).layers) {
       if (layer.type !== 'device' || layer.capture !== name || deviceForLayer(project, canvas, layer).capture !== set) continue;
       const source = captureSourceFor(project, captures, locale.id, set, name)?.scope;

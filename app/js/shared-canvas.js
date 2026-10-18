@@ -34,7 +34,7 @@ export function setSharedSpacing(project, deviceId, preset, customGap) {
 
 export function sharedGeometry(project, deviceId, localeId) {
   const base = project.devices[deviceId], k = base.size[0] / (base.designSize?.[0] ?? base.size[0]);
-  const slides = orderedSlides(project, localeId);
+  const slides = orderedSlides(project, localeId, deviceId);
   const gap = (base.designSize?.[0] ?? base.size[0]) * (sharedBlock(project, deviceId).gap ?? SHARED_GAP);
   let x = 0;
   const tiles = slides.map(slide => {

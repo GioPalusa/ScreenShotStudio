@@ -1,8 +1,9 @@
+import { orderedCanvases, orderedSlides } from '../slide-order.js';
 import { PLAY_TARGETS, PLAY_SPEC_URL, playCanvasDefaults } from '../google-play.js';
 // Setup → Devices: every device the set is made for - its canvas size (change it when Apple does), the layout
 // family it is modelled on, the folder its screenshots live in, and the frame its screenshots sit in by default.
 
-import { engine, state, saveStudio, checkpoint, rememberUI, validateSelection } from '../store.js';
+import { engine, state, saveStudio, saveCopy, checkpoint, rememberUI, validateSelection } from '../store.js';
 import { canvasSizeOptions, existingStoreCanvas, SPEC_URL, LAYOUT_FAMILIES } from '../presets.js';
 import { EXPORT_TARGETS, TARGET_OPTIONS, canvasIssues, exportTarget, storeLabel } from '../export-targets.js';
 import { resizeDevice, addDevice, removeDevice } from '../project-ops.js';
@@ -38,7 +39,7 @@ export function buildDevicesView(ctx) {
     h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', onClick: () => openAddDevice(ctx) }, '＋ Store format'), h('button', { class: 'btn', onClick: () => openAddDevice(ctx, { custom: true }) }, '＋ Custom format'))));
 
   const list = h('div', { class: 'device-list' });
-  for (const [id, device] of Object.entries(project.devices)) list.append(deviceCard(id, device));
+  for (const [id, device] of orderedCanvases(project)) list.append(deviceCard(id, device));
   root.append(list);
 
   function set(device, patch) {
@@ -64,7 +65,7 @@ export function buildDevicesView(ctx) {
 
     const label = h('input', { class: 'input grow', value: device.label, 'aria-label': 'Name' });
     label.addEventListener('change', () => { if (label.value.trim()) { set(device, { label: label.value.trim() }); refreshShell(); } });
-    const short = h('input', { class: 'input', value: device.short ?? '', style: { width: '120px' }, 'aria-label': 'Short name', title: 'Short name (shown in the top bar)' });
+    const short = h('input', { class: 'input', value: device.short ?? '', style: { width: '120px' }, 'aria-label': 'Short name', title: 'Short name (shown in the sidebar)' });
     short.addEventListener('change', () => { set(device, { short: short.value.trim() || device.label }); refreshShell(); });
     const store = h('input', { class: 'input grow', value: device.appStore ?? '', placeholder: 'App Store Connect name, e.g. iPhone 6.9″ Display', 'aria-label': 'App Store Connect name' });
     store.addEventListener('change', () => set(device, { appStore: store.value.trim() || undefined }));
@@ -82,13 +83,20 @@ export function buildDevicesView(ctx) {
     const { W: dw, k } = canvasMetrics(device);
 
     const thumb = h('canvas');
-    const first = project.slides[0];
+    const first = orderedSlides(project, state.ui.locale, id)[0];
     if (first) drawInto(thumb, { slideId: first.id, deviceId: id, localeId: state.ui.locale, width: W > H ? 150 : 84 });
 
-    const remove = h('button', { class: 'btn small danger', disabled: Object.keys(project.devices).length <= 1, title: Object.keys(project.devices).length <= 1 ? 'A project needs at least one device' : 'Remove this device', onClick: async () => {
+    const lastScreenshotCanvas = device.screenScope !== 'store-image' && project.slides.some(s => !s.canvasIds) && Object.values(project.devices).filter(d => d.screenScope !== 'store-image').length === 1;
+    const remove = h('button', { class: 'btn small danger', disabled: Object.keys(project.devices).length <= 1 || lastScreenshotCanvas, title: lastScreenshotCanvas ? 'Keep a canvas for your screenshot screens' : Object.keys(project.devices).length <= 1 ? 'A project needs at least one device' : 'Remove this device', onClick: async () => {
       if (!(await confirmDialog({ title: `Remove ${device.label}?`, body: 'Its layouts and exports go away. Screenshots stay in project/captures/ in case another device uses them.', confirmLabel: 'Remove device', danger: true }))) return;
-      checkpoint();
+      checkpoint(null, { copyLocales: Object.keys(engine.data.copy) });
+      const previousSlides = project.slides.map(slide => slide.id);
       removeDevice(project, id);
+      const removedSlides = previousSlides.filter(slideId => !project.slides.some(slide => slide.id === slideId));
+      for (const [locale, doc] of Object.entries(engine.data.copy)) if (removedSlides.some(slideId => Object.hasOwn(doc, slideId))) {
+        for (const slideId of removedSlides) delete doc[slideId];
+        saveCopy(locale);
+      }
       validateSelection();
       saveStudio();
       refreshShell();
@@ -98,21 +106,22 @@ export function buildDevicesView(ctx) {
       h('div', { class: 'device-thumb' }, thumb),
       h('div', { class: 'device-body' },
         h('div', { class: 'row' }, label, remove),
-        h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Export target'), selectInput({ options: targetOptions(target), value: target, onChange: v => { set(device, { target: v }); refreshShell(); } })),
-        target === 'custom' ? h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Custom size'), widthInput, '×', heightInput, h('span', { class: 'hint' }, 'px'), swap, apply) : h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Store format'), preset),
+        h('div', { class: 'settings-grid' },
+          h('label', { class: 'field' }, 'Export target', selectInput({ options: targetOptions(target), value: target, onChange: v => { set(device, { target: v }); refreshShell(); } })),
+          target === 'custom' ? h('div', { class: 'field' }, h('span', { class: 'label' }, 'Custom size'), h('div', { class: 'row wrap' }, widthInput, '×', heightInput, h('span', { class: 'hint' }, 'px'), swap, apply)) : h('label', { class: 'field' }, 'Store format', preset)),
         sizeStatus(device),
         PLAY_TARGETS[target] ? h('p', { class: 'hint' }, PLAY_TARGETS[target].guidance) : null,
         h('details', { class: 'canvas-advanced' },
           h('summary', null, 'Layout and source settings'),
-          h('div', { class: 'field' },
+          h('div', { class: 'settings-form' },
             h('div', { class: 'hint' }, k === 1 ? 'Layouts use this canvas’s own pixels.' : `Layouts are drawn for ${Math.round(dw)} px wide and scaled ×${k.toFixed(3)} to this canvas.`),
-            h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Short name'), short),
-            h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Default frame'), frameSelect,
-              h('span', { class: 'hint' }, screen ? `screen ${screen[0]} × ${screen[1]}px` : '')),
-            h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Layout family'),
-              selectInput({ options: LAYOUT_FAMILIES, value: device.layout, onChange: v => { set(device, { layout: v }); refreshShell(); } })),
-            h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Screenshots folder'), folder),
-            !PLAY_TARGETS[target] ? h('div', { class: 'row' }, h('span', { class: 'label' }, 'App Store name'), store) : null))));
+            h('div', { class: 'settings-grid' },
+              h('label', { class: 'field' }, 'Short name', short),
+              h('label', { class: 'field' }, 'Layout family', selectInput({ options: LAYOUT_FAMILIES, value: device.layout, onChange: v => { set(device, { layout: v }); refreshShell(); } })),
+              h('label', { class: 'field' }, 'Screenshots folder', folder),
+              !PLAY_TARGETS[target] ? h('label', { class: 'field' }, 'App Store name', store) : null),
+            h('div', { class: 'field' }, h('span', { class: 'label' }, 'Default frame'), h('div', { class: 'row wrap' }, frameSelect,
+              h('span', { class: 'hint' }, screen ? `screen ${screen[0]} × ${screen[1]}px` : '')))))));
   }
 
   async function applySize(id, width, height) {
@@ -197,10 +206,10 @@ export function openAddDevice(ctx, { custom = false, fromMenu = false } = {}) {
   } }, custom ? 'Add custom format' : fromMenu ? 'Add device' : 'Add store format');
   const m = modal({
     title: custom ? 'Custom format' : fromMenu ? 'Add device' : 'Add a store format',
-    body: h('div', { class: 'field' },
-      custom ? [h('label', null, 'Name'), label, h('div', { class: 'row wrap' }, width, '×', height, h('span', { class: 'hint' }, 'px'))] : [h('label', null, fromMenu ? 'Device' : 'Store destination'), target, h('label', null, 'Format'), presets],
+    body: h('div', { class: 'settings-form' },
+      custom ? [h('label', { class: 'field' }, 'Name', label), h('div', { class: 'row wrap' }, width, '×', height, h('span', { class: 'hint' }, 'px'))] : [h('label', { class: 'field' }, fromMenu ? 'Device' : 'Store destination', target), h('div', { class: 'field' }, h('span', { class: 'label' }, 'Format'), presets)],
       status,
-      h('details', null, h('summary', null, 'Starting layout'), reuse),
+      h('details', { class: 'disclosure settings-disclosure' }, h('summary', null, 'Starting layout'), h('div', { class: 'disclosure-body' }, reuse)),
       h('div', { class: 'hint' }, custom ? 'Your own dimensions, without store size restrictions.' : fromMenu ? 'Create a canvas for an Apple or Android device, then add your screenshots in Editor.' : 'Ready-made export dimensions. Displayed devices and frames are chosen separately in Editor.')),
     actions: [h('button', { class: 'btn', onClick: () => m.close() }, 'Cancel'), create],
   });

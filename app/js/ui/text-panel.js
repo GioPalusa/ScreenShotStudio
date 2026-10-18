@@ -128,11 +128,13 @@ function fieldEditor(ed, slide, locale, field, updateReview, compact = false) {
   wrap.append(meaningReviewNote(locale.id, slide.id, field), h('div', { class: 'hint', dataset: { fit: field } }));
   if (locale.id !== 'en-US' && english) {
     const line = Array.isArray(english) ? english.join(' · ') : english.replace(/\n/g, ' ⏎ ');
-    wrap.append(h('div', { class: 'ref', title: 'Click to start from the English text', onClick: () => {
+    wrap.append(h('details', { class: 'disclosure' }, h('summary', null, 'Original · English'),
+      h('div', { class: 'disclosure-body' }, h('div', { class: 'ref' }, line),
+      h('button', { class: 'btn small', title: 'Fill empty fields with the English text', onClick: () => {
       if (isList) wrap.querySelectorAll('textarea').forEach((t, i) => { if (!t.value) { t.value = english[i] ?? ''; } });
       else { const ta = wrap.querySelector('textarea'); if (!ta.value) ta.value = english; }
       wrap.querySelector('textarea').dispatchEvent(new Event('input'));
-    } }, `English: ${line}`));
+    } }, 'Use original text'))));
   }
   if (!compact && FIELD_HELP[field]) wrap.append(h('div', { class: 'hint' }, FIELD_HELP[field]));
   return wrap;

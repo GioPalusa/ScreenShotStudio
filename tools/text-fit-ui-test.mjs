@@ -75,6 +75,8 @@ try {
   check(zeroWidth.overflowReasons.map(r => r.code).join() === 'width', 'Zero retains the width constraint');
   const filled = layoutText(ctx, 'Hello\\nworld', { ...options, fitFrame: true });
   check(!filled.overflow && filled.lines.length === 2 && filled.overflowReasons.length === 0, 'Fill frame ignores the manual line limit and preserves Enter');
+  const swedish = layoutText(ctx, 'DU KOMMER ALDRIG\\nATT SOVA PÅ SAMMA SÄTT', { family: 'Impact', weight: 400, size: 245, minSize: 160, boxW: 1280, maxHeight: 476.6129105839416, heightIncludesGlyphs: true, maxLines: 0, lineHeight: 1.03 });
+  check(!swedish.overflow, 'The Swedish Impact headline fits its visible frame: ' + JSON.stringify(swedish));
   ${baseline ? `const { Engine } = await import('/app/js/render-baseline.js');
   const before = new Engine(); before.setData(structuredClone(engine.data));
   for (const locale of ['hi', 'en-US']) for (const allScreens of [false, true]) {
@@ -148,7 +150,40 @@ try {
   await flushSaves();
   const zeroSaved = await (await fetch('/project/studio.json')).json();
   check(zeroSaved.sharedCanvas.iphone.layers[0].maxLines === 0, 'Unlimited must persist as JSON zero, never Infinity or null');
-  result.textContent = 'PASS: Hindi three-line regression; line, width, height and combined constraints; zero means unlimited with width/height checks; Fill frame; scoped dropdown tooltips; selected-layer identity on single/all screens; fix action; Undo/Redo and saved zero${baseline ? '; unchanged before/after pixels in Hindi and English' : ''}';
+  // Replay the reported Swedish layer through the renderer and real inspector,
+  // without loading or changing the user's document.
+  editor.el.remove();
+  const reported = structuredClone(engine.data);
+  reported.studio.locales.push({ id: 'sv', name: 'Swedish', lang: 'sv', dir: 'ltr' });
+  delete reported.studio.sharedCanvas;
+  const reportedLayer = { id: 'headline', type: 'text', field: 'headline', x: 76, capTop: 145, w: 1280, boxHeight: 476.6129105839416, size: 245, minSize: 160, maxLines: 0, weight: 400, lineHeight: 1.03, align: 'start', anchor: 'top', fontFamily: 'Impact', color: '#fff5e5', block: 'start' };
+  reported.studio.devices.iphone.size = reported.studio.devices.iphone.designSize = [1672, 941];
+  reported.studio.slides = [{ id: 'a', name: 'Search result image', theme: Object.keys(reported.studio.themes)[0], layouts: { iphone: { template: 'custom', panorama: false, layers: [reportedLayer] } } }];
+  reported.copy['en-US'].a = { headline: 'YOU WILL NEVER\\nSLEEP THE SAME' };
+  reported.copy.sv = { a: { headline: 'DU KOMMER ALDRIG\\nATT SOVA PÅ SAMMA SÄTT' } };
+  engine.setData(reported);
+  state.ui.locale = 'sv'; state.ui.slideId = 'a'; state.ui.allScreens = false;
+  const swedishEditor = createEditor({ go() {}, openExport() {} });
+  document.querySelector('#root').append(swedishEditor.el); swedishEditor.build(); swedishEditor.activate();
+  await waitFor(() => swedishEditor.ed.scene?.texts.headline);
+  swedishEditor.ed.select('headline', { from: 'stage' });
+  const reportedScene = swedishEditor.ed.scene;
+  check(reportedScene.texts.headline.lines === 3 && !reportedScene.warnings.some(w => w.code === 'overflow'), 'The reported three-line headline must not produce a screen/preflight overflow warning');
+  const swedishHint = document.querySelector('.details-panel [data-fit="headline"]');
+  check(swedishHint && !swedishHint.classList.contains('err') && !swedishHint.textContent.includes('taller'), 'The selected Swedish text inspector must clear the false height error');
+  const fixedSize = { ...reportedLayer, size: 160, minSize: 160 };
+  const actual = layoutText(ctx, reported.copy.sv.a.headline, { family: 'Impact', weight: 400, size: 160, minSize: 160, boxW: 1280, maxHeight: fixedSize.boxHeight, heightIncludesGlyphs: true, maxLines: 0, lineHeight: 1.03 });
+  check(actual.height + actual.ascent + actual.descent <= fixedSize.boxHeight, 'The exact rendered glyph block fits the reported height');
+  ${baseline ? `const oldFixed = new Engine(), newFixed = new engine.constructor();
+  for (const target of [oldFixed, newFixed]) { const data = structuredClone(reported); data.studio.slides[0].layouts.iphone.layers = [fixedSize]; target.setData(data); }
+  const a = document.createElement('canvas'), b = document.createElement('canvas');
+  const oldScene = oldFixed.scene('a', 'iphone', 'sv'), newScene = newFixed.scene('a', 'iphone', 'sv');
+  await oldFixed.render(a, oldScene); await newFixed.render(b, newScene);
+  check(oldScene.texts.headline.overflow && !newScene.texts.headline.overflow, 'Only the false height verdict changes at the same font size');
+  const oldPixels = a.getContext('2d').getImageData(0, 0, a.width, a.height).data;
+  const newPixels = b.getContext('2d').getImageData(0, 0, b.width, b.height).data;
+  check(oldPixels.every((v, i) => v === newPixels[i]), 'Swedish text at the same size must remain pixel-identical');` : ''}
+  result.textContent = 'PASS: Swedish Impact accented-line regression in renderer and inspector; Hindi three-line regression; line, width, height and combined constraints; zero means unlimited with width/height checks; Fill frame; scoped dropdown tooltips; selected-layer identity on single/all screens; fix action; Undo/Redo and saved zero${baseline ? '; unchanged before/after pixels in Hindi, English and fixed-size Swedish' : ''}';
 } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
 `);
   service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });

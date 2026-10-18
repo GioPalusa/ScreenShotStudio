@@ -1,3 +1,4 @@
+import { savedExports, exportMiniatures, exportSummary } from './saved-exports.js';
 import { h, modal } from './helpers.js';
 import { warningList } from './warnings.js';
 import { openAppStoreUpload } from './app-store-connect.js';
@@ -14,10 +15,12 @@ function uploadSource(onContinue) {
       const value = await window.studioDesktop.appStore('choose-export');
       if (closed) return;
       if (!value.canceled) {
+        archive.clearSelection();
         selected = value;
         result.replaceChildren(
-          h('div', { class: 'label' }, value.name), h('p', { class: 'path mono' }, value.path),
-          h('p', null, `${value.count} screenshots · ${value.locales.join(', ')} · ${value.canvases.join(', ')}`),
+          h('div', { class: 'label' }, value.name), exportMiniatures(value),
+          h('details', { class: 'disclosure' }, h('summary', null, 'Folder location'), h('p', { class: 'path mono' }, value.path)),
+          h('p', null, exportSummary(value)),
           h('div', { class: 'export-check-counts' }, h('span', { class: value.errors.length ? 'err' : 'ok' }, `${value.errors.length} technical errors`), h('span', { class: value.warnings.length ? 'warn' : 'ok' }, `${value.warnings.length} warnings`)),
           h('p', { class: 'hint' }, value.errors.length ? 'Fix the technical errors before uploading. You can choose another export folder.' : value.warnings.length ? 'You can choose to upload despite these warnings after reviewing the destination.' : 'Ready to choose your app and version.'),
           ...((value.errors.length || value.warnings.length) ? [h('div', { class: 'result-list' }, warningList([...value.errors, ...value.warnings]))] : []));
@@ -26,18 +29,23 @@ function uploadSource(onContinue) {
     } catch (error) { if (!closed) { selected = null; result.replaceChildren(); status.textContent = error.message; } }
     finally { if (!closed) { choose.disabled = false; next.disabled = !selected || selected.errors.length > 0; } }
   } }, 'Choose export folder…');
-  const el = h('section', { class: 'export-body' },
+  const archive = savedExports({ onSelect: run => { if (closed) return; selected = run; result.replaceChildren(); status.textContent = ''; next.disabled = !desktop || run.errors.length > 0; } });
+  const el = h('section', { class: 'export-body upload-source' },
     h('h2', null, 'Upload to App Store Connect'),
-    h('p', null, 'Upload screenshots you exported earlier. Choose the dated folder containing manifest.json and its images; languages, sizes and slide order come from that export.'),
-    h('p', { class: 'hint' }, 'Text, layout and translation-review warnings are yours to accept. Missing or changed images, invalid formats and technical requirements still block upload.'),
+    h('p', { class: 'hint' }, 'Choose a saved export, then pick your app and version.'),
     !desktop ? h('p', { class: 'warn' }, 'Direct upload is available in the Screenshot Studio Mac app.') : null,
-    h('div', null, choose), result, status, h('div', null, next));
+    archive, result, status, h('div', { class: 'upload-source-actions' }, next, choose),
+    h('details', { class: 'disclosure' }, h('summary', null, 'About uploads'),
+      h('p', { class: 'hint' }, 'Choose an export folder with its images and manifest.json. You can accept text and layout warnings. Missing images and technical errors must be fixed before upload.')));
   return { el, close() { closed = true; } };
 }
 
 export function createUploads() {
-  const source = uploadSource(exportPath => openAppStoreUpload(exportPath));
-  return { el: h('div', { class: 'uploads' }, source.el), build() {}, refresh() {} };
+  const el = h('div', { class: 'uploads' });
+  let source;
+  const build = () => { source?.close(); source = uploadSource(exportPath => openAppStoreUpload(exportPath)); el.replaceChildren(source.el); };
+  build();
+  return { el, build, refresh: build };
 }
 
 // Also available from Welcome / File, without an open project.

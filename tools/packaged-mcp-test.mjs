@@ -1,0 +1,86 @@
+// Exercise the actual shipped executable, dependencies, skill and hidden renderer.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { verifyStoreImageUpload } from './store-image-upload-check.mjs';
+import { encodePNG } from './png.mjs';
+import { startActiveAgentLink } from '../desktop/active-agent-link.mjs';
+import { createActiveProjectTools } from '../host/active-project-tools.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+import { createStudioService } from '../host/service.mjs';
+import { testAgentConnection } from '../desktop/agent-connection.mjs';
+const bundle = process.argv[2];
+if (!bundle?.endsWith('.app')) throw new Error('Pass the packaged Screenshot Studio.app path.');
+const root = path.join(bundle, 'Contents', 'Resources', 'app');
+assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/SKILL.md')));
+assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/editing.md')));
+assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/store-images.md')));
+assert.ok(fs.existsSync(path.join(root, 'node_modules/@modelcontextprotocol/sdk/package.json')));
+const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-packaged-mcp-'));
+const client = new Client({ name: 'packaged-studio-verification', version: '1.0.0' });
+const transport = new StdioClientTransport({ command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--workspace', workspace], stderr: 'pipe', env: { ...process.env, CHROME_PATH: '/deliberately-missing-chrome', PATH: '/usr/bin:/bin' } });
+let errors = '';
+const call = (name, args) => client.callTool({ name, arguments: args }, undefined, { timeout: 90000 });
+try {
+  const probe = await testAgentConnection({ command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--workspace', workspace] });
+  assert.equal(probe.tools, 10);
+  const connecting = client.connect(transport, { timeout: 30000 });
+  transport.stderr?.on('data', bytes => { if (errors.length < 10000) errors += bytes.toString(); });
+  await connecting;
+  assert.equal((await client.listTools()).tools.length, 10);
+  const catalog = await call('catalog', {}); assert.equal(catalog.structuredContent.workspace, fs.realpathSync(workspace));
+  const created = await call('create_project', { project: 'Demo.sss' }); assert.ok(!created.isError, JSON.stringify(created));
+  const draft = await call('export_project', { project: 'Demo.sss', allowPlaceholders: true });
+  assert.ok(!draft.isError, JSON.stringify(draft));
+  const file = draft.structuredContent.files[0]; const png = fs.readFileSync(file.absolutePath);
+  assert.equal(png[25], 2); assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1320, 2868]);
+  const failed = await call('export_project', { project: 'Demo.sss', mode: 'final' }); assert.equal(failed.isError, true);
+  const art = encodePNG({ width: 1320, height: 2868, channels: 3, data: Buffer.alloc(1320 * 2868 * 3, 128) });
+  fs.writeFileSync(path.join(workspace, 'capture.png'), art);
+  const imported = await call('import_media', { project: 'Demo.sss', source: 'capture.png', kind: 'capture', device: 'iphone', name: 'screen' }); assert.ok(!imported.isError, JSON.stringify(imported));
+  const final = await call('export_project', { project: 'Demo.sss', mode: 'final' }); assert.ok(!final.isError, JSON.stringify(final));
+  assert.equal(JSON.parse(fs.readFileSync(final.structuredContent.manifest)).mode, 'final');
+  assert.equal((await call('read_image', { file: file.absolutePath })).content[0].type, 'image');
+  assert.equal((await call('read_project', { project: '../Escape.sss' })).isError, true);
+  const beforeStore = (await call('read_project', { project: 'Demo.sss' })).structuredContent;
+  const added = await call('add_store_images', { project: 'Demo.sss', store: 'app-store', sizes: { 'app-store-search': [1920,1280], 'app-store-header': [3840,1646] }, revision: beforeStore.revisions.studio });
+  assert.ok(!added.isError, JSON.stringify(added)); assert.equal(added.structuredContent.images.length,2);
+  const storeDoc=(await call('read_project',{project:'Demo.sss'})).structuredContent;
+  for(const image of added.structuredContent.images)storeDoc.studio.slides.find(s=>s.id===image.slideId).layouts[image.deviceId].layers=[{id:'art',type:'shape',shape:'rect',cx:100,cy:100,w:100,h:100,fill:'#c0338b'}];
+  const storeSaved=await call('save_document',{project:'Demo.sss',studio:storeDoc.studio,revision:storeDoc.revisions.studio});assert.ok(!storeSaved.isError,JSON.stringify(storeSaved));
+  const storeExport=await call('export_project',{project:'Demo.sss',devices:added.structuredContent.images.map(i=>i.deviceId),slides:added.structuredContent.images.map(i=>i.slideId),mode:'final'});
+  assert.ok(!storeExport.isError,JSON.stringify(storeExport));assert.equal(storeExport.structuredContent.files.length,2);
+  await verifyStoreImageUpload(storeExport.structuredContent.directory);
+  // The same executable proxies an open GUI document, then follows a switch with no reconnect.
+  const appData = path.join(workspace, 'app-data');
+  const projectA = path.join(fs.realpathSync(workspace), 'Demo.sss'), projectB = path.join(fs.realpathSync(workspace), 'Second.sss');
+  createNewProject(projectB, {});
+  const services = [projectA, projectB].map(project => createStudioService({ appPath: path.join(root, 'app'), projectPath: project, exportPath: path.join(project, 'export'), origin: 'studio://local' }));
+  let current = { project: projectA, service: services[0], session: 'app-session-A' };
+  const changed = [];
+  const activeTools = createActiveProjectTools({ getCurrent: () => current, flush: async () => {}, changed: files => changed.push(files) });
+  const link = await startActiveAgentLink({ appData, invoke: activeTools.invoke });
+  const activeClient = new Client({ name: 'packaged-active-verification', version: '1.0' });
+  try {
+    const connection = { command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--active-app', '--app-data', appData] };
+    assert.equal((await testAgentConnection(connection)).tools, 9);
+    await activeClient.connect(new StdioClientTransport({ ...connection, stderr: 'pipe' }), { timeout: 30000 });
+    const first = (await activeClient.callTool({ name: 'read_project', arguments: {} })).structuredContent;
+    assert.equal(first.project, projectA); first.studio.slides[0].name = 'Active app edit';
+    const saved = await activeClient.callTool({ name: 'save_document', arguments: { studio: first.studio, revision: first.revisions.studio, projectSession: first.projectSession } });
+    assert.ok(!saved.isError, JSON.stringify(saved)); assert.deepEqual(changed, [['studio.json']]);
+    current = { project: projectB, service: services[1], session: 'app-session-B' };
+    const second = (await activeClient.callTool({ name: 'read_project', arguments: {} })).structuredContent;
+    assert.equal(second.project, projectB);
+    const stale = await activeClient.callTool({ name: 'save_document', arguments: { studio: first.studio, revision: first.revisions.studio, projectSession: first.projectSession } });
+    assert.equal(stale.isError, true);
+    current = null;
+    assert.equal((await activeClient.callTool({ name: 'catalog', arguments: {} })).structuredContent.project, null);
+  } finally { await activeClient.close(); link.close(); services.forEach(service => service.close()); }
+  console.log('Packaged active-project MCP passed: GUI proxy, default current document, live switching, renderer notifications and rejection of stale writes.');
+  console.log('Packaged MCP passed: stdio, bundled skill/dependencies, draft/final RGB rendering without Node or Chrome, missing-capture rejection and workspace confinement.');
+} catch (error) { throw new Error(`${error.message}\nServer stderr: ${errors}`, { cause: error }); }
+finally { await client.close(); fs.rmSync(workspace, { recursive: true, force: true }); }
