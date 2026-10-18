@@ -295,7 +295,11 @@ export async function runHeadless(params) {
     if (params.get('inspect') === '1') {
       const { inspectProject } = await import('../agent-inspection.js');
       const inspection = await inspectProject({ locales, devices, slides, checkOnly: params.get('checkOnly') === '1' });
-      await post('/api/export-done', { inspection });
+      const response = await post('/api/export-done', { inspection });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(response.status === 413 ? 'Preview result is too large. Select fewer canvases, slides or languages.' : error.error ?? `Could not return inspection result (${response.status}).`);
+      }
       return;
     }
     let last = 0;

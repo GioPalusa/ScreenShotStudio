@@ -30,7 +30,7 @@ The first updater-enabled release still needs to be signed, notarized and publis
 
 Sources: [Electron autoUpdater](https://www.electronjs.org/docs/latest/api/auto-updater), [Electron updating guide](https://www.electronjs.org/docs/latest/tutorial/updates), [update service asset names](https://github.com/electron/update.electronjs.org#asset-naming-convention).
 
-## 0.2.9 (10) — 18 October 2026
+## 0.2.9 (11) — 18 October 2026
 
 - A compact upload view with a clear success check, verified receipt count and Done action. Interrupted or incomplete uploads remain distinct from success.
 - Edit all screens now follows the selected screenshot canvas, including iPad, with isolated shared edits and undo support.

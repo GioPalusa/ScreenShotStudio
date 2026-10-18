@@ -52,4 +52,6 @@ Use `edit_layers` with `shared: true` and the canvas ID to add or patch these la
 }
 ```
 
-The batch preserves other canvases, copy and locale variants. A failed edit or stale revision saves nothing. Read the returned revision for the next edit. A layer’s `null` property clears its local value using the editor’s normal override semantics. Shared artwork belongs behind the foreground layers through its `z`; inspect existing stacking before choosing a value.
+The batch preserves other canvases, copy and locale variants. A failed edit or stale revision saves nothing. Read the returned revision for the next edit. A layer’s `null` property clears its local value using the editor’s normal override semantics. Additions start on top; for background artwork, add the layer then patch its `zOrder` in the same batch after inspecting the existing stacking.
+
+If a legacy document has conflicting layer IDs, the inventory marks generated IDs as `editable: false`. Rename the conflicting stored layers through `save_document` and reread before using targeted edits; such edits are rejected instead of silently saving an ineffective override.

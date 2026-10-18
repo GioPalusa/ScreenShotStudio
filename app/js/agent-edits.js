@@ -19,7 +19,7 @@ export function editingInventory(project) {
     sharedLayers: (project.sharedCanvas?.[id]?.layers ?? []).map(l => ({ id: l.id, type: l.type })),
     screens: orderedSlides(project, project.sourceLocale ?? project.locales[0]?.id, id).map(slide => ({
       id: slide.id, name: slide.name, capture: slide.capture,
-      layers: resolveLayers({ project, slide, deviceId: id, includeShared: false }).layers.map(l => ({ id: l.id, type: l.type, ...(l.field ? { field: l.field } : {}) })),
+      layers: resolveLayers({ project, slide, deviceId: id, includeShared: false }).layers.map(l => ({ id: l.id, type: l.type, editable: !l._sourceId, ...(l.field ? { field: l.field } : {}) })),
     })),
   }));
 }
@@ -54,7 +54,11 @@ export function editLayers(studio, edits) {
     } else {
       const layer = layers.find(l => l.id === edit.id);
       if (!layer) throw new Error(`Unknown layer: ${edit.id}`);
-      if (edit.op === 'remove') removeLayer(block, { ...layer, _origin: edit.shared ? 'slide' : layer._origin });
+      if (layer._sourceId) throw new Error(`Layer ${edit.id} has a generated ID because stored layer IDs conflict. Rename the conflicting layers with save_document, then read_project again before targeted edits.`);
+      if (edit.op === 'remove') {
+        removeLayer(block, { ...layer, _origin: edit.shared ? 'slide' : layer._origin });
+        if (edit.shared) block.layers ??= [];
+      }
       else {
         if (!edit.patch || typeof edit.patch !== 'object' || Array.isArray(edit.patch)) throw new Error('Supply a layer patch.');
         if (edit.shared) patchSharedLayer(project, edit.device, { _sharedId: layer.id }, edit.patch);

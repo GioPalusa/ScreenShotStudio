@@ -102,7 +102,27 @@ test('targeted edits are atomic, revision checked and isolate canvases and local
   await assert.rejects(api.edit_layers({ project, revision: saved.revision, edits: [edits[0], { ...edits[0], id: 'missing' }] }), /Unknown layer/);
   assert.equal(fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8'), disk);
   await assert.rejects(api.edit_layers({ project, revision: saved.revision, edits: [{ ...edits[0], patch: { _origin: 'shared' } }] }), /private/);
-  await api.edit_layers({ project, revision: saved.revision, edits: [{ op: 'remove', device: 'ipad', shared: true, id: 'flow' }, { ...edits[1], layer: { ...edits[1].layer, id: 'new-flow' } }] });
+  const replaced = await api.edit_layers({ project, revision: saved.revision, edits: [{ op: 'remove', device: 'ipad', shared: true, id: 'flow' }, { ...edits[1], layer: { ...edits[1].layer, id: 'new-flow' } }] });
+  await api.edit_layers({ project, revision: replaced.revision, edits: [{ op: 'remove', device: 'ipad', shared: true, id: 'new-flow' }] });
+  assert.deepEqual((await api.read_project({ project })).studio.sharedCanvas.ipad.layers, []);
+});
+
+test('conflicting legacy layer identities are reported and rejected without a misleading save', async t => {
+  const { api, root } = fixture(t), project = 'Legacy.sss';
+  const doc = await api.create_project({ project }), slide = doc.studio.slides[0];
+  slide.layouts = { iphone: { template: 'text-top', panorama: false, layers: [{ id: 'headline', type: 'text', field: 'extra', x: 30, w: 600, capTop: 200, size: 80 }] } };
+  await api.save_document({ project, studio: doc.studio, revision: doc.revisions.studio });
+  const current = await api.read_project({ project }), layer = current.editing[0].screens[0].layers.find(l => l.id === 'headline~2');
+  assert.equal(layer.editable, false);
+  const before = fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8');
+  for (const op of ['patch', 'remove']) await assert.rejects(api.edit_layers({ project, revision: current.revisions.studio, edits: [{ op, device: 'iphone', slide: slide.id, id: layer.id, patch: { opacity: .2 } }] }), /stored layer IDs conflict/);
+  assert.equal(fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8'), before);
+  // A literal ID with a suffix remains editable when it does not represent a collision.
+  current.studio.slides[0].layouts.iphone.template = 'custom';
+  current.studio.slides[0].layouts.iphone.layers[0].id = 'headline~2';
+  const saved = await api.save_document({ project, studio: current.studio, revision: current.revisions.studio });
+  await api.edit_layers({ project, revision: saved.revision, edits: [{ op: 'patch', device: 'iphone', slide: slide.id, id: layer.id, patch: { opacity: .2 } }] });
+  assert.equal((await api.read_project({ project })).studio.slides[0].layouts.iphone.layers[0].opacity, .2);
 });
 
 test('media imports, designs and image content use portable document assets', async t => {
@@ -167,6 +187,9 @@ test('real renderer exports draft/final RGB and rejects final with missing captu
   assert.equal(final.files.length, 1);
   assert.equal(JSON.parse(fs.readFileSync(final.manifest)).mode, 'final');
   assert.deepEqual(final.report.warnings, []);
+  const current = await api.read_project({ project: 'Demo.sss' });
+  const images = await api.add_store_images({ project: 'Demo.sss', store: 'app-store', revision: current.revisions.studio });
+  for (const tool of ['preflight_project', 'preview_project']) await assert.rejects(api[tool]({ project: 'Demo.sss', devices: [images.images[0].deviceId], slides: ['first-slide'] }), /No matching screen\/canvas pairs/);
 });
 
 test('store image tool exposes presets and atomically adds editable pairs with revisions', async t => {

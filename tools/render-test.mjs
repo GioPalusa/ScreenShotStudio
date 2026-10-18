@@ -277,5 +277,6 @@ try {
   execFileSync(process.execPath, ['tools/connected-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/shared-canvas-render-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/shared-canvas-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/inspection-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   console.log('Rendering integration passed: mixed device sources, locale overrides, text rotation/height, image mask, exact RGB dimensions, manifest, rejected blank/invalid-size final exports and draft with one size warning.');
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

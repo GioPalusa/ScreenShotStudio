@@ -35,6 +35,7 @@ export async function inspectProject({ locales, devices, slides, checkOnly = fal
       }
       if (!checkOnly) rows.push(row);
     }
+    if (!checked) throw new Error('No matching screen/canvas pairs to check. Select a compatible screen and canvas.');
     const report = { checked, errors: issues.filter(i => i.level === 'error').length, warnings: issues.filter(i => i.level !== 'error').length, issues };
     const result = { ready: issues.length === 0, report, selection: { locales, devices, slides: slides.map(s => s.id) }, assetReview: {
       ...APP_STORE_ASSET_GUIDANCE, status: 'visual-review-required', advisories,
