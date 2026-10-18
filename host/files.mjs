@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { isProjectFile } from '../app/js/project-file.js';
 
 export const revision = file => fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : 'missing';
-export function atomicWrite(file, data, { backupRoot = null, expected = null } = {}) {
+export function atomicWrite(file, data, { backupRoot = null, expected = null, mode } = {}) {
   if (backupRoot) assertInside(backupRoot, file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const lock = `${file}.studio-lock`;
@@ -25,11 +25,11 @@ export function atomicWrite(file, data, { backupRoot = null, expected = null } =
       try { fs.linkSync(claim, lock); }
       catch (e) { if (e.code === 'EEXIST') throw Object.assign(new Error('Another window is saving this file. Retrying shortly.'), { status: 423 }); throw e; }
     }
-    try { return writeLocked(file, data, { backupRoot, expected }); }
+    try { return writeLocked(file, data, { backupRoot, expected, mode }); }
     finally { fs.unlinkSync(lock); }
   } finally { fs.unlinkSync(claim); }
 }
-function writeLocked(file, data, { backupRoot, expected }) {
+function writeLocked(file, data, { backupRoot, expected, mode }) {
   if (expected !== null && revision(file) !== expected) throw Object.assign(new Error('This file changed outside this window. Your edits are retained. Resolve the conflict before saving.'), { status: 409 });
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -44,14 +44,14 @@ function writeLocked(file, data, { backupRoot, expected }) {
   const tmp = `${file}.${crypto.randomUUID()}.tmp`;
   let fd;
   try {
-    fd = fs.openSync(tmp, 'wx'); fs.writeFileSync(fd, buffer); fs.fsyncSync(fd); fs.closeSync(fd); fd = null;
+    fd = fs.openSync(tmp, 'wx', mode); fs.writeFileSync(fd, buffer); fs.fsyncSync(fd); fs.closeSync(fd); fd = null;
     fs.renameSync(tmp, file);
     // Persist the directory entry as well as its contents where the platform supports it.
     try { const dir = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); } } catch { /* unsupported directory fsync */ }
   } finally { if (fd !== undefined && fd !== null) fs.closeSync(fd); if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
   return revision(file);
 }
-export function copyProject(from, to, { replace = false } = {}) {
+export function copyProject(from, to, { replace = false, includeExports = true } = {}) {
   const src = fs.realpathSync(from), dest = path.resolve(to);
   const checkDestination = () => {
     if (!fs.existsSync(dest)) return false;
@@ -72,7 +72,7 @@ export function copyProject(from, to, { replace = false } = {}) {
   try {
     fs.cpSync(src, staging, { recursive: true, filter: p => {
       if (fs.lstatSync(p).isSymbolicLink()) throw new Error('Project files cannot be symbolic links.');
-      return p === src || (!['.history', '.versions', 'export', '.DS_Store'].includes(path.basename(p)) && !p.endsWith('.studio-lock') && !p.endsWith('.tmp'));
+      return p === src || (!['.history', '.versions', '.DS_Store', ...(!includeExports ? ['export'] : [])].includes(path.basename(p)) && !(path.basename(p).startsWith('.partial-')) && !p.endsWith('.studio-lock') && !p.endsWith('.tmp'));
     } });
     if (checkDestination()) {
       const previous = path.join(staging, '.versions', `replaced-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID()}`);

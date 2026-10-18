@@ -31,7 +31,7 @@ const results = await packager({
   ...(identity ? { osxSign: { identity, preAutoEntitlements: false, optionsForFile: () => ({ hardenedRuntime: true, entitlements: path.join(root, 'distribution', 'Studio.entitlements') }) } } : {}),
   icon,
   appCategoryType: 'public.app-category.graphics-design',
-  ignore: [/^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs)/, /^\/tests(?:\/|$)/],
+  ignore: [/^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs$|mcp(?:\/|$))/, /^\/tests(?:\/|$)/],
   extendInfo: {
     CFBundleIconFile: 'ScreenshotStudio.icns',
     CFBundleDocumentTypes: [{ CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
@@ -51,7 +51,7 @@ for (const result of results) {
       else { assert.ok(fs.readFileSync(path.join(root, file)).equals(fs.readFileSync(path.join(bundled, file))), `Packaged file differs: ${file}`); checked++; }
     }
   };
-  for (const folder of ['app', 'host', 'desktop', 'starter']) compare(folder);
+  for (const folder of ['app', 'host', 'desktop', 'starter', 'skills']) compare(folder);
   assert.equal(fs.existsSync(path.join(bundled, 'project')), false, 'Private example project must not ship');
   assert.equal(fs.existsSync(path.join(bundled, 'app/assets/frames')), false, 'Apple bezel artwork must not ship');
   const seed = JSON.parse(fs.readFileSync(path.join(bundled, 'starter', 'studio.json'), 'utf8'));
@@ -79,6 +79,7 @@ for (const result of results) {
     execFileSync('codesign', ['--force', '--deep', ...runtimeOptions, '--entitlements', path.join(root, 'distribution', 'Studio.entitlements'), '--sign', '-', app], { stdio: 'inherit' });
   }
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
+  execFileSync(process.execPath, [path.join(root, 'tools/packaged-mcp-test.mjs'), app], { cwd: root, stdio: 'inherit', timeout: 180000 });
   if (xcode) {
     const destination = path.join(process.env.TARGET_BUILD_DIR, process.env.FULL_PRODUCT_NAME);
     fs.mkdirSync(path.join(destination, 'Contents'), { recursive: true });

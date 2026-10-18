@@ -10,6 +10,8 @@
     "desktop": "node node_modules/electron/cli.js .",
     "package": "node tools/package.mjs",
     "test:render": "node tools/render-test.mjs",
+    "mcp": "node tools/mcp/server.mjs",
+    "test:mcp": "node --test tools/mcp.test.mjs",
     "release:zip": "node tools/release-zip.mjs"
   },
   "engines": {
@@ -21,7 +23,7 @@
   },
   "version": "0.2.7",
   "productName": "Screenshot Studio",
-  "main": "desktop/main.mjs",
+  "main": "desktop/entry.mjs",
   "license": "MIT",
   "author": "Giovanni Palusa",
   "repository": {
@@ -31,5 +33,10 @@
   "homepage": "https://github.com/GioPalusa/ScreenShotStudio",
   "bugs": {
     "url": "https://github.com/GioPalusa/ScreenShotStudio/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "smol-toml": "1.9.1",
+    "zod": "4.6.7"
   }
 }

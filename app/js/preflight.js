@@ -1,4 +1,5 @@
 import { canvasForSlide } from './canvas-orientation.js';
+import { slideSupportsCanvas } from './slide-order.js';
 import { PLAY_TARGETS, playSelectionIssues } from './google-play.js';
 import { deviceForLayer } from './profiles.js';
 import { copyNeedsReview, localeNeedsReview } from './copy-review.js';
@@ -57,25 +58,27 @@ export function preflightScene(scene, bundle, { fontAvailable = () => true, chec
 export function preflightSelection(project, devices, slides = project.slides ?? []) {
   const warnings = [], buckets = new Map();
   const selected = [...new Set(devices)].map(id => project.devices[id]);
-  for (const device of selected) {
+  for (const id of new Set(devices)) {
+    const device = project.devices[id];
     warnings.push(...canvasIssues(device).map(issue => `${device.label ?? 'Canvas'}: ${issue.message}`));
     const target = exportTarget(device), format = acceptedFormat(device);
     if (target === 'custom' || target === 'unknown' || PLAY_TARGETS[target]) continue;
     // Different resolutions and orientations can belong to the same App Store display size.
-    const bucket = `${target}:${target === 'watch' ? 'watch' : format?.label ?? device.size.join('x')}`;
-    const entry = buckets.get(bucket) ?? { label: `${EXPORT_TARGETS[target].label}${target === 'watch' ? '' : ` · ${format?.label ?? device.size.join(' × ')}`}`, count: 0 };
-    entry.count += new Set(slides.map(s => typeof s === 'string' ? s : s.id)).size;
+    const bucket = `${target}:${EXPORT_TARGETS[target]?.placementType ? 'creative' : target === 'watch' ? 'watch' : format?.label ?? device.size.join('x')}`;
+    const entry = buckets.get(bucket) ?? { label: `${EXPORT_TARGETS[target].label}${target === 'watch' ? '' : ` · ${format?.label ?? device.size.join(' × ')}`}`, count: 0, max: EXPORT_TARGETS[target]?.placementType ? 1 : 10 };
+    entry.count += new Set(slides.filter(s => slideSupportsCanvas(project, typeof s === 'string' ? project.slides?.find(slide => slide.id === s) : s, id)).map(s => typeof s === 'string' ? s : s.id)).size;
     buckets.set(bucket, entry);
   }
   const effectiveSelection = [];
   const selectedSlides = [...new Map(slides.map(s => [typeof s === 'string' ? s : s.id, s])).values()];
   for (const id of new Set(devices)) for (const entry of selectedSlides) {
     const slide = typeof entry === 'string' ? project.slides?.find(s => s.id === entry) : entry;
+    if (!slideSupportsCanvas(project, slide, id)) continue;
     const effective = canvasForSlide(project, slide, id);
     effectiveSelection.push(effective);
     if (effective !== project.devices[id]) warnings.push(...canvasIssues(effective).map(issue => `${effective.label ?? 'Canvas'} · ${slide.name ?? slide.id}: ${issue.message}`));
   }
-  for (const { label, count } of buckets.values()) if (count > 10) warnings.push(`${label}: ${count} images per language selected. App Store Connect allows up to 10 per display size. Select fewer slides or canvases.`);
+  for (const { label, count, max } of buckets.values()) if (count > max) warnings.push(`${label}: ${count} images per language selected. App Store Connect allows up to ${max} per ${max === 1 ? 'placement' : 'display size'}. Select fewer slides or canvases.`);
   warnings.push(...playSelectionIssues(effectiveSelection, 1));
   const watch = [...selected, ...effectiveSelection].filter(d => exportTarget(d) === 'watch');
   if (new Set(watch.map(d => d.size.join('x'))).size > 1) warnings.push('Apple Watch submissions must use one screenshot size consistently across languages. Select one Watch canvas.');

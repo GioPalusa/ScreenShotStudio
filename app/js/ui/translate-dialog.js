@@ -34,7 +34,7 @@ export function openTranslate(ctx, { target = state.ui.locale, slideId = null, f
     model.value = models.some(m => m.id === preferred) ? preferred : models[0]?.id ?? 'custom';
   }
   const key = h('input', { class: 'input', type: 'password', 'aria-label': 'API key', placeholder: 'Paste your API key', autocomplete: 'off', spellcheck: 'false', onInput: update });
-  const scope = selectInput({ value: fields ? 'field' : slideId ? 'slide' : 'all', options: [...(fields ? [['field', 'Selected text']] : []), ['slide', 'Current slide'], ['all', 'All slides']], onChange: update });
+  const scope = selectInput({ value: fields ? 'field' : slideId ? 'slide' : 'all', options: [...(fields ? [['field', 'Selected text']] : []), ['slide', 'This screen'], ['all', 'All screens']], onChange: update });
   const mode = selectInput({ value: 'missing', options: [['missing', 'Missing or untranslated text'], ['replace', 'Replace existing text']], onChange: update });
   const summary = h('p', { class: 'notice', role: 'status' }), status = h('p', { class: 'hint', role: 'status', 'aria-live': 'polite' });
   async function savePreferences(includeKey = false) {
@@ -52,7 +52,8 @@ export function openTranslate(ctx, { target = state.ui.locale, slideId = null, f
       setModels(choices, prefs.model ?? TRANSLATION_MODELS[prefs.provider]);
       customModel.value = '';
       if (prefs.model && !choices.some(m => m.id === prefs.model)) { model.value = 'custom'; customModel.value = prefs.model; }
-      key.value = prefs.token ?? ''; status.textContent = prefs.keyError ?? (key.value ? 'API key loaded from macOS Keychain.' : '');
+      key.value = prefs.token ?? ''; status.textContent = prefs.keyError ?? '';
+      serviceSettings.open = !key.value || Boolean(prefs.keyError);
       await savePreferences();
     } catch (error) {
       if (!closed) { const id = providerId ?? 'openai'; provider.value = id; setModels(TRANSLATION_MODEL_SUGGESTIONS[id].map(id => ({ id, name: id })), TRANSLATION_MODELS[id]); status.textContent = error.message; }
@@ -115,20 +116,33 @@ export function openTranslate(ctx, { target = state.ui.locale, slideId = null, f
   });
   const forgetKey = window.studioDesktop?.translationSettings ? h('button', { class: 'btn small', onClick: async () => {
     if (busy) return;
-    try { await window.studioDesktop.translationSettings('forget', provider.value); key.value = ''; status.textContent = 'API key removed from macOS Keychain.'; update(); } catch (error) { status.textContent = error.message; }
+    try { await window.studioDesktop.translationSettings('forget', provider.value); key.value = ''; serviceSettings.open = true; status.textContent = 'API key removed from macOS Keychain.'; update(); } catch (error) { status.textContent = error.message; }
   } }, 'Forget saved key') : null;
   function update() {
     if (busy) return;
     customModel.style.display = model.value === 'custom' ? '' : 'none';
     loadModels.disabled = !key.value.trim();
-    try { const p = plans(), count = p.reduce((n, item) => n + item.fields.length, 0); summary.textContent = `${count} text field${count === 1 ? '' : 's'} → ${targetInput.value === 'all' ? `${p.length} target languages` : project.locales.find(l => l.id === targetInput.value)?.name}. ${mode.value === 'replace' ? 'Existing text in this scope will be replaced.' : 'Existing translations will be kept.'} You can undo the result.`; run.disabled = !count || !key.value.trim() || !modelId(); }
+    serviceLabel.textContent = `${provider.selectedOptions[0].textContent} settings${key.value.trim() ? '' : ' · Add API key'}`;
+    try { const p = plans(), count = p.reduce((n, item) => n + item.fields.length, 0); summary.textContent = `${count} text field${count === 1 ? '' : 's'} → ${targetInput.value === 'all' ? `${p.length} languages` : project.locales.find(l => l.id === targetInput.value)?.name}. ${mode.value === 'replace' ? 'Existing text will be replaced. You can undo.' : 'Existing translations stay.'}`; run.disabled = !count || !key.value.trim() || !modelId(); }
     catch (error) { summary.textContent = error.message; run.disabled = true; }
   }
   const field = (label, input) => h('label', { class: 'f' }, h('span', null, label), input);
+  const serviceLabel = h('summary', null, 'Translation service');
+  const serviceSettings = h('details', { class: 'disclosure translation-service' }, serviceLabel,
+    h('div', { class: 'disclosure-body' },
+      h('div', { class: 'translation-grid' }, field('Provider', provider), field('Model', h('div', null, model, customModel))),
+      field('API key', key), h('div', { class: 'row wrap' }, forgetKey, loadModels),
+      h('p', { class: 'hint' }, window.studioDesktop?.translationSettings ? 'Your key is saved in macOS Keychain.' : 'Your key is used for this session only.')));
   const body = h('div', { class: 'translation-dialog' },
-    h('p', null, 'Translate your screenshot copy, then review it in context.'),
-    h('div', { class: 'translation-grid' }, field('From', sourceInput), field('To', targetInput), field('Slides', scope), field('Text to translate', mode), field('Provider', provider), field('Model', h('div', null, model, customModel))),
-    field('API key', key), forgetKey, loadModels, h('p', { class: 'hint' }, `Model choices are remembered. ${window.studioDesktop?.translationSettings ? 'Your API key is saved in macOS Keychain.' : 'API keys are not saved in browser mode.'} Keys are never saved in the project. Each text is translated and checked for meaning separately, with one correction attempt if needed. Texts with unresolved issues are marked for manual checks. This uses additional API requests. Screenshot text is sent directly to the selected provider. API usage is billed by that provider; a ChatGPT or Claude subscription is separate.`), summary, status);
+    h('div', { class: 'translation-grid' }, field('Translate to', targetInput), field('Screens', scope)),
+    summary,
+    h('details', { class: 'disclosure' }, h('summary', null, 'Translation options'),
+      h('div', { class: 'translation-grid disclosure-body' }, field('Original language', sourceInput), field('Text to translate', mode))),
+    serviceSettings,
+    h('p', { class: 'hint' }, 'Text is sent to your provider. API charges apply. Review the translations when finished.'),
+    h('details', { class: 'disclosure' }, h('summary', null, 'How translation works'),
+      h('p', { class: 'hint' }, 'Each text is translated and checked for meaning, with one correction attempt if needed. This uses additional API requests. Unresolved issues are flagged for review. API billing is separate from a ChatGPT or Claude subscription.')),
+    status);
   const dialog = modal({ title: 'Translate screenshots', body, actions: [h('button', { class: 'btn', onClick: () => dialog.close() }, 'Cancel'), run], onClose: () => { closed = true; key.value = ''; controller.abort(); } });
   update(); void restorePreferences();
 }

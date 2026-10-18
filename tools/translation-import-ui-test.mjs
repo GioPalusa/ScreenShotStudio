@@ -42,7 +42,8 @@ try {
     check(engine.data.copy['sv-SE']._meta.status==='draft' && engine.data.copy['sv-SE']._meta.needsReview.includes('*'),'Machine text needs review');
     check(JSON.stringify(engine.data.copy['en-US'])===source,'Source language unchanged');
     const meaning=document.querySelector('.lang-row[data-locale="sv-SE"] [data-meaning-review="headline"]');
-    check(meaning?.textContent.includes('Manual meaning check needed'),'Unresolved meaning issue must be visible beside its field');
+    check(meaning?.querySelector('summary').textContent.includes('Manual meaning check needed') && !meaning.open,'Unresolved meaning status stays visible with details collapsed');
+    meaning.open=true;
     check(meaning.textContent.includes('Fixture: compare the source text.') && meaning.textContent.includes('Source (en-US):'),'Show the issue and original text');
     check(document.querySelector('.lang-row[data-locale="sv-SE"] [data-meaning-review="caption"]')?.textContent.includes('Meaning check passed after correction'),'Corrected text shows a separate automatic status');
     const {buildTextPanel}=await import('/app/js/ui/text-panel.js');
@@ -50,7 +51,7 @@ try {
     check(details.querySelector('[data-meaning-review="headline"]')?.textContent.includes('Manual meaning check needed'),'Details shows the same unresolved meaning warning');
     const firstSlide=state.ui.slideId;
     editCopy('sv-SE',firstSlide,'headline','Manual edit');
-    meaning.refreshMeaningReview();check(meaning.textContent.includes('Meaning check outdated'),'Editing invalidates the automatic result');
+    meaning.refreshMeaningReview();check(meaning.open && meaning.textContent.includes('Meaning check outdated'),'Editing invalidates the automatic result');
     undo();meaning.refreshMeaningReview();check(meaning.textContent.includes('Manual meaning check needed'),'Undo restores the meaning result');
     check(!Object.values(localStorage).some(v=>v.includes('test-only-token')) && !JSON.stringify(engine.data).includes('test-only-token'),'No key in local storage or document');
     undo();check(JSON.stringify(engine.data.copy['sv-SE'])===before,'Translation must undo as one edit');redo();await flushSaves();
@@ -72,7 +73,7 @@ try {
     await addLocale({id:'de-DE',name:'German',native:'Deutsch',lang:'de',dir:'ltr'});
     const allBefore=JSON.stringify(engine.data.copy);
     openTranslate(ctx,{target:'all'});await waitFor(()=>!document.querySelector('[aria-label="API key"]').disabled);dlg=document.querySelector('.translation-dialog');
-    check([...dlg.querySelectorAll('select')].some(s=>s.value==='all' && [...s.options].some(o=>o.textContent==='All slides')),'Translate all covers every slide');
+    check([...dlg.querySelectorAll('select')].some(s=>s.value==='all' && [...s.options].some(o=>o.textContent==='All screens')),'Translate all covers every slide');
     select([...dlg.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='replace')),'replace');
     key=document.querySelector('[aria-label="API key"]');key.value='test-second-error';key.dispatchEvent(new Event('input'));button('Translate').click();
     await waitFor(()=>dlg.textContent.includes('Fixture provider unavailable'));

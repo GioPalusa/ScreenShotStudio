@@ -71,3 +71,28 @@ test('upload guide escapes project names and shows draft warnings without remote
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;')); assert.ok(html.includes('&lt;bad&gt;'));
   assert.ok(!html.includes('src="http')); assert.match(html, /Draft export/);
 });
+
+test('exports remain in the portable document after reopen and Save As while snapshots omit previous runs', async t => {
+  const { copyProject } = await import('../host/files.mjs');
+  const { createStudioService } = await import('../host/service.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-saved-exports-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'Original.sss'), output = path.join(root, 'external');
+  fs.mkdirSync(project); fs.writeFileSync(path.join(project, 'studio.json'), JSON.stringify(fixture()));
+  const sessions = new ExportSessions(project, output); t.after(() => sessions.close());
+  const run = sessions.start('draft', { locales: ['sv'], devices: ['apple'], slides: ['one'] });
+  const file = [...run.plan.values()][0]; sessions.write(run.id, file.requestPath, Buffer.from('saved-image'), file.size);
+  const external = sessions.finish(run.id, { issues: [], warnings: [], skipped: [] });
+  const archive = path.join(project, 'export', path.basename(external));
+  assert.ok(fs.readFileSync(path.join(archive, file.path)).equals(fs.readFileSync(path.join(external, file.path))));
+  const next = sessions.start('draft', {});
+  assert.equal(fs.existsSync(path.join(next.source, 'export')), false); sessions.abort(next.id);
+  const copy = path.join(root, 'Copy.sss'); copyProject(project, copy);
+  assert.ok(fs.existsSync(path.join(copy, 'export', path.basename(external), file.path)));
+  const service = createStudioService({ appPath: path.resolve('app'), projectPath: copy, exportPath: path.join(copy, 'export'), origin: 'studio://local' }); t.after(() => service.close());
+  const response = await service.request(new Request('studio://local/api/export-runs'));
+  const { runs } = await response.json(); assert.equal(runs.length, 1); assert.equal(runs[0].count, 1);
+  assert.equal(service.uploadExportPath(runs[0].path), runs[0].path);
+  assert.throws(() => service.uploadExportPath(path.join(root, 'unselected')), /Choose/);
+  assert.equal(service.retainSavedExport(runs[0].path), runs[0].path, 'Choosing an archived run does not duplicate it');
+});

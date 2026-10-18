@@ -71,11 +71,13 @@ export function openAddLanguage(ctx) {
 
   const m = modal({
     title: 'Add a language',
-    body: h('div', { class: 'field' },
+    body: h('div', { class: 'settings-form' },
       search, list, summary,
-      h('div', { class: 'row wrap' }, h('span', { class: 'label' }, 'Not in the list?'), custom, useCustom),
-      h('label', null, 'Text to start with'), from,
-      h('div', { class: 'hint' }, 'Use the language code expected by your store. Export folders use this code; match it when uploading to App Store Connect or Google Play.')),
+      h('details', { class: 'disclosure settings-disclosure' }, h('summary', null, 'More options'),
+        h('div', { class: 'disclosure-body' },
+          h('div', { class: 'field' }, h('span', { class: 'label' }, 'Custom language'), h('div', { class: 'row wrap' }, custom, useCustom)),
+          h('label', { class: 'field' }, 'Starting text', from),
+          h('p', { class: 'hint' }, 'Use your store’s language code. New text stays draft until reviewed.')))),
     wide: true,
     actions: [h('button', { class: 'btn', onClick: () => m.close() }, 'Cancel'), addBtn],
   });
@@ -111,15 +113,19 @@ export function openLanguageSettings(ctx, localeId) {
   } }, 'Save');
   const m = modal({
     title: `${localeLabel(locale)} · settings`,
-    body: h('div', { class: 'field' },
-      h('label', null, 'Name'), name,
-      h('label', null, 'Name in its own language'), native,
-      h('label', null, 'Language tag', h('span', { class: 'sub' }, '· used for line breaking and font choice, e.g. ja, zh-Hant, pt-BR')), lang,
-      h('label', null, 'Direction'), dir,
-      h('label', null, 'Font'), family,
-      h('div', { class: 'row' }, h('span', { class: 'label' }, 'Line height'), lineHeight, h('span', { class: 'hint' }, 'multiplier; taller scripts need more')),
-      h('div', { class: 'hint' }, 'A comma-separated list of installed font names, like "SF Pro Rounded", "Thonburi", sans-serif. Leave empty to use the project’s font for this language.'),
-      h('label', { class: 'row check' }, appUI, 'The app itself is translated into this language (so screenshots can show it localised)')),
+    body: h('div', { class: 'settings-form' },
+      h('div', { class: 'settings-grid' },
+        h('label', { class: 'field' }, 'Name', name),
+        h('label', { class: 'field' }, 'Name in its own language', native)),
+      h('label', { class: 'row check' }, appUI, 'App screenshots are translated into this language'),
+      h('details', { class: 'disclosure settings-disclosure' }, h('summary', null, 'Typography and language'),
+        h('div', { class: 'disclosure-body' },
+          h('div', { class: 'settings-grid' },
+            h('label', { class: 'field' }, 'Language tag', lang),
+            h('label', { class: 'field' }, 'Direction', dir)),
+          h('label', { class: 'field' }, 'Font', family),
+          h('label', { class: 'field' }, 'Line height', lineHeight),
+          h('p', { class: 'hint' }, 'Leave font and line height empty to use the project defaults. The language tag controls line breaking and font choice.')))),
     actions: [h('button', { class: 'btn', onClick: () => m.close() }, 'Cancel'), save],
   });
 }

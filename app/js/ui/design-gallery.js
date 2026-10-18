@@ -13,6 +13,8 @@ import { captureItems } from '../media.js';
 import { drawConnectedPreview } from './connected-series.js';
 import { drawCompositionPreview } from './composition-preview.js';
 import { h, modal, segmented, selectInput, drawInto } from './helpers.js';
+import { storeImagesPicker } from './store-images-picker.js';
+import { slideSupportsCanvas } from '../slide-order.js';
 
 const COLLECTIONS = [
   { id: 'styled', name: 'Complete designs', note: 'Artwork, device placement and typography designed together.', designs: STORY_TEMPLATES },
@@ -51,8 +53,9 @@ export function openNewDesignGallery({ slide, deviceId, captures = [], initialCo
     const summary = h('span', { class: 'hint', 'aria-live': 'polite' }), error = h('span', { class: 'hint err', role: 'alert' });
     const create = h('button', { class: 'btn primary', onClick: () => {
       if (engine.project !== project || JSON.stringify(project) !== fingerprint) { error.textContent = 'The project changed. Reopen the gallery to continue.'; create.disabled = true; return; }
+      if (category === 'store-images') { finish(storePicker.selection()); return; }
       const { group, design } = selected;
-      if (loading) { finish({ kind: isLayout(group) ? 'layout' : group === 'styled' ? 'styled' : 'arrangement', option: design, designId: design.id, palette: isLayout(group) ? null : group === 'layouts' ? customPalette : paletteFor(design), profileId, frames: engine.data.frames, deviceIds: allCanvases ? canvases.filter(([id, d]) => !layoutFor(slide, id, d).independent).map(([id]) => id) : [canvasId], includeText, sourceDeviceId: deviceId }); return; }
+      if (loading) { finish({ kind: isLayout(group) ? 'layout' : group === 'styled' ? 'styled' : 'arrangement', option: design, designId: design.id, palette: isLayout(group) ? null : group === 'layouts' ? customPalette : paletteFor(design), profileId, frames: engine.data.frames, deviceIds: allCanvases ? canvases.filter(([id, d]) => (id === deviceId || slideSupportsCanvas(project, slide, id) && !layoutFor(slide, id, d).independent)).map(([id]) => id) : [canvasId], includeText, sourceDeviceId: deviceId }); return; }
       finish({ ...(group === 'layouts' ? {} : { kind: 'series', count, gap, includeText }), designId: design.id,
         palette: paletteFor(design), profileId, frames: engine.data.frames, theme: slide.theme,
         deviceIds: [canvasId], sourceDeviceId: deviceId, captures: Array.from({ length: count }, (_, i) => chosen[i] ?? null) });
@@ -84,6 +87,12 @@ export function openNewDesignGallery({ slide, deviceId, captures = [], initialCo
         selectInput({ title: `Screenshot ${i + 1}`, value: chosen[i] ? `${chosen[i].set}/${chosen[i].name}` : '', options: [['', 'Add later'], ...available.map(item => [`${item.set}/${item.name}`, `${item.name} · ${item.set}`])], onChange: value => { chosen[i] = available.find(item => `${item.set}/${item.name}` === value) ?? null; render(); } }))));
     }
     function render() {
+      const storeImages = category === 'store-images';
+      storePicker.el.hidden = !storeImages; catalogue.hidden = storeImages; catalogue.parentElement.hidden = storeImages; screenTabs.hidden = storeImages;
+      if (storeImages) {
+        settings.hidden = true; create.disabled = false; error.textContent = '';
+        create.textContent = storePicker.label(); summary.textContent = storePicker.summary(); return;
+      }
       const shown = cards.filter(card => visible(card.group));
       if (!visible(selected.group) && shown.length) { selected = { group: shown[0].group, design: shown[0].design }; count = countFor(selected.group); }
       settings.hidden = !shown.length;
@@ -142,7 +151,8 @@ export function openNewDesignGallery({ slide, deviceId, captures = [], initialCo
       summary.textContent = loading ? `Replace design · ${slide.name ?? slide.id} · ${allCanvases ? 'all linked canvas sizes' : project.devices[canvasId].short ?? project.devices[canvasId].label}` : `${selected.design.name} · ${count} ${count === 1 ? 'screen' : 'screens'}${selected.group === 'styled' ? includeText ? ' · with text' : ' · without text' : ''}`;
       create.textContent = loading ? 'Load design' : count === 1 ? 'Create screen' : `Create ${count} screens`;
     }
-    const categoryTabs = segmented({ label: 'Design category', value: category, options: [['all', 'All designs'], ...collections.map(c => [c.id, c.name])], onChange: value => { category = value; render(); } });
+    const storePicker = storeImagesPicker(project, render);
+    const categoryTabs = segmented({ label: 'Design category', value: category, options: [['all', 'All designs'], ...collections.map(c => [c.id, c.name]), ...(loading ? [] : [['store-images', 'Store images']])], onChange: value => { category = value; render(); } });
     const screenTabs = segmented({ label: 'Number of screens', value: screenFilter, options: [['all', 'Any number'], ...[1,2,3,4,5].map(n => [String(n), `${n} ${n === 1 ? 'screen' : 'screens'}`])], onChange: value => { screenFilter = value; if (value !== 'all') count = Number(value); render(); } });
     const palettes = h('div', { class: 'swatches', role: 'group', 'aria-label': 'Design colours' });
     palettes.append(h('button', { class: 'btn small', 'aria-pressed': 'true', onClick: e => { customPalette = null; for (const b of palettes.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); render(); } }, 'Original colours'));
@@ -153,13 +163,13 @@ export function openNewDesignGallery({ slide, deviceId, captures = [], initialCo
     const settings = h('aside', { class: 'design-settings', 'aria-label': 'Customise selected design' },
       h('div', { class: 'design-selected-preview' }, hero), title, description, countControl, textControl, textHint,
       h('details', { class: 'design-options' }, h('summary', null, 'Colours & device'),
-        h('label', { class: 'design-control' }, loading ? 'Apply to canvas' : 'Preview canvas', selectInput({ title: 'Preview canvas', options: canvases.filter(([id, d]) => !loading || !layoutFor(slide, id, d).independent).map(([id, d]) => [id, d.short ?? d.label]), value: canvasId, onChange: value => { canvasId = value; render(); } })),
+        h('label', { class: 'design-control' }, loading ? 'Apply to canvas' : 'Preview canvas', selectInput({ title: 'Preview canvas', options: canvases.filter(([id, d]) => !loading || (id === deviceId || slideSupportsCanvas(project, slide, id) && !layoutFor(slide, id, d).independent)).map(([id, d]) => [id, d.short ?? d.label]), value: canvasId, onChange: value => { canvasId = value; render(); } })),
         appearanceControls), gapControl, sourceControls);
     if (loading && canvases.length > 1) settings.append(h('label', { class: 'row check' }, h('input', { type: 'checkbox', onChange: e => { allCanvases = e.target.checked; render(); } }), 'Also apply to other canvas sizes', h('span', { class: 'hint' }, 'Unique designs are kept.')));
     const body = h('div', { class: 'design-gallery' },
-      h('p', { class: 'design-gallery-intro' }, loading ? 'Choose a design for the current screen. Preview it, then Load design to apply. No new screens are created.' : 'Add new screens to your project. Choose a complete design, a device arrangement or a connected series. To change an existing screen, use Design → Load design.'),
+      h('p', { class: 'design-gallery-intro' }, loading ? 'Choose a design for the current screen. Preview it, then Load design to apply. No new screens are created.' : 'Add screenshot designs or choose Store images for App Store search and header artwork, or a Google Play feature graphic. To change an existing screen, use Design → Load design.'),
       h('div', { class: 'design-gallery-filters' }, categoryTabs, loading ? null : screenTabs),
-      h('div', { class: 'design-gallery-content' }, catalogue, settings));
+      h('div', { class: 'design-gallery-content' }, catalogue, settings), storePicker.el);
     const dialog = modal({ title: loading ? 'Load design' : 'Add screens', wide: true, body, actions: [summary, error, h('span', { class: 'spacer' }), h('button', { class: 'btn', onClick: () => finish(null) }, 'Cancel'), create], onClose: () => finish(null) });
     render();
   });

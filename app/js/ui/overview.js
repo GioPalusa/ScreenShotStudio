@@ -1,5 +1,6 @@
 import { canvasForSlide } from '../canvas-orientation.js';
 import { orientationPicker } from './canvas-orientation.js';
+import { screenCanvasId } from '../slide-order.js';
 import { orderedSlides } from '../project-ops.js';
 import { moveScreen, renameScreen } from './slide-actions.js';
 import { openImportDesigns } from './import-designs.js';
@@ -32,8 +33,8 @@ export function createOverview(ctx) {
     const key = `${viewport.clientWidth}:${zoom}`;
     if (key === sizingKey) return;
     sizingKey = key;
-    const slides = engine.project.slides;
-    const sizes = slides.map(slide => canvasForSlide(engine.project, slide, state.ui.device).size);
+    const slides = orderedSlides(engine.project, state.ui.locale);
+    const sizes = slides.map(slide => canvasForSlide(engine.project, slide, screenCanvasId(engine.project, slide, state.ui.device, state.ui.screenshotDevice)).size);
     const gap = zoom === 'fit' ? Math.min(14, viewport.clientWidth / Math.max(1, sizes.length * 5)) : 14;
     const available = Math.max(1, viewport.clientWidth - 2 - Math.max(0, sizes.length - 1) * gap);
     const height = zoom === 'fit' ? available / sizes.reduce((sum, [w, h]) => sum + w / h, 0) : baseHeight * zoom / 100;
@@ -129,6 +130,7 @@ export function createOverview(ctx) {
     const scroll = { left: viewport?.scrollLeft ?? 0, top: viewport?.scrollTop ?? 0 };
     observer?.disconnect(); sizeObserver?.disconnect(); cards = []; sizingKey = '';
     const dev = engine.project.devices[state.ui.device];
+    const canvasLabel = engine.project.slides.some(s => s.canvasIds) ? 'Screenshots & store images' : dev.label;
     const toggle = h('div', { class: 'seg' },
       h('button', { 'aria-pressed': String(mode === 'language'), onClick: () => { mode = 'language'; remember(); build(); } }, 'This language'),
       h('button', { 'aria-pressed': String(mode === 'all'), onClick: () => { mode = 'all'; remember(); build(); } }, 'All languages'));
@@ -146,7 +148,7 @@ export function createOverview(ctx) {
     viewport = h('div', { class: 'overview-viewport', tabIndex: 0, role: 'region', 'aria-label': 'Screenshot rows', onScroll: scrollButtons, onKeydown: e => { if (e.target === viewport) e.stopPropagation(); } }, rows);
     viewport.addEventListener('wheel', pinch, { passive: false });
     el.replaceChildren(h('div', { class: 'overview-head' },
-      h('h2', null, mode === 'language' ? `${engine.localeInfo(state.ui.locale).native} · ${dev.label}` : `All languages · ${dev.label}`),
+      h('h2', null, mode === 'language' ? `${engine.localeInfo(state.ui.locale).native} · ${canvasLabel}` : `All languages · ${canvasLabel}`),
       toggle, h('button', { class: 'btn', onClick: () => openImportDesigns(ctx) }, 'Import designs…'), zoomControls, h('div', { class: 'row' }, leftButton, rightButton)),
       h('p', { class: 'hint overview-help' }, 'Drag screens to reorder. Click a preview to edit or its name to rename. Pinch to zoom; scroll with two fingers to explore.'), viewport);
 
@@ -158,10 +160,11 @@ export function createOverview(ctx) {
         mode === 'all' ? h('h3', { class: 'overview-locale' }, locale.native ?? locale.name, h('span', null, locale.id)) : null, strip, warnings);
       rows.append(section);
       orderedSlides(engine.project, locale.id).forEach((slide, i) => {
-        const size = canvasForSlide(engine.project, slide, state.ui.device).size;
+        const deviceId = screenCanvasId(engine.project, slide, state.ui.device, state.ui.screenshotDevice);
+        const size = canvasForSlide(engine.project, slide, deviceId).size;
         const canvas = h('canvas');
         const cap = h('div', { class: 'cap' }, h('button', { class: 'screen-name', title: 'Rename screen', onClick: e => { e.stopPropagation(); renameScreen(slide.id, build); } }, `${i + 1} · ${slide.name ?? slide.id}`));
-        const item = h('div', { class: 'strip-item', onClick: () => open(locale.id, slide.id) }, canvas, cap, orientationPicker(slide, state.ui.device, build));
+        const item = h('div', { class: 'strip-item', onClick: () => open(locale.id, slide.id) }, canvas, cap, orientationPicker(slide, deviceId, build));
         const warningGroup = h('section', { class: 'overview-screen-warnings', hidden: true, dataset: { slideId: slide.id } });
         warnings.append(warningGroup);
         canvas.addEventListener('rendered', e => {
@@ -175,7 +178,7 @@ export function createOverview(ctx) {
           warnings.hidden = !warnings.querySelector('.warning-list');
         });
         draggable(item, slide, locale.id); strip.append(item);
-        cards.push({ canvas, item, size, job: { slideId: slide.id, deviceId: state.ui.device, localeId: locale.id } });
+        cards.push({ canvas, item, size, job: { slideId: slide.id, deviceId, localeId: locale.id } });
       });
     }
     resize();

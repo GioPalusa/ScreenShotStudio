@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AppStoreClient, AppStoreUploads, tokenFor, validateCredentials, screenshotGroups, matchScreenshot, loadUploadExport, inspectUploadExport } from '../host/app-store-connect.mjs';
+import { AppStoreClient, AppStoreUploads, tokenFor, validateCredentials, screenshotGroups, creativeGroups, matchScreenshot, loadUploadExport, inspectUploadExport } from '../host/app-store-connect.mjs';
 import { uploadChecks } from '../app/js/upload-checks.js';
 import { encodePNG } from './png.mjs';
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
@@ -68,9 +68,9 @@ function apple({ bytes, existing = [], commitFailsAt = 0, wrongSpec = false, mut
     }
     if (p.startsWith('/v1/appAssetLibraryPlacements/') && method === 'DELETE') { placements.splice(placements.findIndex(x => x.id === p.split('/').at(-1)), 1); return response(null, 204); }
     if (p === '/v1/appAssetLibraryPlacements') {
-      assert.equal(body.data.attributes.placementType, 'APP_SCREENSHOT');
+      assert.ok(['APP_SCREENSHOT', 'PRODUCT_PAGE_HEADER_ASSET', 'APP_STORE_SEARCH_RESULTS_ASSET'].includes(body.data.attributes.placementType));
       const placements = localized.get(body.data.relationships.appStoreVersionLocalization.data.id);
-      const placement = { id: `placed-${++placementCount}`, attributes: { placementGroup: body.data.attributes.placementGroup, state: 'ASSET_PROCESSING' } }; placements.push(placement);
+      const placement = { id: `placed-${++placementCount}`, attributes: { placementType: body.data.attributes.placementType, placementGroup: body.data.attributes.placementGroup, state: 'ASSET_PROCESSING' } }; placements.push(placement);
       return response({ data: placement }, 201);
     }
     if (p === '/v1/appAssetLibraryPlacementOrderingRequests') {
@@ -138,7 +138,7 @@ test('missing catalog groups report a catalog problem before blaming image dimen
   const { root } = fixture(t), reference = structuredClone(catalog);
   reference.placementProfileGroups[0].platform = 'UNRECOGNIZED_APP_STORE';
   const fake = apple({ reference }), uploads = new AppStoreUploads({ client: fake.client, reportDirectory: path.join(root, 'reports') });
-  await assert.rejects(uploads.prepare({ root, appId: 'app-1', versionId: 'version-1' }), /screenshot specifications.*catalog/);
+  await assert.rejects(uploads.prepare({ root, appId: 'app-1', versionId: 'version-1' }), /image specifications.*catalog/);
   assert.ok(fake.calls.every(c => c.method === 'GET'));
 });
 test('completed drafts are accepted; changed bytes, alpha and paths escaping the export are rejected', t => {
@@ -244,7 +244,7 @@ test('upload completes while Apple is still processing; no image processing poll
   assert.equal(job.uploaded, 2); assert.equal(job.total, 2);
   assert.ok(job.files.every(f => f.applePlacementState === 'ASSET_PROCESSING' && f.placementVerified));
   assert.ok(!fake.calls.some(c => c.method === 'GET' && c.url.pathname.startsWith('/v1/appAssetLibraryImages/')));
-  assert.match(job.message, /2 screenshots uploaded/);
+  assert.match(job.message, /2 images uploaded/);
 });
 test('stop after a committed image preserves its receipt and stops further uploads', async t => {
   const { root, bytes } = fixture(t); let uploads, jobId;
@@ -382,4 +382,102 @@ test('Apple catalog puts the actual inner and outer Duo sizes in the same group'
     const choices = matchScreenshot({ size, bytes: 2097204 }, groups);
     assert.equal(choices.length, 1); assert.equal(choices[0].id, 'IPHONE_DUO_PROFILE'); assert.equal(choices[0].maxCount, 10);
   }
+});
+
+
+test('creative uploads use their category and placement, enforce limits and leave screenshot placements alone', async t => {
+  const { root, bytes, files } = fixture(t, 1);
+  const targets = [['app-store-header', 'PRODUCT_PAGE_HEADER_ASSET'], ['app-store-search', 'APP_STORE_SEARCH_RESULTS_ASSET']];
+  const reference = structuredClone(catalog);
+  for (const [target, type] of targets) {
+    // Deliberately share a profile across types: batches and replacement must be scoped by type too.
+    reference.features[0].placementPolicies.push({ placementType: type, groupLimits: [{ groupIds: ['TEST_IPHONE_PROFILE'], maxCount: 1 }] });
+    reference.placementTypes.push({ placementTypeId: type, acceptsAssetCategories: ['CREATIVE_ASSETS'], specMappings: [{ placementGroupId: 'TEST_IPHONE_PROFILE', specs: ['spec-1'] }] });
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
+  manifest.files = [files[0], ...targets.map(([target], i) => ({ ...files[0], target, path: `creative-${i}.png`, filename: `creative-${i}.png`, device: target, canvas: target, slide: target }))];
+  for (const file of manifest.files) fs.writeFileSync(path.join(root, file.path), bytes);
+  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest));
+  const existing = [{ id: 'old-shot', attributes: { placementType: 'APP_SCREENSHOT', placementGroup: 'TEST_IPHONE_PROFILE' } }];
+  const api = apple({ bytes, existing, reference });
+  const uploads = new AppStoreUploads({ client: api.client, reportDirectory: path.join(root, 'reports') });
+  const plan = await uploads.prepare({ root, appId: 'app-1', versionId: 'version-1' });
+  assert.deepEqual(plan.errors, []); assert.equal(plan.entries.length, 2); assert.equal(plan.keptGroups.length, 1);
+  assert.equal(plan.screens.length, 3, 'shared Apple group ids do not merge different placements in the UI');
+  const job = await finish(uploads, uploads.start(plan.planId).id); assert.equal(job.state, 'complete', job.message);
+  const reservations = api.calls.filter(c => c.url.pathname === '/v1/appAssetLibraryImages' && c.method === 'POST');
+  assert.deepEqual(reservations.map(c => c.body.data.attributes.category), ['CREATIVE_ASSETS', 'CREATIVE_ASSETS']);
+  const placements = api.calls.filter(c => c.url.pathname === '/v1/appAssetLibraryPlacements' && c.method === 'POST');
+  assert.deepEqual(placements.map(c => c.body.data.attributes.placementType), targets.map(t => t[1]));
+  assert.equal(api.calls.some(c => c.method === 'DELETE'), false);
+  assert.equal(api.calls.some(c => c.url.pathname === '/v1/appAssetLibraryPlacementOrderingRequests'), false);
+  assert.ok(api.placements.some(p => p.id === 'old-shot'));
+  const groups = creativeGroups(reference, 'IOS');
+  assert.equal(groups.length, 2); assert.equal(creativeGroups(reference, 'MAC_OS').length, 0);
+  assert.equal(matchScreenshot(manifest.files[1], groups).length, 1);
+});
+
+test('a picked older export is retained in the current project and can be uploaded after restart', async t => {
+  const { root, bytes, files } = fixture(t, 1);
+  const { createNewProject } = await import('../host/new-project.mjs');
+  const { createStudioService } = await import('../host/service.mjs');
+  const project = path.join(root, 'Document.sss'); createNewProject(project, {});
+  const options = { appPath: path.resolve('app'), projectPath: project, exportPath: path.join(project, 'export'), origin: 'studio://local' };
+  const first = createStudioService(options); t.after(() => first.close());
+  const retained = first.retainSavedExport(root);
+  assert.ok(retained.startsWith(path.join(project, 'export') + path.sep));
+  assert.deepEqual(fs.readFileSync(path.join(retained, files[0].path)), bytes);
+  assert.equal(first.retainSavedExport(root), retained, 'Reimporting the same export is idempotent');
+  fs.unlinkSync(path.join(root, files[0].path));
+  const reopened = createStudioService(options); t.after(() => reopened.close());
+  assert.equal(reopened.uploadExportPath(retained), retained);
+  assert.equal(inspectUploadExport(retained).errors.length, 0);
+  const { runs } = await (await reopened.request(new Request('studio://local/api/export-runs'))).json();
+  assert.equal(runs.length, 1); assert.equal(runs[0].path, retained);
+  assert.equal(runs[0].previews.length, 1);
+  const previewURL = new URL(runs[0].previews[0].src, 'studio://local');
+  const preview = await reopened.request(new Request(previewURL));
+  assert.equal(preview.status, 200);
+  assert.deepEqual(Buffer.from(await preview.arrayBuffer()), bytes);
+  const badFile = new URL(previewURL); badFile.searchParams.set('file', '../studio.json');
+  assert.equal((await reopened.request(new Request(badFile))).status, 404);
+  const badRun = new URL(previewURL); badRun.searchParams.set('run', '../../');
+  assert.equal((await reopened.request(new Request(badRun))).status, 404);
+  fs.appendFileSync(path.join(retained, files[0].path), 'changed');
+  assert.notEqual((await reopened.request(new Request(previewURL))).status, 200, 'Changed exports cannot supply misleading previews');
+
+});
+
+test('MCP invocation exports are discoverable and authorized for Upload after reopening', async t=>{
+ const {root,files}=fixture(t,1);
+ const {createNewProject}=await import('../host/new-project.mjs');
+ const {createStudioService}=await import('../host/service.mjs');
+ const project=path.join(root,'AI.sss');createNewProject(project,{});
+ const options={appPath:path.resolve('app'),projectPath:project,exportPath:path.join(project,'export'),origin:'studio://local'};
+ const run=path.join(project,'export','artwork','ai-invocation','final-test');
+ fs.mkdirSync(run,{recursive:true});fs.copyFileSync(path.join(root,'manifest.json'),path.join(run,'manifest.json'));fs.copyFileSync(path.join(root,files[0].path),path.join(run,files[0].path));
+ const service=createStudioService(options);t.after(()=>service.close());
+ const response=await service.request(new Request('studio://local/api/export-runs'));const {runs}=await response.json();
+ assert.deepEqual(runs.map(r=>r.path),[run]);assert.equal(service.uploadExportPath(run),run);
+ const reopened=createStudioService(options);t.after(()=>reopened.close());assert.equal(reopened.uploadExportPath(run),run);
+ const outside=path.join(root,'outside','final-test');fs.mkdirSync(outside,{recursive:true});fs.copyFileSync(path.join(root,'manifest.json'),path.join(outside,'manifest.json'));
+ fs.symlinkSync(path.dirname(outside),path.join(project,'export','linked'));
+ const second=await (await reopened.request(new Request('studio://local/api/export-runs'))).json();assert.equal(second.runs.length,1,'Symlinked exports are not discovered');
+ await assert.rejects(async()=>reopened.uploadExportPath(outside),/Choose the saved export/);
+});
+
+test('all main screen previews remain accessible beyond the compact saved card sample', async t => {
+  const { root, bytes, files } = fixture(t, 6);
+  const { createNewProject } = await import('../host/new-project.mjs');
+  const { createStudioService } = await import('../host/service.mjs');
+  const project = path.join(root, 'Inventory.sss'); createNewProject(project, {});
+  const service = createStudioService({ appPath: path.resolve('app'), projectPath: project, exportPath: path.join(project, 'export'), origin: 'studio://local' });
+  t.after(() => service.close()); service.retainSavedExport(root);
+  const { runs } = await (await service.request(new Request('studio://local/api/export-runs'))).json();
+  assert.equal(runs[0].previews.length, 4);
+  assert.equal(runs[0].screenCount, 6);
+  const url = new URL(runs[0].previews[0].src, 'studio://local'); url.searchParams.set('file', files[5].path);
+  const response = await service.request(new Request(url));
+  assert.equal(response.status, 200);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
 });

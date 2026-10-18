@@ -103,3 +103,15 @@ test('existing store canvas matches platform and dimensions, including legacy Ap
   assert.equal(existingStoreCanvas(devices, 'iphone', [2868, 1320]), 'phone');
   assert.equal(existingStoreCanvas(devices, 'custom', [1080, 1920]), null);
 });
+
+test('App Store search and header canvases accept the requested landscape formats and one image per placement', () => {
+  for (const [target, sizes] of [['app-store-search', [[5244, 2950], [3840, 2560], [1920, 1280]]], ['app-store-header', [[5244, 2950], [3840, 1646]]]]) {
+    for (const size of sizes) {
+      assert.deepEqual(canvasIssues({ target, size }), []);
+      assert.ok(canvasIssues({ target, size: [...size].reverse() }).length);
+    }
+    const project = { devices: { creative: { target, size: sizes[0] } }, slides: [{ id: 'one' }, { id: 'two' }] };
+    assert.deepEqual(preflightSelection(project, ['creative'], [project.slides[0]]), []);
+    assert.match(preflightSelection(project, ['creative']).join(' '), /up to 1 per placement/);
+  }
+});

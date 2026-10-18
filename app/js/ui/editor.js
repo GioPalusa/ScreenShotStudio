@@ -1,7 +1,9 @@
 import { sharedBlock, sharedGeometry, sharedLayerId, patchSharedLayer, offsetLayer, SCREEN_SPACING_PRESETS, sharedSpacing, setSharedSpacing } from '../shared-canvas.js';
 import { canvasForSlide } from '../canvas-orientation.js';
 import { orientationPicker } from './canvas-orientation.js';
-import { orderedSlides, insertSlideAfter } from '../project-ops.js';
+import { orderedSlides, insertSlideAfter, removeDevice } from '../project-ops.js';
+import { screenCanvasId } from '../slide-order.js';
+import { addStoreImages } from '../store-images.js';
 import { moveScreen, renameScreen } from './slide-actions.js';
 import { editLayerTag } from './layer-tag.js';
 import { adjacentSlides, neighborPreferences } from '../preview-context.js';
@@ -571,26 +573,32 @@ export function createEditor(ctx) {
 
   function buildRail() {
     allScreens.setAttribute('aria-pressed', String(Boolean(state.ui.allScreens)));
-    const count = engine.project.slides.length;
+    const count = orderedSlides(engine.project, state.ui.locale, state.ui.device).length;
     screenCount.textContent = `${count} screen${count === 1 ? '' : 's'}`;
     allScreens.setAttribute('aria-label', `Edit all screens together · ${count} screen${count === 1 ? '' : 's'}`);
     for (const button of rail.querySelectorAll('.rail-foot .btn:not(.primary)')) button.disabled = Boolean(state.ui.allScreens);
     const slides = orderedSlides(engine.project, state.ui.locale);
-    const signature = JSON.stringify([state.ui.device, state.ui.locale, slides.map(s => [s.id, s.name])]);
+    const deviceFor = slide => screenCanvasId(engine.project, slide, state.ui.device, state.ui.screenshotDevice);
+    const mixed = slides.some(s => s.canvasIds);
+    allScreens.querySelector("b").textContent = mixed ? "Edit canvas screens" : "Edit all screens";
+    if (mixed) allScreens.setAttribute("aria-label", `Edit screens on ${engine.project.devices[state.ui.device].label} · ${count} screens`);
+    allScreens.querySelector("small").textContent = mixed ? engine.project.devices[state.ui.device].short ?? engine.project.devices[state.ui.device].label : "One shared canvas";
+    const signature = JSON.stringify([state.ui.device, state.ui.locale, slides.map(s => [s.id, s.name, deviceFor(s)])]);
     if (railList.dataset.signature === signature) {
       for (const card of railList.children) {
         card.setAttribute('aria-selected', String(!state.ui.allScreens && card.dataset.id === state.ui.slideId));
-        drawInto(card.querySelector('canvas'), { slideId: card.dataset.id, deviceId: state.ui.device, localeId: state.ui.locale, width: 96 });
+        drawInto(card.querySelector('canvas'), { slideId: card.dataset.id, deviceId: card.dataset.device, localeId: state.ui.locale, width: 96 });
       }
       return;
     }
     railList.dataset.signature = signature;
     railList.replaceChildren();
     slides.forEach((slide, i) => {
+      const deviceId = deviceFor(slide);
       const thumbCanvas = h('canvas');
       const badge = h('span');
       const card = h('div', {
-        class: 'thumb', role: 'option', tabindex: 0, draggable: 'true', 'aria-selected': String(!state.ui.allScreens && slide.id === state.ui.slideId), dataset: { id: slide.id },
+        class: 'thumb', role: 'option', tabindex: 0, draggable: 'true', 'aria-selected': String(!state.ui.allScreens && slide.id === state.ui.slideId), dataset: { id: slide.id, device: deviceId },
         onClick: () => selectSlide(slide.id),
         onContextmenu: e => screenMenu(e, slide.id),
         onKeydown: e => {
@@ -615,7 +623,7 @@ export function createEditor(ctx) {
           card.classList.remove('drop-before', 'drop-after');
           moveSlide(from, slide.id, after);
         },
-      }, thumbCanvas, h('div', { class: 'thumb-label' }, h('b', null, i + 1), h('button', { class: 'name screen-name', title: 'Rename screen', onClick: e => { e.stopPropagation(); renameScreen(slide.id, () => { buildRail(); ed.refresh({ immediate: true }); }); } }, slide.name ?? slide.id), badge));
+      }, thumbCanvas, h('div', { class: 'thumb-label' }, h('b', null, i + 1), h('button', { class: 'name screen-name', title: 'Rename screen', onClick: e => { e.stopPropagation(); renameScreen(slide.id, () => { buildRail(); ed.refresh({ immediate: true }); }); } }, slide.name ?? slide.id), badge), mixed ? h('small', { class: 'screen-canvas-label' }, engine.project.devices[deviceId].short ?? engine.project.devices[deviceId].label) : null);
       thumbCanvas.addEventListener('rendered', (e) => {
         const worst = e.detail.report.warnings.reduce((w, x) => (x.level === 'error' ? 'err' : x.level === 'warn' && w !== 'err' ? 'warn' : w), null);
         badge.className = worst ? `warning-mark ${worst}` : '';
@@ -626,7 +634,7 @@ export function createEditor(ctx) {
         badge.title = e.detail.report.warnings.filter((x) => x.level !== 'info').map((x) => x.message).join('\n');
       });
       railList.append(card);
-      drawInto(thumbCanvas, { slideId: slide.id, deviceId: state.ui.device, localeId: state.ui.locale, width: 96 });
+      drawInto(thumbCanvas, { slideId: slide.id, deviceId, localeId: state.ui.locale, width: 96 });
     });
     rail.querySelector('.rail-foot')?.remove();
     rail.append(h('div', { class: 'rail-foot' },
@@ -645,7 +653,7 @@ export function createEditor(ctx) {
     if (!slide) return;
     showContextMenu(event, [
       { label: 'Duplicate screen', run: () => duplicateSlide(id) },
-      { label: 'Remove screen…', danger: true, disabled: engine.project.slides.length <= 1, help: engine.project.slides.length <= 1 ? 'Keep at least one screen in the project.' : 'Remove this screen from all languages.', run: () => removeSlide(id) },
+      { label: 'Remove screen…', danger: true, disabled: !canRemoveScreen(slide), help: !canRemoveScreen(slide) ? 'Keep at least one screenshot screen in the project.' : 'Remove this screen from all languages.', run: () => removeSlide(id) },
     ], { label: `Screen actions · ${slide.name ?? slide.id}` });
   }
 
@@ -662,8 +670,17 @@ export function createEditor(ctx) {
 
   function createFromDesign(picked, current) {
     const project = engine.project;
+    if (picked.kind === 'store-images') {
+      checkpoint();
+      const images = addStoreImages(project, { ...picked, afterId: current.id, theme: current.theme }, () => crypto.randomUUID());
+      saveStudio(); state.ui.tab = 'layers'; state.ui.allScreens = false; ed.editTemplateId = null;
+      ctx.go({ view: 'editor', device: images[0].deviceId, slideId: images[0].slideId });
+      toast('Store images are ready in the screen list beside your screenshots. Select an image to edit it, or add artwork from Media.');
+      return;
+    }
     if (picked.kind === 'series') { createSeries(picked, current); return; }
     const slide = newCompositionSlide(project, picked, () => crypto.randomUUID());
+    if (project.devices[picked.deviceIds[0]]?.screenScope === 'store-image') slide.canvasIds = [...picked.deviceIds];
     checkpoint();
     project.slides.splice(slideIndex(current.id) + 1, 0, slide);
     saveStudio();
@@ -676,6 +693,7 @@ export function createEditor(ctx) {
   function createSeries(picked, current) {
     const project = engine.project;
     const slides = newConnectedSeries(project, picked, () => crypto.randomUUID());
+    if (project.devices[picked.deviceIds[0]]?.screenScope === 'store-image') for (const slide of slides) slide.canvasIds = [...picked.deviceIds];
     const hasCopy = Boolean(storyCopyFor(slides[0]));
     const locales = hasCopy ? project.locales.map(l => l.id) : [];
     checkpoint(null, { copyLocales: locales });
@@ -712,9 +730,13 @@ export function createEditor(ctx) {
     selectSlide(copy.id, { rebuildRail: true });
   }
 
+  function canRemoveScreen(slide) {
+    return engine.project.slides.length > 1 && Boolean(slide?.canvasIds || engine.project.slides.filter(s => !s.canvasIds).length > 1);
+  }
+
   async function removeSlide(id = state.ui.slideId) {
-    if (engine.project.slides.length <= 1) { toast('A set needs at least one slide.', { error: true }); return; }
     const slide = engine.project.slides.find(s => s.id === id);
+    if (!canRemoveScreen(slide)) { toast('Keep at least one screenshot screen in the project.', { error: true }); return; }
     if (!slide) return;
     const project = engine.project;
     if (!(await confirmDialog({ title: 'Remove this screen?', body: `“${slide.name ?? slide.id}” and its text in every language will be removed from this project. You can undo this change.`, confirmLabel: 'Remove screen', danger: true }))) return;
@@ -731,12 +753,16 @@ export function createEditor(ctx) {
       layer.copySlideId = survivor.id; layer.field = field;
     }
     slides.splice(index, 1);
+    for (const [id, device] of Object.entries(project.devices)) if (device.screenScope === 'store-image' && !project.slides.some(s => s.canvasIds?.includes(id))) removeDevice(project, id);
     for (const order of Object.values(project.slideOrders ?? {})) { const at = order.indexOf(slide.id); if (at >= 0) order.splice(at, 1); }
     for (const [loc, doc] of Object.entries(engine.data.copy)) if (doc[slide.id]) { delete doc[slide.id]; saveCopy(loc); }
     saveStudio();
-    if (state.ui.slideId === slide.id) state.ui.slideId = slides[Math.min(index, slides.length - 1)].id;
+    if (state.ui.slideId === slide.id) {
+      const next = project.slides[Math.min(index, project.slides.length - 1)];
+      state.ui.slideId = next.id; state.ui.device = screenCanvasId(project, next, state.ui.device, state.ui.screenshotDevice);
+    }
     ed.selectedIds.clear(); ed.selectedId = null; ed.scene = null;
-    rememberUI(); buildRail(); ed.refresh({ immediate: true, inspector: true });
+    rememberUI(); ctx.go({});
     toast(`Removed “${slide.name ?? slide.id}”`, {
       timeout: 10000,
       action: {
@@ -756,6 +782,13 @@ export function createEditor(ctx) {
   }
 
   function selectSlide(id, { rebuildRail = false } = {}) {
+    const device = screenCanvasId(engine.project, engine.project.slides.find(s => s.id === id), state.ui.device, state.ui.screenshotDevice);
+    if (device !== state.ui.device) {
+      ed.selectedIds.clear(); ed.selectedId = null; ed.editTemplateId = null; ed.scene = null; ed.inspectorStale = true; zoom.value = 'fit';
+      ctx.go({ device, slideId: id });
+      railList.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     layerAliases.clear();
     const wasAll = state.ui.allScreens; state.ui.allScreens = false;
     allScreens.setAttribute('aria-pressed', 'false');
@@ -832,7 +865,7 @@ export function createEditor(ctx) {
     canvas.style.width = `${width}px`; canvas.style.height = `${width * H / W}px`;
     const slide = currentSlide();
     strip.style.gap = sharedBlock(engine.project, state.ui.device).layers.length ? `${sharedGeometry(engine.project, state.ui.device, state.ui.locale).gap * width / canvasMetrics(canvasForSlide(engine.project, slide, state.ui.device)).W}px` : slide?.series ? `${width * slide.series.gap}px` : '';
-    const neighbors = adjacentSlides(orderedSlides(engine.project, state.ui.locale), slide?.id);
+    const neighbors = adjacentSlides(orderedSlides(engine.project, state.ui.locale, state.ui.device), slide?.id);
     for (const [index, node, target] of [[0, before, beforeCanvas], [1, after, afterCanvas]]) {
       const size = neighbors[index] ? canvasForSlide(engine.project, neighbors[index], state.ui.device).size : [W, H];
       node.style.height = target.style.height = `${width * size[1] / size[0]}px`;
@@ -855,7 +888,7 @@ export function createEditor(ctx) {
     const width = zoom.value === 'fit' ? fitWidth() : W * Number(zoom.value);
     sizeStage(width);
     titleEl.textContent = state.ui.allScreens ? 'All screens' : ed.editTemplateId ? `Saved design · ${engine.project.templates?.[ed.editTemplateId]?.name ?? ''}` : slide.name ?? slide.id;
-    metaEl.textContent = state.ui.allScreens ? `${engine.project.slides.length} screens · ${dev.label} · ${ed.locale().native}` : `${dev.label} · ${W} × ${H}px · ${ed.locale().native}`;
+    metaEl.textContent = state.ui.allScreens ? `${orderedSlides(engine.project, state.ui.locale, state.ui.device).length} screens · ${dev.label} · ${ed.locale().native}` : `${dev.label} · ${W} × ${H}px · ${ed.locale().native}`;
     const nextWarningContext = `${key}:${state.ui.locale}`;
     if (warningContext !== nextWarningContext) {
       warningContext = nextWarningContext;
@@ -873,7 +906,7 @@ export function createEditor(ctx) {
     if (!slide || !width) return;
     const [W, H] = ed.device().size;
     strip.style.gap = sharedBlock(engine.project, state.ui.device).layers.length ? `${sharedGeometry(engine.project, state.ui.device, state.ui.locale).gap * width / canvasMetrics(canvasForSlide(engine.project, slide, state.ui.device)).W}px` : slide.series ? `${width * slide.series.gap}px` : '';
-    const neighbors = state.ui.allScreens || ed.editTemplateId || !neighborPreferences(state.ui).visible ? [null, null] : adjacentSlides(orderedSlides(engine.project, state.ui.locale), slide.id);
+    const neighbors = state.ui.allScreens || ed.editTemplateId || !neighborPreferences(state.ui).visible ? [null, null] : adjacentSlides(orderedSlides(engine.project, state.ui.locale, state.ui.device), slide.id);
     for (const [index, node, target] of [[0, before, beforeCanvas], [1, after, afterCanvas]]) {
       const neighbor = neighbors[index];
       node.style.visibility = neighbor ? 'visible' : 'hidden';

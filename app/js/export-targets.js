@@ -8,7 +8,14 @@ const formats = (label, sizes, rotate = true) => sizes.flatMap(([w, h]) => [
   { label, size: [w, h] }, ...(rotate ? [{ label, size: [h, w] }] : []),
 ]);
 
+export const CREATIVE_SPEC_URL = 'https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications/';
+export const CREATIVE_TARGETS = {
+  'app-store-search': { label: 'Search result image', layout: 'wide', placementType: 'APP_STORE_SEARCH_RESULTS_ASSET', formats: formats('Search results', [[5244, 2950], [3840, 2560], [1920, 1280]], false) },
+  'app-store-header': { label: 'Header image', layout: 'wide', placementType: 'PRODUCT_PAGE_HEADER_ASSET', formats: formats('Product page header', [[5244, 2950], [3840, 1646]], false) },
+};
+
 export const EXPORT_TARGETS = {
+  ...CREATIVE_TARGETS,
   iphone: { label: 'iPhone', layout: 'phone', formats: [
     ...formats('Dynamic Island · large', [[1320, 2868], [1290, 2796], [1260, 2736]]),
     ...formats('Dynamic Island · medium', [[1206, 2622], [1179, 2556]]),
@@ -71,6 +78,6 @@ export function canvasIssues(device) {
   const target = exportTarget(device);
   if (target === 'unknown') return [{ code: 'export-target', level: 'warn', message: 'Choose an export target in Setup → Canvases so its size can be checked.' }];
   if (PLAY_TARGETS[target] && !acceptedFormat(device)) return [{ code: `${target}-size`, level: 'warn', message: `${device.size.join(' × ')} px does not meet Google Play’s ${PLAY_TARGETS[target].label} requirements. ${PLAY_TARGETS[target].guidance}` }];
-  if (target !== 'custom' && !acceptedFormat(device)) return [{ code: `${target}-size`, level: 'warn', message: `${device.size.join(' × ')} px is not an accepted ${EXPORT_TARGETS[target].label} App Store screenshot size. Choose a preset in Setup → Canvases.` }];
+  if (target !== 'custom' && !acceptedFormat(device)) return [{ code: `${target}-size`, level: 'warn', message: `${device.size.join(' × ')} px is not an accepted ${EXPORT_TARGETS[target].label} App Store image size. Choose a preset in Setup → Canvases.` }];
   return [];
 }

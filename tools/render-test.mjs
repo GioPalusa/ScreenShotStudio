@@ -238,6 +238,23 @@ try {
   assert.deepEqual(pixel(rotated, 550, 775), [255, 255, 255]);
   console.log('Decoration rendering: original affine image/path, moved and resized image, moved route, and 90-degree rotation passed pixel checks.');
   console.log('Design library: 24 final RGB exports passed across three designs, four canvas formats and two languages, with zero preflight warnings.');
+  // Each creative format goes through the real strict RGB export pipeline.
+  const { CREATIVE_TARGETS } = await import('../app/js/export-targets.js');
+  const creative = { version: 2, fonts: { default: { family: 'system-ui' } }, themes: { white: { bg: '#ffffff', ink: '#111111' } }, locales: [{ id: 'en-US', name: 'English', dir: 'ltr' }], devices: {}, slides: [{ id: 'creative', name: 'Creative image', theme: 'white', layouts: {} }] };
+  for (const [target, spec] of Object.entries(CREATIVE_TARGETS)) for (const [index, format] of spec.formats.entries()) {
+    const id = `${target}-${index}`;
+    creative.devices[id] = { label: spec.label, target, size: format.size, layout: 'wide', capture: 'unused' };
+    creative.slides[0].layouts[id] = { template: 'custom', panorama: false, layers: [{ id: 'title', type: 'text', field: 'headline', x: 100, capTop: 100, w: 1400, size: 80, maxLines: 2 }] };
+  }
+  write('studio.json', creative); write('copy/en-US.json', { _meta: { status: 'approved', needsReview: [] }, creative: { headline: 'Your next idea' } });
+  for (const [id, device] of Object.entries(creative.devices)) {
+    const out = path.join(temp, id);
+    execFileSync(process.execPath, ['studio.mjs', 'export', '--project', project, '--output', out, '--device', id, '--strict'], { cwd: root, stdio: 'pipe' });
+    const run = path.join(out, fs.readdirSync(out).find(name => name.startsWith('final-')));
+    const bytes = fs.readFileSync(exported(run, 'en-US', id, 'creative'));
+    assert.equal(bytes[25], 2); assert.deepEqual([bytes.readUInt32BE(16), bytes.readUInt32BE(20)], device.size);
+  }
+  console.log('App Store creative images: all five header/search formats passed strict export with exact RGB dimensions.');
   execFileSync(process.execPath, ['tools/browser-runner-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-render-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/overview-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
@@ -249,11 +266,13 @@ try {
   execFileSync(process.execPath, ['tools/viewport-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/details-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/text-fit-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/agent-setup-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/translation-view-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/translation-import-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/frame-import-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/connected-render-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/store-images-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/connected-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/shared-canvas-render-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/shared-canvas-ui-test.mjs'], { cwd: root, stdio: 'inherit' });

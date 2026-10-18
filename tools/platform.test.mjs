@@ -253,6 +253,21 @@ test('manual text height includes glyphs on a single line, not only baseline dis
   const fits = layoutText(ctx, 'Hello', { family: 'system-ui', size: 100, minSize: 20, boxW: 1000, heightIncludesGlyphs: true, maxHeight: 40 });
   assert.equal(fits.overflow, false); assert.ok(fits.size < 45);
 });
+test('text height uses each glyph at its own baseline, including accents and descenders', () => {
+  const ctx = { font: '', measureText(text) { return { width: text.length * 40, actualBoundingBoxAscent: text.includes('Å') ? 100 : 70, actualBoundingBoxDescent: text.includes('g') ? 25 : 0 }; } };
+  const options = { family: 'system-ui', size: 100, minSize: 100, boxW: 1000, lineHeight: 1.03, maxLines: 0, maxHeight: 280, heightIncludesGlyphs: true };
+  const middle = layoutText(ctx, 'H\nÅg\nH', options);
+  assert.equal(middle.overflow, false);
+  assert.equal(middle.height + middle.ascent + middle.descent, 276);
+  const first = layoutText(ctx, 'Å\nH\nH', options);
+  assert.deepEqual(first.overflowReasons, [{ code: 'height', actual: 306, limit: 280 }]);
+  const last = layoutText(ctx, 'H\nH\ng', options);
+  assert.deepEqual(last.overflowReasons, [{ code: 'height', actual: 301, limit: 280 }]);
+  const overlapping = layoutText(ctx, 'H\nÅg\nH', { ...options, lineHeight: 0.1, maxHeight: 100 });
+  assert.deepEqual(overlapping.overflowReasons, [{ code: 'height', actual: 125, limit: 100 }], 'Middle glyphs still count when they extend beyond the outer lines');
+  const list = layoutText(ctx, ['H', 'Åg', 'H'], { ...options, itemGap: 0.1 });
+  assert.deepEqual(list.overflowReasons, [{ code: 'height', actual: 296, limit: 280 }], 'List item spacing contributes to the baseline offsets');
+});
 test('fill-frame text grows, preserves Enter breaks and shrinks to the full glyph bounds', () => {
   const ctx = { font: '', measureText(text) { const size = Number(/([0-9.]+)px/.exec(this.font)[1]); return { width: text.length * size * 0.5, actualBoundingBoxAscent: size * 0.7, actualBoundingBoxDescent: size * 0.2 }; } };
   const options = { family: 'system-ui', size: 24, minSize: 20, maxLines: 1, boxW: 500, maxHeight: 300, lineHeight: 1.2, fitFrame: true, oneLine: 0.5 };

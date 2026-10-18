@@ -22,7 +22,7 @@ export function buildFramesView(ctx) {
 
   root.append(h('div', { class: 'setup-intro' },
     h('div', null, h('h3', null, 'Get more frames'),
-      h('p', { class: 'hint' }, 'Add Apple frames in two steps. Your imported frames stay inside this project.'))));
+      h('p', { class: 'hint' }, 'Add Apple frames in two steps. Installed frames are available in every project on this Mac. Used frames are also saved with the project.'))));
 
   root.append(h('div', { class: 'frame-import-steps' },
     h('section', { class: 'frame-import-step', 'aria-label': 'Step 1: Download from Apple' },
@@ -69,7 +69,7 @@ export function buildFramesView(ctx) {
       h('div', { class: 'frame-info' },
         h('b', { title: name }, meta.variant ?? frameLabel({ type: 'bezel', name }, frames)),
         h('div', { class: 'hint', title: `${s.mode === 'overlay' ? 'Painted-in' : 'Transparent'} screen · corner radius ${Array.isArray(s.radius) ? s.radius.map(Math.round).join('/') : Math.round(s.radius ?? 0)}px` }, `${s.w} × ${s.h}px screen`),
-        h('div', { class: 'hint' }, uses.length ? `Used in ${uses.length} place${uses.length === 1 ? '' : 's'}` : 'Project frame'),
+        h('div', { class: 'hint' }, uses.length ? `Used in ${uses.length} place${uses.length === 1 ? '' : 's'}` : 'Installed frame'),
         h('div', { class: 'row' }, h('button', { class: 'btn small', onClick: () => openEditor({ name }) }, 'Fit and corners…'))));
   }
 

@@ -1,14 +1,20 @@
 // Export selected images from a frozen project. The host publishes a complete RGB PNG set only after checks pass.
 
+import { exportContentsInfo, exportPreviews } from '../export-previews.js';
+import { exportContents, transferSteps } from './export-contents.js';
+import { savedExports } from './saved-exports.js';
 import { engine, state, flushSaves } from '../store.js';
 import { preflightScene, preflightSelection } from '../preflight.js';
 import { SPEC_URL, SPEC_CHECKED_AT, PLAY_SPEC_URL, PLAY_SPEC_CHECKED_AT } from '../export-targets.js';
 import { localeNeedsReview } from '../copy-review.js';
 import { Engine, renderToBytes } from '../render.js';
-import { h, modal, toast, localeLabel } from './helpers.js';
+import { h, modal, toast, localeLabel, drawInto } from './helpers.js';
 import { warningList } from './warnings.js';
 import { openAppStoreUpload } from './app-store-connect.js';
 import { uploadChecks } from '../upload-checks.js';
+import { exportPlan } from '../export-naming.js';
+import { slideSupportsCanvas } from '../slide-order.js';
+import { icon } from './icons.js';
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -45,7 +51,7 @@ export async function runExport({ locales, devices, slides, allowPlaceholders = 
   const frozen = new Engine(); frozen.setData(snapshot.bundle); frozen.projectURL = snapshot.projectURL;
   const results = { environment: { renderer: navigator.userAgent, fonts: frozen.project.fonts, fontOverrides: frozen.project.locales.filter(l => l.font).map(l => ({ locale: l.id, font: l.font })) }, written: 0, bytes: 0, skipped: [], warnings: [], issues: [], files: [], checked: false, mode };
   const jobs = [];
-  const total = locales.length * devices.length * slides.length;
+  const total = exportPlan(frozen.project, selection).length;
   let done = 0, complete = false;
   const checkAbort = () => { if (signal?.aborted) throw new Error('Export stopped. No partial export was published.'); };
   try {
@@ -54,6 +60,7 @@ export async function runExport({ locales, devices, slides, allowPlaceholders = 
     results.warnings.push(...selectionIssues);
     results.issues.push(...selectionIssues.map(message => ({ level: 'error', message })));
     for (const locale of locales) for (const device of devices) for (const slide of slides) {
+      if (!slideSupportsCanvas(frozen.project, slide, device)) continue;
       checkAbort();
       const label = `${locale} · ${frozen.project.devices[device].short ?? device} · ${slide.name ?? slide.id}`;
       onProgress?.({ done, total, label: `Checking ${label}` });
@@ -104,7 +111,16 @@ export function openExport(ctx, previous = null) {
     devices: new Set(Object.keys(project.devices)),
     slides: new Set(project.slides.map(s => s.id)),
   };
-  const summary = h('div', { class: 'export-summary' });
+  const summary = h('div', { class: 'export-inventory' });
+  const inventory = () => {
+    const files = exportPlan(project, { ...selection(), slides: [...pick.slides] });
+    const sample = exportPreviews(files, Infinity, { appStoreOnly: false });
+    return exportContents({ ...exportContentsInfo(files), previewLocale: sample.locale, previews: sample.images }, { title: 'Images to export', renderPreview: file => {
+      const canvas = h('canvas', { role: 'img', 'aria-label': file.slide });
+      drawInto(canvas, { slideId: file.slideId, deviceId: file.device, localeId: file.locale, width: Math.min(120, 80 * file.size[0] / file.size[1]) });
+      return canvas;
+    } });
+  };
   const readiness = h('div', { class: 'export-readiness', 'aria-live': 'polite' });
   const form = h('div', { class: 'export-body' });
   const body = h('div', null, form);
@@ -116,24 +132,27 @@ export function openExport(ctx, previous = null) {
     devices: Object.keys(project.devices).filter(d => pick.devices.has(d)),
     slides: project.slides.filter(s => pick.slides.has(s.id)),
   });
-  const count = () => pick.locales.size * pick.devices.size * pick.slides.size;
+  const count = () => exportPlan(project, { ...selection(), slides: [...pick.slides] }).length;
   const fingerprint = r => JSON.stringify(r.issues.map(i => [i.level, i.code, i.message]));
   const checkCounts = r => {
     const errors = r.issues.filter(i => i.level === 'error').length;
     const warnings = r.issues.length - errors;
-    return h('div', { class: 'export-check-counts' },
-      h('span', { class: errors ? 'err' : 'ok' }, `${errors} blocking error${errors === 1 ? '' : 's'}`),
-      h('span', { class: warnings ? 'warn' : 'ok' }, `${warnings} warning${warnings === 1 ? '' : 's'}`));
+    return h('div', { class: 'export-check-counts', hidden: !errors && !warnings },
+      h('span', { class: 'err', hidden: !errors }, `${errors} error${errors === 1 ? '' : 's'}`),
+      h('span', { class: 'warn', hidden: !warnings }, `${warnings} warning${warnings === 1 ? '' : 's'}`));
   };
   const showReport = r => {
     report = r;
     readiness.replaceChildren(
       h('div', { class: 'label' }, r.issues.length ? 'Review before export' : '✓ Ready to export'),
       checkCounts(r),
-      h('p', { class: 'hint' }, r.issues.length
-        ? 'Export anyway saves draft images, with placeholders for missing images. You can upload despite text, layout and review warnings. Missing images and other technical errors must be fixed before uploading.'
-        : 'All selected images passed the checks. No images have been written yet.'),
-      ...(r.issues.length ? [h('div', { class: 'result-list' }, warningList(r.issues))] : []),
+      ...(r.issues.length ? [
+        h('p', { class: 'hint' }, 'Export anyway creates a draft. Missing images use placeholders.'),
+        h('details', { class: 'disclosure export-check-details', open: r.issues.some(i => i.level === 'error') },
+          h('summary', null, 'View checks'),
+          h('div', { class: 'result-list' }, warningList(r.issues)),
+          h('p', { class: 'hint' }, 'You can upload despite text, layout and review warnings. Fix missing images and technical errors before uploading.')),
+      ] : []),
     );
     startBtn.textContent = r.issues.length ? 'Export anyway' : 'Export images';
     startBtn.disabled = !count();
@@ -143,12 +162,12 @@ export function openExport(ctx, previous = null) {
     const mine = ++generation;
     controller?.abort(); controller = new AbortController();
     report = null; startBtn.disabled = true; startBtn.textContent = 'Checking…';
-    summary.textContent = `${pick.locales.size} language${pick.locales.size === 1 ? '' : 's'} × ${pick.devices.size} canvas${pick.devices.size === 1 ? '' : 'es'} × ${pick.slides.size} slide${pick.slides.size === 1 ? '' : 's'} = ${count()} image${count() === 1 ? '' : 's'}`;
+    summary.replaceChildren(inventory());
     if (!count()) {
-      readiness.replaceChildren(h('p', { class: 'hint' }, 'Select at least one language, canvas and slide.'));
+      readiness.replaceChildren(h('p', { class: 'hint' }, 'Choose a language, size and screen.'));
       startBtn.textContent = 'Export images'; return;
     }
-    readiness.replaceChildren(h('div', { class: 'label' }, 'Checking selected images…'), h('p', { class: 'hint' }, 'Checking content, translations, fonts, images and canvas sizes.'));
+    readiness.replaceChildren(h('div', { class: 'label' }, 'Checking images…'), h('p', { class: 'hint' }, 'Preparing your export'));
     try {
       const result = await runExport({ ...selection(), mode: 'draft', allowPlaceholders: true, preflightOnly: true, signal: controller.signal,
         onProgress: ({ done, total, label }) => {
@@ -162,6 +181,7 @@ export function openExport(ctx, previous = null) {
       startBtn.textContent = 'Export images';
     }
   };
+  const groups = [];
   const group = (title, items, set) => {
     const boxes = [];
     const setAll = value => { items.forEach(({ id }, i) => { boxes[i].checked = value; value ? set.add(id) : set.delete(id); }); void recheck(); };
@@ -170,20 +190,35 @@ export function openExport(ctx, previous = null) {
       boxes.push(input);
       return h('label', null, input, h('span', null, label, note ? h('small', { class: 'muted' }, note) : null));
     }));
+    groups.push({ items, set, boxes });
     return h('div', { class: 'field' }, h('div', { class: 'row between' }, h('span', { class: 'label' }, title),
       h('span', { class: 'row' }, h('button', { class: 'btn small', onClick: () => setAll(true) }, 'All'), h('button', { class: 'btn small', onClick: () => setAll(false) }, 'None'))), list);
   };
-  form.append(summary,
-    h('div', { class: 'export-columns' },
+  const allSelected = project.locales.every(l => pick.locales.has(l.id)) && Object.keys(project.devices).every(id => pick.devices.has(id)) && project.slides.every(s => pick.slides.has(s.id));
+  const customSelection = h('div', { class: 'export-columns', id: 'export-custom-selection', hidden: allSelected },
       group('Languages', project.locales.map(l => ({ id: l.id, label: localeLabel(l), note: localeNeedsReview(project, engine.data.copy, l.id) ? 'Needs review' : '' })), pick.locales),
-      group('Canvases', Object.entries(project.devices).map(([id, d]) => ({ id, label: d.label, note: `${d.size[0]} × ${d.size[1]} px` })), pick.devices),
-      group('Slides', project.slides.map((s, i) => ({ id: s.id, label: `${i + 1}. ${s.name ?? s.id}` })), pick.slides)),
+      group('Sizes', Object.entries(project.devices).map(([id, d]) => ({ id, label: d.label, note: `${d.size[0]} × ${d.size[1]} px` })), pick.devices),
+      group('Screens', project.slides.map((s, i) => ({ id: s.id, label: `${i + 1}. ${s.name ?? s.id}` })), pick.slides));
+  const allScreens = h('input', { type: 'checkbox', checked: allSelected, 'aria-controls': 'export-custom-selection', 'aria-expanded': String(!allSelected), onChange: () => {
+    customSelection.hidden = allScreens.checked;
+    allScreens.setAttribute('aria-expanded', String(!allScreens.checked));
+    if (allScreens.checked) {
+      for (const { items, set, boxes } of groups) items.forEach(({ id }, index) => { set.add(id); boxes[index].checked = true; });
+      void recheck();
+    }
+  } });
+  form.append(
+    transferSteps(0),
+    h('label', { class: 'export-all' }, allScreens, icon('rectangle.3.group'), h('span', null, h('strong', null, 'All screens'), h('small', null, 'Every language and size'))),
+    summary, customSelection,
     readiness,
-    h('div', { class: 'row wrap' }, h('button', { class: 'btn small', onClick: recheck }, 'Recheck'),
-      h('button', { class: 'btn small', onClick: () => { m.close(); state.ui.setupTab = 'devices'; ctx.go({ view: 'setup' }); } }, 'Edit canvases…')),
-    h('p', { class: 'hint' }, 'Checks cover the selected images. ', h('a', { href: SPEC_URL, target: '_blank', rel: 'noopener' }, `Apple sizes checked ${SPEC_CHECKED_AT} ↗`), ' · ',
-      h('a', { href: PLAY_SPEC_URL, target: '_blank', rel: 'noopener' }, `Google Play checked ${PLAY_SPEC_CHECKED_AT} ↗`)),
-    h('div', { class: 'hint' }, 'RGB PNG · no transparency. A dated folder contains the images, a check report and UPLOAD-GUIDE.html. ', window.studioDesktop?.chooseExportFolder ? 'Choose where to save each export when you start.' : h('span', null, 'Saved in ', h('span', { class: 'path mono', id: 'export-dir' }, 'export/'), '.')),
+    h('details', { class: 'disclosure export-options' }, h('summary', null, 'Export details'), h('div', { class: 'disclosure-body' },
+      h('div', { class: 'row wrap' }, h('button', { class: 'btn small', onClick: recheck }, 'Recheck'),
+        h('button', { class: 'btn small', onClick: () => { m.close(); state.ui.setupTab = 'devices'; ctx.go({ view: 'setup' }); } }, 'Edit canvases…')),
+      h('p', { class: 'hint' }, 'RGB PNG · no transparency. A copy stays in your project.', window.studioDesktop?.chooseExportFolder ? ' Choose an additional folder when exporting.' : h('span', null, ' Saved in ', h('span', { class: 'path mono', id: 'export-dir' }, 'export/'), '.')),
+      h('p', { class: 'hint' }, h('a', { href: SPEC_URL, target: '_blank', rel: 'noopener' }, `Apple sizes · ${SPEC_CHECKED_AT} ↗`), ' · ',
+        h('a', { href: PLAY_SPEC_URL, target: '_blank', rel: 'noopener' }, `Google Play sizes · ${PLAY_SPEC_CHECKED_AT} ↗`)))),
+    h('details', { class: 'disclosure' }, h('summary', null, 'Earlier exports'), savedExports({ onUpload: exportPath => { m.close(); openAppStoreUpload(exportPath); } })),
   );
   fetch('/api/exports').then(r => r.json()).then(j => { const n = form.querySelector('#export-dir'); if (n) n.textContent = j.dir; }).catch(() => {});
   startBtn.addEventListener('click', async () => {
@@ -191,7 +226,7 @@ export function openExport(ctx, previous = null) {
     exporting = true; generation++; controller?.abort(); controller = new AbortController();
     const reviewed = fingerprint(report), override = report.issues.length > 0;
     const bar = h('div', null), label = h('div', { class: 'hint' }, 'Preparing export…');
-    const progress = h('div', { class: 'field' }, h('div', { class: 'label' }, 'Exporting screenshots…'), h('div', { class: 'progress' }, bar), label);
+    const progress = h('div', { class: 'field' }, transferSteps(0), h('div', { class: 'label' }, 'Exporting screenshots…'), h('div', { class: 'progress' }, bar), label);
     form.hidden = true; body.append(progress);
     const stop = h('button', { class: 'btn', onClick: () => controller.abort() }, 'Stop');
     m.el.querySelector('.modal-foot').replaceChildren(stop);
@@ -211,18 +246,20 @@ export function openExport(ctx, previous = null) {
       }
       const checks = uploadChecks(result), unresolved = checks.errors.length > 0;
       const desktopUpload = typeof window.studioDesktop?.appStore === 'function';
-      const uploadBlocked = unresolved || !desktopUpload;
+      const appStoreCount = exportPlan(project, { ...selection(), slides: [...pick.slides] }).filter(file => file.store === 'app-store').length;
+      const uploadBlocked = unresolved || !desktopUpload || !appStoreCount;
       const reveal = h('button', { class: `btn${uploadBlocked ? ' primary' : ''}`, onClick: () => fetch('/api/reveal', { method: 'POST' }) }, 'Show in Finder');
       const uploadStatus = h('div', { class: 'export-readiness', id: 'export-upload-status' },
         h('div', { class: 'label' }, uploadBlocked ? 'App Store Connect upload unavailable' : 'Ready to upload to App Store Connect'),
         checks.errors.length || checks.warnings.length ? checkCounts({ issues: [...checks.errors, ...checks.warnings] }) : null,
-        h('p', { class: 'hint' }, unresolved
+        h('p', { class: 'hint' }, !appStoreCount ? 'This export has no App Store images. Include an App Store size to upload from here.' : unresolved
           ? 'Fix the technical errors or select only images without technical errors, then export again. Text, layout and review warnings can be accepted during upload.'
           : checks.warnings.length ? 'You can upload these images despite the warnings. Review them and choose to upload anyway in the next step.' : 'Choose the app and version, then review the screenshots before uploading.'),
         !desktopUpload ? h('p', { class: 'hint' }, 'Direct upload requires the latest Screenshot Studio Mac app. Open this project there and export again.') : null,
         result.issues.length ? h('div', null, h('button', { class: 'btn small', onClick: () => { m.close(); openExport(ctx, pick); } }, 'Review export checks…')) : null);
-      body.replaceChildren(h('div', { class: 'export-body' }, h('div', { class: 'label' }, '✓ Export finished'),
-        h('p', null, `${result.written} image${result.written === 1 ? '' : 's'} written (${(result.bytes / 1048576).toFixed(1)} MB). ${result.path}`),
+      body.replaceChildren(h('div', { class: 'export-body' }, transferSteps(1), h('div', { class: 'label' }, '✓ Export finished'),
+        exportContents({ ...exportContentsInfo(exportPlan(project, { ...selection(), slides: [...pick.slides] })), count: result.written }, { title: 'Export saved', previews: false }),
+        h('details', { class: 'disclosure' }, h('summary', null, 'Saved files'), h('p', { class: 'hint' }, `${result.written} image${result.written === 1 ? '' : 's'} written (${(result.bytes / 1048576).toFixed(1)} MB). ${result.path}`)),
         uploadStatus,
         result.issues.length ? h('div', { class: 'result-list' }, warningList([...checks.errors, ...checks.warnings])) : null));
       const upload = h('button', { class: 'btn primary', disabled: uploadBlocked, 'aria-describedby': 'export-upload-status', onClick: () => { m.close(); openAppStoreUpload(result.path); } }, 'Upload to App Store Connect…');

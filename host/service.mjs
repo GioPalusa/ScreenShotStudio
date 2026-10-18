@@ -7,6 +7,11 @@ import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { encodePNG } from '../tools/png.mjs';
+import { inspectUploadExport, readExportImage } from './app-store-connect.mjs';
+import { exportGuide } from './export-guide.mjs';
+import { uploadChecks } from '../app/js/upload-checks.js';
+import { exportPreviews, exportContentsInfo } from '../app/js/export-previews.js';
+import { FrameLibrary } from './frame-library.mjs';
 import { ExportSessions } from './export-sessions.mjs';
 import { atomicWrite, revision, assertInside } from './files.mjs';
 import { migrateDocument, validateDocument } from '../app/js/document.js';
@@ -14,9 +19,11 @@ import { installedFonts } from './fonts.mjs';
 import { translateText, listTranslationModels } from './translation.mjs';
 import { readImportArchive } from './import-archive.mjs';
 
-export function createStudioService({ appPath, projectPath, exportPath, origin = null, onChange = () => {} }) {
+export function createStudioService({ appPath, projectPath, exportPath, frameLibraryPath = null, origin = null, createThumbnail = null, onExportLog = line => console.log(line), onChange = () => {} }) {
 const ROOT = path.dirname(appPath), APP = appPath, PROJECT = projectPath, EXPORT = exportPath;
 const sessions = new ExportSessions(PROJECT, EXPORT);
+const frameLibrary = new FrameLibrary(PROJECT, frameLibraryPath);
+frameLibrary.installLegacy();
 const exportDestinations = new Map();
 // Called only by the trusted native directory picker, never by a renderer path.
 function authorizeExportDestination(directory) {
@@ -31,7 +38,7 @@ function authorizeExportDestination(directory) {
 let latestExport = EXPORT;
 const completedExports = new Set();
 function uploadExportPath(exportPath) {
-  if (!completedExports.has(exportPath)) throw new Error('Choose the saved export folder in Upload before uploading.');
+  if (!completedExports.has(exportPath) && !savedExportRuns().some(run => run.path === exportPath)) throw new Error('Choose the saved export folder in Upload before uploading.');
   return exportPath;
 }
 const MIME = {
@@ -190,6 +197,66 @@ function moveFile(from, to) {
   fs.renameSync(from, to);
 }
 
+function savedExportRuns() {
+  const archive = path.join(PROJECT, 'export');
+  if (!fs.existsSync(archive)) return [];
+  // MCP isolates invocations under export/ai-…/ (and an optional output subfolder).
+  // Stop at a completed run so its locale/image directories aren't searched.
+  const pending = [archive], roots = [];
+  while (pending.length) {
+    const directory = pending.pop();
+    try {
+      assertInside(PROJECT, directory);
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        const child = path.join(directory, entry.name);
+        if (/^(draft|final)-[A-Za-z0-9_-]+$/.test(entry.name)) roots.push(child);
+        else pending.push(child);
+      }
+    } catch { /* Incomplete, inaccessible or linked export folders stay outside discovery. */ }
+  }
+  return roots.flatMap(root => {
+    try {
+      assertInside(PROJECT, path.join(root, 'manifest.json'));
+      const manifest = readJSON(path.join(root, 'manifest.json'), null);
+      if (!manifest?.completed || !Array.isArray(manifest.files)) return [];
+      const files = manifest.files.filter(file => file.store === 'app-store');
+      const { errors, warnings } = uploadChecks(manifest.report ?? {});
+      if (!files.length) errors.push({ level: 'error', message: 'This export contains no App Store images.' });
+      const sample = exportPreviews(manifest.files);
+      const previews = sample.images.map(file => ({ label: file.slide ?? file.filename, locale: file.locale, canvas: file.canvas, size: file.size,
+        src: `/api/export-preview?${new URLSearchParams({ run: path.relative(archive, root), file: file.path })}` }));
+      return [{ ...exportContentsInfo(manifest.files), path: root, name: path.basename(root), count: manifest.files.length, locales: [...new Set(manifest.files.map(f => f.locale))], canvases: [...new Set(manifest.files.map(f => f.canvas))], completed: manifest.completed, errors, warnings, appStoreCount: files.length, previews, previewLocale: sample.locale, previewTotal: sample.total }];
+    } catch { return []; }
+  }).sort((a, b) => b.completed.localeCompare(a.completed));
+}
+
+// Called only after a native picker has granted access to a completed export.
+function retainSavedExport(directory) {
+  if (savedExportRuns().some(run => run.path === directory)) return directory;
+  const checked = inspectUploadExport(directory);
+  if (checked.errors.length) throw new Error('Fix the technical errors before importing this export.');
+  const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
+  const archive = path.join(PROJECT, 'export');
+  const name = `${manifest.mode}-imported-${checked.manifestHash.slice(0, 16)}`;
+  const destination = path.join(archive, name);
+  assertInside(PROJECT, destination);
+  if (fs.existsSync(destination)) return destination;
+  fs.mkdirSync(archive, { recursive: true });
+  const staging = fs.mkdtempSync(path.join(archive, '.partial-import-'));
+  try {
+    for (const file of manifest.files) {
+      const bytes = readExportImage(directory, file);
+      const target = path.join(staging, file.path); assertInside(staging, target);
+      atomicWrite(target, bytes);
+    }
+    atomicWrite(path.join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    atomicWrite(path.join(staging, 'UPLOAD-GUIDE.html'), exportGuide(manifest));
+    fs.renameSync(staging, destination);
+  } finally { fs.rmSync(staging, { recursive: true, force: true }); }
+  return destination;
+}
+
 function listExports() {
   const out = [];
   const walk = (dir, rel = '') => {
@@ -213,12 +280,7 @@ function loadProjectBundle() {
   if (fs.existsSync(copyDir)) {
     for (const f of fs.readdirSync(copyDir)) if (f.endsWith('.json')) copy[f.replace(/\.json$/, '')] = JSON.parse(fs.readFileSync(path.join(copyDir, f), 'utf8'));
   }
-  // Frame metadata sits next to each bezel PNG.
-  const frames = {};
-  const frameDir = path.join(PROJECT, 'assets', 'frames');
-  if (fs.existsSync(frameDir)) {
-    for (const f of fs.readdirSync(frameDir)) if (f.endsWith('.json')) frames[f.replace(/\.json$/, '')] = readJSON(path.join(frameDir, f), null);
-  }
+  const frames = frameLibrary.all();
   // `api` tells the browser app which endpoints this server has (2: images, frames, language removal)
   return { api: 3, projectId: crypto.createHash('sha256').update(PROJECT).digest('hex').slice(0, 16), name: projectName(path.basename(PROJECT)), revisions: { studio: revision(path.join(PROJECT, 'studio.json')), ...Object.fromEntries(Object.keys(copy).map(id => [`copy:${id}`, revision(path.join(copyDir, `${id}.json`))])) }, studio, copy, frames, captures: listCaptures(), assets: listAssets(), removed: listRemovedLocales(), exports: listExports() };
 }
@@ -309,10 +371,13 @@ async function handle(req, res, port) {
   const base = rel.startsWith('/project/') ? PROJECT : rel.startsWith('/app/') ? APP : null;
   if (!base) { res.writeHead(404); return res.end('Not found'); }
   const sub = rel.replace(/^\/(project|app)\//, '');
-  const file = path.resolve(base, sub);
-  if (!file.startsWith(base + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
+  let file = path.resolve(base, sub);
+  let fileBase = base;
+  const frame = /^assets\/frames\/([A-Za-z0-9][A-Za-z0-9._-]*\.png)$/.exec(sub);
+  if (base === PROJECT && frame && !fs.existsSync(file) && frameLibraryPath && !frame[1].includes('..')) { fileBase = frameLibraryPath; file = path.join(fileBase, frame[1]); }
+  if (!file.startsWith(fileBase + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); return res.end('Not found'); }
-  if (!fs.realpathSync(file).startsWith(fs.realpathSync(base) + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
+  if (!fs.realpathSync(file).startsWith(fs.realpathSync(fileBase) + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
   const ext = path.extname(file).toLowerCase();
   res.writeHead(200, {
     'content-type': MIME[ext] ?? 'application/octet-stream',
@@ -360,6 +425,7 @@ async function api(req, res, url, method) {
     const file = path.join(PROJECT, 'studio.json');
     const expected = req.headers['if-match'] ?? null;
     if (expected !== null && revision(file) !== expected) throw httpError(409, 'This file changed outside this window. Your edits are retained. Resolve the conflict before saving.');
+    frameLibrary.retainUsed(body);
     writeProjectFile(file, prettyJSON(body), expected);
     return json(res, 200, { ok: true, revision: revision(file) });
   }
@@ -438,8 +504,15 @@ async function api(req, res, url, method) {
   if (p === '/api/frame' || p === '/api/frame-meta') {
     const name = url.searchParams.get('name');
     if (!safe(name)) return json(res, 400, { error: 'bad frame name' });
-    const png = path.join(PROJECT, 'assets', 'frames', `${name}.png`);
-    const meta = path.join(PROJECT, 'assets', 'frames', `${name}.json`);
+    const frameRoot = frameLibrary.writeRoot(name);
+    const png = path.join(frameRoot, `${name}.png`);
+    const meta = path.join(frameRoot, `${name}.json`);
+    assertInside(frameRoot, png); assertInside(frameRoot, meta);
+    const writeFrame = (file, data) => {
+      atomicWrite(file, data, { backupRoot: frameRoot });
+      const local = path.join(PROJECT, 'assets', 'frames', path.basename(file));
+      if (frameRoot !== frameLibrary.project && fs.existsSync(local)) writeProjectFile(local, data);
+    };
     if (p === '/api/frame' && method === 'POST') {
       const buf = await readBody(req, 64 * 1024 * 1024);
       if (buf.length < 33 || buf.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || buf.subarray(12, 16).toString() !== 'IHDR') return json(res, 400, { error: 'frames must be PNG files' });
@@ -447,7 +520,7 @@ async function api(req, res, url, method) {
       if (!(pw >= 16 && ph >= 16 && pw <= 20000 && ph <= 20000)) return json(res, 400, { error: `that PNG is ${pw} × ${ph}px: not a plausible device frame` });
       // a frame that is already there is only replaced on purpose (the editor's "Replace image…"), never by a name clash
       if (fs.existsSync(png) && url.searchParams.get('replace') !== '1') return json(res, 409, { error: `a frame called “${name}” already exists` });
-      writeProjectFile(png, buf);
+      writeFrame(png, buf);
       return json(res, 200, { ok: true, bytes: buf.length });
     }
     if (p === '/api/frame-meta' && method === 'PUT') {
@@ -459,11 +532,14 @@ async function api(req, res, url, method) {
         || !okRadius(body.screen.radius) || (body.screen.mode !== undefined && !['hole', 'overlay'].includes(body.screen.mode))) {
         return json(res, 400, { error: 'frame metadata needs size [w, h], screen {x, y, w, h} (optional radius, mode "hole" or "overlay")' });
       }
-      writeProjectFile(meta, prettyJSON(body));
+      writeFrame(meta, prettyJSON(body));
       return json(res, 200, { ok: true });
     }
     if (p === '/api/frame' && method === 'DELETE') {
-      for (const f of [png, meta]) if (fs.existsSync(f)) { archiveDelete(f); }
+      for (const f of [png, meta]) {
+        if (frameRoot === frameLibrary.project) archiveDelete(f);
+        else { if (fs.existsSync(f)) { atomicWrite(path.join(frameRoot, '.history', `${Date.now()}-${crypto.randomUUID()}-${path.basename(f)}`), fs.readFileSync(f)); fs.unlinkSync(f); } archiveDelete(path.join(frameLibrary.project, path.basename(f))); }
+      }
       return json(res, 200, { ok: true });
     }
   }
@@ -526,6 +602,7 @@ async function api(req, res, url, method) {
       if (typeof destination !== 'string' || !exportDestinations.has(destination)) throw httpError(400, 'Choose the export folder again.');
       output = exportDestinations.get(destination); exportDestinations.delete(destination);
     }
+    frameLibrary.retainUsed(loadProjectBundle().studio);
     const run = sessions.start(mode, selection, output);
     const snapshot = createStudioService({ appPath: APP, projectPath: run.source, exportPath: path.join(run.temp, 'unused') });
     try {
@@ -557,6 +634,17 @@ async function api(req, res, url, method) {
     return json(res, 200, { ok: true, path: file.path, bytes: png.length });
   }
 
+  if (p === '/api/export-runs' && method === 'GET') return json(res, 200, { runs: savedExportRuns() });
+  if (p === '/api/export-preview' && method === 'GET') {
+    const root = path.resolve(PROJECT, 'export', url.searchParams.get('run') ?? '');
+    if (!savedExportRuns().some(run => run.path === root)) throw httpError(404, 'Export not found.');
+    const manifest = readJSON(path.join(root, 'manifest.json'), null);
+    const file = exportPreviews(manifest.files, Infinity).images.find(file => file.path === url.searchParams.get('file'));
+    if (!file) throw httpError(404, 'Preview not found.');
+    const bytes = readExportImage(root, file);
+    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+    return res.end(createThumbnail ? createThumbnail(bytes) : bytes);
+  }
   if (p === '/api/exports' && method === 'GET') return json(res, 200, { dir: EXPORT, files: listExports() });
 
   if (p === '/api/reveal' && method === 'POST') {
@@ -573,7 +661,7 @@ async function api(req, res, url, method) {
     const body = await readJSONBody(req, 1024 * 1024);
     if (body.warning) exportLog.warnings.push(body.warning);
     if (body.error) exportLog.errors.push(body.error);
-    if (body.line) console.log(body.line);
+    if (body.line) onExportLog(body.line);
     return json(res, 200, { ok: true });
   }
   if (p === '/api/export-done' && method === 'POST') {
@@ -601,5 +689,5 @@ async function request(request) {
   finally { request.signal.removeEventListener('abort', cancel); }
   return new Response(request.method === 'HEAD' ? null : Buffer.concat(chunks), { status, headers });
 }
-return { handle, request, uploadExportPath, authorizeExportDestination, loadProjectBundle, startWatching, exportLog, close() { exportDestinations.clear(); sessions.close(); watcher?.close(); clearTimeout(watchTimer); for (const c of clients) c.end(); } };
+return { handle, request, uploadExportPath, retainSavedExport, authorizeExportDestination, loadProjectBundle, startWatching, exportLog, close() { exportDestinations.clear(); sessions.close(); watcher?.close(); clearTimeout(watchTimer); for (const c of clients) c.end(); } };
 }

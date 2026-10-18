@@ -15,6 +15,7 @@ export function validateDocument(doc) {
   for (const [id, d] of Object.entries(doc.devices)) {
     if (!safeId(id) || !Array.isArray(d.size) || d.size.length !== 2 || !d.size.every(n => Number.isInteger(n) && n >= 100 && n <= 12000)) throw new Error(`Invalid canvas: ${id}`);
   }
+  for (const slide of doc.slides) if (slide.canvasIds != null && (!Array.isArray(slide.canvasIds) || !slide.canvasIds.length || slide.canvasIds.some(id => !Object.hasOwn(doc.devices, id)))) throw new Error(`Invalid screen canvases: ${slide.id}`);
   for (const [id, block] of Object.entries(doc.sharedCanvas ?? {})) {
     if (!doc.devices[id] || !Array.isArray(block.layers) || (block.gap != null && (!Number.isFinite(block.gap) || block.gap < 0 || block.gap > 1)) || (block.gapPreset != null && !['app-store', 'google-play', 'custom'].includes(block.gapPreset))) throw new Error(`Invalid shared canvas: ${id}`);
     const layerIds = new Set();

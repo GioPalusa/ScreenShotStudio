@@ -1,11 +1,12 @@
 import { orderedSlides } from './project-ops.js';
+import { screenCanvasId } from './slide-order.js';
 import { isTextEditing } from './shortcuts.js';
 import { openGetStarted } from './ui/get-started.js';
 import { openShortcuts } from './ui/shortcuts.js';
 import { openMediaLibrary } from './ui/media-library.js';
 // The studio shell: top bar (language, device, view, export), view switching, shortcuts.
 
-import { engine, state, on, rememberUI, emit, undo, redo, undoIf, retrySaves, recoverEdits, resolveSaveConflict, needsReview } from './store.js';
+import { engine, state, on, rememberUI, validateSelection, emit, undo, redo, undoIf, retrySaves, recoverEdits, resolveSaveConflict, needsReview } from './store.js';
 import { h, toast, localeLabel, fmtTime, confirmDialog } from './ui/helpers.js';
 import { installTooltips } from './ui/tooltips.js';
 import { createEditor } from './ui/editor.js';
@@ -45,7 +46,11 @@ export function mountStudio(root) {
       if (view) state.ui.view = view;
       if (locale) state.ui.locale = locale;
       if (device) state.ui.device = device;
-      if (slideId) { state.ui.slideId = slideId; state.ui.allScreens = false; }
+      if (slideId) {
+        state.ui.slideId = slideId; state.ui.allScreens = false;
+        if (!device) state.ui.device = screenCanvasId(engine.project, engine.project.slides.find(s => s.id === slideId), state.ui.device, state.ui.screenshotDevice);
+      }
+      validateSelection();
       rememberUI();
       renderAll();
     },
@@ -110,7 +115,7 @@ export function mountStudio(root) {
       } }, Object.entries(devices).map(([id, d]) => h('option', { value: id, selected: id === state.ui.device }, d.short ?? d.label)),
       h('option', { value: '__add' }, '＋ Add device…')),
       h('button', { class: 'btn', title: 'Media library · ⇧⌘M', onClick: () => ctx.openMedia() }, 'Media'),
-      h('button', { class: 'btn icon', 'aria-label': 'Keyboard shortcuts', title: 'Keyboard shortcuts · ?', onClick: openShortcuts }, '?'),
+      h('button', { class: 'btn icon', 'aria-label': 'Help', title: 'Get started, MCP and skills', onClick: openGetStarted }, '?'),
       h('div', { class: 'spacer' }),
       h('div', { class: 'row topbar-actions' }, saveStatus,
         h('button', { class: 'btn primary', title: 'Export screenshots  ⌘E', onClick: ctx.openExport }, 'Export…')),
@@ -120,10 +125,15 @@ export function mountStudio(root) {
   // ----- views
 
   function renderAll() {
+    validateSelection();
     buildTopbar();
     const view = views[state.ui.view] ?? views.editor;
-    content.replaceChildren(view.el);
+    // Refreshes of the current view must not detach its scroll containers.
+    const { scrollTop, scrollLeft } = view.el;
+    if (content.firstElementChild !== view.el) content.replaceChildren(view.el);
     view.build();
+    view.el.scrollTop = scrollTop;
+    view.el.scrollLeft = scrollLeft;
     // once the view is on the page and has real sizes (a timer too: frames are paused while the page is hidden)
     let activated = false;
     const activate = () => { if (!activated) { activated = true; view.activate?.(); } };
@@ -142,6 +152,12 @@ export function mountStudio(root) {
     if (state.ui.view !== 'editor') views[state.ui.view]?.refresh?.();
   });
   on('locales-changed', () => buildTopbar());
+  on('copy-changed', ({ locale }) => {
+    const entry = engine.project.locales.find(l => l.id === locale);
+    const select = topbar.querySelector('[aria-label="Language"]');
+    const option = select && [...select.options].find(o => o.value === locale);
+    if (entry && option) option.textContent = localeOptionLabel(entry);
+  });
   on('reloaded', ({ files }) => {
     // Files were changed outside the browser (an editor, git, Claude Code): pick the changes up.
     const view = views[state.ui.view];
@@ -157,6 +173,7 @@ export function mountStudio(root) {
 
   window.studioDesktop?.onCommand(command => {
     if (command === 'guide') { openGetStarted(); return; }
+    if (command === 'guide:mcp') { openGetStarted('mcp'); return; }
     if (document.querySelector('.modal-backdrop')) return;
     if (command === 'media') ctx.openMedia();
     if (command === 'shortcuts') openShortcuts();

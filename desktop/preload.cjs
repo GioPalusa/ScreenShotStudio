@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('studioDesktop', {
   createProject: value => ipcRenderer.invoke('studio:create-project', value),
   recentProjects: () => ipcRenderer.invoke('studio:recent-projects'),
   action: name => ipcRenderer.invoke('studio:action', name),
+  agentSetup: (operation, value) => ipcRenderer.invoke('studio:agent-setup', operation, value),
   appStore: (operation, value) => ipcRenderer.invoke('studio:app-store', operation, value),
   translationSettings: (operation, value) => ipcRenderer.invoke('studio:translation-settings', operation, value),
 });

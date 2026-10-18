@@ -26,7 +26,7 @@ export function exportPlan(project, selection = {}) {
   for (const locale of project.locales ?? []) if (wanted('locales', locale.id)) {
     for (const [deviceId, device] of Object.entries(project.devices ?? {})) if (wanted('devices', deviceId)) {
       const destination = exportDestination(device, deviceId);
-      for (const slide of orderedSlides(project, locale.id)) if (wanted('slides', slide.id)) {
+      for (const slide of orderedSlides(project, locale.id, deviceId)) if (wanted('slides', slide.id)) {
         const output = canvasForSlide(project, slide, deviceId);
         const index = project.slides.findIndex(s => s.id === slide.id);
         const key = `${locale.id}:${destination.bucket}`, position = (counters.get(key) ?? 0) + 1;

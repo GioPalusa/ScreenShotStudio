@@ -1,0 +1,97 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { runBrowserTest } from './browser-test-runner.mjs';
+import { createStudioService } from '../host/service.mjs';
+import { verifyStoreImageUpload } from './store-image-upload-check.mjs';
+import { createNewProject } from '../host/new-project.mjs';
+const root=path.resolve('.'), temp=fs.mkdtempSync(path.join(os.tmpdir(),'studio-store-images-'));
+const appPath=path.join(temp,'app'),projectPath=path.join(temp,'Test.sss');
+const chrome=process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+let service,server;
+try {
+ fs.cpSync(path.join(root,'app'),appPath,{recursive:true}); createNewProject(projectPath,{});
+ fs.writeFileSync(path.join(appPath,'store-images-test.html'),'<html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module" src="/app/store-images-test.js"></script></body></html>');
+ fs.writeFileSync(path.join(appPath,'store-images-test.js'),`
+ import {engine,state,loadAll,flushSaves,undo,redo,saveStudio,saveCopy} from '/app/js/store.js';
+ import {mountStudio} from '/app/js/ui.js';
+ import {exportPlan} from '/app/js/export-naming.js';
+ import {runExport} from '/app/js/ui/export.js';
+ const check=(v,m)=>{if(!v)throw new Error(m)};
+ const wait=async fn=>{for(let i=0;i<500;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw new Error('UI timed out');};
+ const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text);
+ const canvas=id=>{const select=document.querySelector('[aria-label="Canvas"]');select.value=id;select.dispatchEvent(new Event('change'));};
+ const choose=()=>{button('＋ Add screens').click();button('Store images').click();};
+ try{
+  await loadAll(); const original=JSON.stringify(engine.project); const phone=state.ui.device;
+  const originalSlides=engine.project.slides.length, originalJobs=exportPlan(engine.project).length;
+  mountStudio(document.querySelector('#root')); choose();
+  check(document.querySelector('.store-images-picker').getBoundingClientRect().width>300,'Store images panel is visible');
+  check(document.querySelectorAll('.store-image-card').length===2,'App Store previews two canvases');
+  check(getComputedStyle(document.querySelector('.design-catalogue')).display==='none','Design cards are hidden in store mode');
+  const search=document.querySelector('[aria-label="Search result image size"]');search.value='1920x1280';search.dispatchEvent(new Event('change'));
+  const header=document.querySelector('[aria-label="Header image size"]');header.value='3840x1646';header.dispatchEvent(new Event('change'));
+  button('Cancel').click();check(JSON.stringify(engine.project)===original,'Cancel preserves document');choose();
+  const searchAgain=document.querySelector('[aria-label="Search result image size"]');searchAgain.value='1920x1280';searchAgain.dispatchEvent(new Event('change'));
+  const headerAgain=document.querySelector('[aria-label="Header image size"]');headerAgain.value='3840x1646';headerAgain.dispatchEvent(new Event('change'));
+  button('Add App Store images').click();
+  await wait(()=>engine.project.slides.length===originalSlides+2);
+  check(document.querySelectorAll('.thumb').length===originalSlides+2,'Store images share the same screen list');
+  const searchId=state.ui.device;check(engine.project.devices[searchId].target==='app-store-search','Starts editing search image');
+  undo();check(JSON.stringify(engine.project)===original,'One undo removes both new images');redo();await flushSaves();
+  const apple=Object.entries(engine.project.devices).filter(([,d])=>d.screenScope==='store-image');
+  for(const [id] of apple){canvas(id);check(document.querySelectorAll('.thumb').length===originalSlides+2,'Screen list stays complete on every canvas');}
+  canvas(phone);check(document.querySelectorAll('.thumb').length===originalSlides+2,'Store artwork is visible beside screenshots');
+  const screenshotId=engine.project.slides.find(s=>!s.canvasIds).id;
+  const headerId=apple.find(([,d])=>d.target==='app-store-header')[0];
+  document.querySelector('.thumb[data-device="'+headerId+'"]').click();check(state.ui.device===headerId&&document.querySelector('[aria-label="Canvas"]').value===headerId,'Click store image changes canvas in place');
+  document.querySelector('.thumb[data-id="'+screenshotId+'"]').click();check(state.ui.device===phone,'Click screenshot restores its canvas');
+  choose();button('Google Play').click();check(document.querySelectorAll('.store-image-card').length===1,'Google Play previews only feature graphic');const rect=document.querySelector('.store-image-outline').getBoundingClientRect();check(Math.abs(rect.width/rect.height-1024/500)<.03,'Feature preview keeps output proportions');button('Add Google Play feature graphic').click();
+  await wait(()=>engine.project.slides.length===originalSlides+3);check(engine.project.devices[state.ui.device].size.join('x')==='1024x500','Feature graphic exact dimensions');
+  const storeDevices=Object.entries(engine.project.devices).filter(([,d])=>d.screenScope==='store-image').map(([id])=>id);
+  const count=engine.project.slides.length;choose();button('Google Play').click();button('Add Google Play feature graphic').click();check(engine.project.slides.length===count,'Repeat keeps existing screen');
+  check(exportPlan(engine.project).length===originalJobs+3*engine.project.locales.length,'Export plan contains matching screens only');
+  for(const slide of engine.project.slides) for(const id of slide.canvasIds??[phone]) slide.layouts[id]={template:'custom',panorama:false,layers:[{id:'art',type:'shape',shape:'rect',cx:100,cy:100,w:100,h:100,fill:'#c0338b'},{id:'title',type:'text',field:'headline',x:240,capTop:100,w:600,boxHeight:200,size:60,minSize:60,weight:700,anchor:'top'}]};
+  const originalLocale=engine.project.locales[0].id;
+  engine.project.locales.push({id:'sv-SE',name:'Swedish',native:'Svenska',lang:'sv',dir:'ltr'});
+  for(const locale of [originalLocale,'sv-SE']){for(const slide of engine.project.slides)(engine.data.copy[locale]??={})[slide.id]={headline:(locale===originalLocale?'Original ':'Svensk ')+slide.name};saveCopy(locale);}
+  saveStudio();await flushSaves();
+  button('Translate').click();button('Per language').click();
+  check(document.querySelectorAll('.lang-row').length===originalSlides+3,'Language review contains screenshots and store images together');
+  for(const row of document.querySelectorAll('.lang-row'))check(row.dataset.device===document.querySelector('.thumb[data-id="'+row.dataset.slide+'"]')?.dataset.device||engine.project.slides.find(s=>s.id===row.dataset.slide).canvasIds?.includes(row.dataset.device)||row.dataset.device===phone,'Review preview uses compatible canvas');
+  button('Per screen').click();check(document.querySelectorAll('.translate-screen').length===originalSlides+3,'Screen translation tabs show the whole project');
+  const headerSlide=engine.project.slides.find(s=>s.canvasIds?.includes(headerId));
+  document.querySelector('[aria-label="'+(engine.project.slides.indexOf(headerSlide)+1)+'. '+headerSlide.name+'"]').click();check(state.ui.slideId===headerSlide.id&&state.ui.device===headerId,'Translation tab switches to header canvas');
+  const swedishRow=document.querySelector('.lang-row[data-locale="sv-SE"]');check(swedishRow.querySelector('.translation-source-text').textContent.includes('Original '),'Store image manual translation includes source');
+  swedishRow.querySelector('textarea').value='Ny header';swedishRow.querySelector('textarea').dispatchEvent(new Event('input'));await flushSaves();check(engine.data.copy['sv-SE'][headerSlide.id].headline==='Ny header','Store copy edits independently');
+  button('Editor').click();document.querySelector('.thumb[data-id="'+screenshotId+'"]').click();
+  const exported=await runExport({locales:[engine.project.locales[0].id],devices:Object.keys(engine.project.devices),slides:engine.project.slides,mode:'final'});
+  check(exported.written===4,'Strict combined export writes one screenshot plus three store images: '+JSON.stringify(exported.issues));
+  const featureDevice=storeDevices.find(id=>engine.project.devices[id].target==='play-feature');canvas(featureDevice);
+  const featureSlide=state.ui.slideId, locale=engine.project.locales[0].id;
+  engine.data.copy[locale][featureSlide]={headline:'Keep this text'};saveCopy(locale);await flushSaves();
+  button('Remove').click();await wait(()=>button('Remove screen'));button('Remove screen').click();await wait(()=>!engine.project.devices[featureDevice]);check(!engine.data.copy[locale][featureSlide],'Sidebar removal removes the store screen and copy');
+  undo();check(engine.project.devices[featureDevice]&&engine.data.copy[locale][featureSlide]?.headline==='Keep this text','Sidebar Undo restores canvas and text together');await flushSaves();
+  button('Setup').click();
+  const card=[...document.querySelectorAll('.device-card')].find(card=>card.querySelector('[aria-label="Name"]')?.value===engine.project.devices[featureDevice].label);
+  check(card,'Feature canvas appears in Setup');
+  const phoneCard=[...document.querySelectorAll('.device-card')].find(card=>card.querySelector('[aria-label="Name"]')?.value===engine.project.devices[phone].label);check(phoneCard.querySelector('.danger').disabled,'Keep an output canvas for the ordinary screenshot screens');card.querySelector('.danger').click();await wait(()=>button('Remove device'));button('Remove device').click();
+  await wait(()=>!engine.project.devices[featureDevice]);check(!engine.data.copy[locale][featureSlide],'Removing the canvas removes its scoped text');
+  undo();check(engine.project.devices[featureDevice]&&engine.data.copy[locale][featureSlide]?.headline==='Keep this text','Undo restores removed canvas and its copy');await flushSaves();
+  button('Overview').click();check(document.querySelectorAll('.overview-screen').length>0||document.querySelectorAll('.strip canvas').length>0,'Overview shows the selected feature canvas');
+  document.querySelector('#result').textContent='PASS: store chooser, two Apple canvases, one Play canvas, sizes, cancellation, undo/redo, isolation, unified sidebar/review/navigation, combined upload and strict RGB export';
+ }catch(e){document.querySelector('#result').textContent='FAIL: '+e.stack;}
+ `);
+ service=createStudioService({appPath,projectPath,exportPath:path.join(projectPath,'export')});
+ server=http.createServer((req,res)=>service.handle(req,res,server.address().port));await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const {stdout}=await runBrowserTest(chrome,['--headless','--disable-gpu','--no-first-run','--no-sandbox',`--user-data-dir=${path.join(temp,'chrome')}`,'--window-size=1280,1000',`http://127.0.0.1:${server.address().port}/app/store-images-test.html`],{timeout:60000});
+ const verdict=stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1];assert.match(verdict,/^PASS:/,verdict);
+ const saved=JSON.parse(fs.readFileSync(path.join(projectPath,'studio.json')));assert.equal(saved.slides.filter(s=>s.canvasIds).length,3);
+ const run=path.join(projectPath,'export',fs.readdirSync(path.join(projectPath,'export')).find(n=>n.startsWith('final-')));
+ const manifest=JSON.parse(fs.readFileSync(path.join(run,'manifest.json')));assert.equal(manifest.files.length,4);
+ for(const entry of manifest.files){const png=fs.readFileSync(path.join(run,entry.path));assert.equal(png[25],2);assert.deepEqual([png.readUInt32BE(16),png.readUInt32BE(20)],saved.devices[entry.device].size);}
+ await verifyStoreImageUpload(run);
+ console.log(verdict);
+}finally{server?.closeAllConnections();await new Promise(r=>server?server.close(r):r());service?.close();fs.rmSync(temp,{recursive:true,force:true});}
