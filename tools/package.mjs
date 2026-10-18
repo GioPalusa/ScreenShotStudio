@@ -34,14 +34,20 @@ const results = await packager({
   ignore: [/^\/\.github(?:\/|$)/, /^\/docs(?:\/|$)/, /^\/app\/icons\/(?!palusa-logo\.png$|screenshot-studio\.png$).*\.png$/, /^\/project(?:\/|$)/, /^\/README\.md$/, /^\/AGENTS\.md$/, /^\/distribution(?:\/|$)/, /^\/Screenshot Studio\.xcodeproj(?:\/|$)/, /^\/build(?:\/|$)/, /^\/dist(?:\/|$)/, /^\/export(?:\/|$)/, /^\/\.git(?:\/|$)/, /^\/project\/\.(history|versions)(?:\/|$)/, /^\/tools\/(?!png\.mjs$|mcp(?:\/|$))/, /^\/tests(?:\/|$)/],
   extendInfo: {
     CFBundleIconFile: 'ScreenshotStudio.icns',
-    CFBundleDocumentTypes: [{ CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
-    UTExportedTypeDeclarations: [{ UTTypeIdentifier: 'se.palusa.screenshotstudio.project', UTTypeDescription: 'Screenshot Studio project', UTTypeConformsTo: ['com.apple.package'], UTTypeTagSpecification: { 'public.filename-extension': PROJECT_EXTENSIONS } }],
+    CFBundleDocumentTypes: [{ CFBundleTypeIconFile: 'ScreenshotStudio.icns', CFBundleTypeName: 'Screenshot Studio project', CFBundleTypeRole: 'Editor', LSHandlerRank: 'Owner', LSItemContentTypes: ['se.palusa.screenshotstudio.project'], LSTypeIsPackage: true }],
+    UTExportedTypeDeclarations: [{ UTTypeIdentifier: 'se.palusa.screenshotstudio.project', UTTypeIconFile: 'ScreenshotStudio.icns', UTTypeDescription: 'Screenshot Studio project', UTTypeConformsTo: ['com.apple.package'], UTTypeTagSpecification: { 'public.filename-extension': PROJECT_EXTENSIONS } }],
   },
 });
 for (const result of results) {
   const app = path.join(result, 'Screenshot Studio.app');
   const bundled = path.join(app, 'Contents', 'Resources', 'app');
   assert.ok(fs.readFileSync(icon).equals(fs.readFileSync(path.join(app, 'Contents', 'Resources', 'ScreenshotStudio.icns'))), 'Packaged app icon differs');
+  const info = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path.join(app, 'Contents/Info.plist')], { encoding: 'utf8' }));
+  const projectType = info.UTExportedTypeDeclarations.find(type => type.UTTypeIdentifier === 'se.palusa.screenshotstudio.project');
+  const documentType = info.CFBundleDocumentTypes.find(type => type.LSItemContentTypes.includes(projectType.UTTypeIdentifier));
+  assert.equal(projectType.UTTypeIconFile, 'ScreenshotStudio.icns', 'Project file type must reference the bundled icon');
+  assert.equal(documentType.CFBundleTypeIconFile, projectType.UTTypeIconFile, 'Document and exported type icons must match');
+  assert.deepEqual(projectType.UTTypeTagSpecification['public.filename-extension'], PROJECT_EXTENSIONS, 'All supported project extensions must receive the icon');
   let checked = 0;
   const compare = relative => {
     for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {

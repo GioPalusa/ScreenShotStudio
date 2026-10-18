@@ -1,3 +1,6 @@
+import { appearanceControl } from './ui/appearance-control.js';
+import { icon } from './ui/icons.js';
+import { productMark } from './ui/brand.js';
 import { orderedSlides } from './project-ops.js';
 import { screenCanvasId } from './slide-order.js';
 import { isTextEditing } from './shortcuts.js';
@@ -16,7 +19,6 @@ import { createSetup } from './ui/setup.js';
 import { createUploads } from './ui/uploads.js';
 import { openExport } from './ui/export.js';
 import { openAddLanguage } from './ui/locale-dialogs.js';
-import { openAddDevice } from './ui/devices-view.js';
 import { translateIcon } from './ui/translate-dialog.js';
 
 const VIEWS = [['editor', 'Editor'], ['languages', 'Translate'], ['overview', 'Overview'], ['setup', 'Setup'], ['upload', 'Upload']];
@@ -91,8 +93,8 @@ export function mountStudio(root) {
   }
 
   function buildTopbar() {
-    const { locales, devices } = engine.project;
-    const select = h('select', { class: 'input', 'aria-label': 'Language', style: { minWidth: '210px' }, onChange: () => {
+    const { locales } = engine.project;
+    const select = h('select', { class: 'input', 'aria-label': 'Language', style: { minWidth: '180px' }, onChange: () => {
       if (select.value === '__add') { select.value = state.ui.locale; openAddLanguage(ctx); return; }
       ctx.setLocale(select.value);
     } },
@@ -103,21 +105,17 @@ export function mountStudio(root) {
       ctx.setLocale(locales[(i + delta + locales.length) % locales.length].id);
     };
     topbar.replaceChildren(
+      productMark(),
       h('nav', { class: 'view-nav', 'aria-label': 'View' }, VIEWS.map(([id, label]) =>
         h('button', { 'aria-pressed': String(id === state.ui.view), onClick: () => ctx.setView(id) }, viewIcon(id), label))),
       h('div', { class: 'select-wrap' },
         h('button', { class: 'btn icon', title: 'Previous language  [', 'aria-label': 'Previous language', onClick: () => step(-1) }, '‹'),
         select,
         h('button', { class: 'btn icon', title: 'Next language  ]', 'aria-label': 'Next language', onClick: () => step(1) }, '›')),
-      h('select', { class: 'input canvas-select', 'aria-label': 'Canvas', onChange: e => {
-        if (e.target.value === '__add') { e.target.value = state.ui.device; openAddDevice(ctx, { fromMenu: true }); return; }
-        ctx.setDevice(e.target.value);
-      } }, Object.entries(devices).map(([id, d]) => h('option', { value: id, selected: id === state.ui.device }, d.short ?? d.label)),
-      h('option', { value: '__add' }, '＋ Add device…')),
       h('button', { class: 'btn', title: 'Media library · ⇧⌘M', onClick: () => ctx.openMedia() }, 'Media'),
-      h('button', { class: 'btn icon', 'aria-label': 'Help', title: 'Get started, MCP and skills', onClick: openGetStarted }, '?'),
+      h('button', { class: 'btn guide-button', title: 'Guides, MCP connection and skills', onClick: openGetStarted }, icon('book'), 'Guide & MCP'),
       h('div', { class: 'spacer' }),
-      h('div', { class: 'row topbar-actions' }, saveStatus,
+      h('div', { class: 'row topbar-actions' }, appearanceControl(), saveStatus,
         h('button', { class: 'btn primary', title: 'Export screenshots  ⌘E', onClick: ctx.openExport }, 'Export…')),
     );
   }

@@ -2,7 +2,7 @@ import { sharedBlock, sharedGeometry, sharedLayerId, patchSharedLayer, offsetLay
 import { canvasForSlide } from '../canvas-orientation.js';
 import { orientationPicker } from './canvas-orientation.js';
 import { orderedSlides, insertSlideAfter, removeDevice } from '../project-ops.js';
-import { screenCanvasId } from '../slide-order.js';
+import { screenCanvasId, isStoreCanvas, isStoreSlide, phoneCanvasId } from '../slide-order.js';
 import { addStoreImages } from '../store-images.js';
 import { moveScreen, renameScreen } from './slide-actions.js';
 import { editLayerTag } from './layer-tag.js';
@@ -53,12 +53,15 @@ export function createEditor(ctx) {
   let lastPaste = '', pasteCount = 0;
   const inspectorMemory = createInspectorMemory();
   let inspectorKey;
+  const storeList = h('div', { class: 'rail-store-list', role: 'listbox', 'aria-label': 'Store canvases' });
+  const canvasPicker = h('div', { class: 'rail-canvas-picker' });
   const railList = h('div', { class: 'rail-list', role: 'listbox', 'aria-label': 'Slides' });
   const screenCount = h('span', { class: 'all-screens-count', 'aria-hidden': 'true' });
   const allScreens = h('button', { class: 'all-screens-option', 'aria-pressed': 'false', title: 'Edit the whole row together. New objects can span screen edges.', onClick: () => selectAllScreens() },
     h('span', { class: 'all-screens-heading' }, h('span', { class: 'all-screens-visual', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), screenCount),
     h('span', null, h('b', null, 'Edit all screens'), h('small', null, 'One shared canvas')));
-  const rail = h('aside', { class: 'rail' }, allScreens, railList);
+  const railScroll = h('div', { class: 'rail-scroll' }, storeList, canvasPicker, allScreens, railList);
+  const rail = h('aside', { class: 'rail' }, railScroll);
   const titleEl = h('span', { class: 'title' });
   const metaEl = h('span');
   const chipsEl = h('span', { class: 'row' });
@@ -572,27 +575,46 @@ export function createEditor(ctx) {
   // slide rail
 
   function buildRail() {
-    allScreens.setAttribute('aria-pressed', String(Boolean(state.ui.allScreens)));
-    const count = orderedSlides(engine.project, state.ui.locale, state.ui.device).length;
+    const phone = phoneCanvasId(engine.project, state.ui.device, state.ui.phoneDevice);
+    const count = phone ? orderedSlides(engine.project, state.ui.locale, phone).length : 0;
+    allScreens.hidden = !phone || !count;
+    allScreens.setAttribute('aria-pressed', String(Boolean(state.ui.allScreens && state.ui.device === phone)));
     screenCount.textContent = `${count} screen${count === 1 ? '' : 's'}`;
-    allScreens.setAttribute('aria-label', `Edit all screens together · ${count} screen${count === 1 ? '' : 's'}`);
+    allScreens.setAttribute('aria-label', `Edit phone screens on ${engine.project.devices[phone]?.label ?? 'phone'} · ${count} screens`);
     for (const button of rail.querySelectorAll('.rail-foot .btn:not(.primary)')) button.disabled = Boolean(state.ui.allScreens);
     const slides = orderedSlides(engine.project, state.ui.locale);
     const deviceFor = slide => screenCanvasId(engine.project, slide, state.ui.device, state.ui.screenshotDevice);
     const mixed = slides.some(s => s.canvasIds);
-    allScreens.querySelector("b").textContent = mixed ? "Edit canvas screens" : "Edit all screens";
-    if (mixed) allScreens.setAttribute("aria-label", `Edit screens on ${engine.project.devices[state.ui.device].label} · ${count} screens`);
-    allScreens.querySelector("small").textContent = mixed ? engine.project.devices[state.ui.device].short ?? engine.project.devices[state.ui.device].label : "One shared canvas";
+    allScreens.querySelector('b').textContent = mixed ? 'Edit canvas screens' : 'Edit all screens';
+    allScreens.querySelector('small').textContent = engine.project.devices[phone]?.short ?? engine.project.devices[phone]?.label ?? '';
+    const ordinary = Object.entries(engine.project.devices).filter(([, device]) => !isStoreCanvas(device));
+    const pickerSignature = JSON.stringify([state.ui.device, state.ui.screenshotDevice, ordinary.map(([id, device]) => [id, device.label, device.short])]);
+    if (canvasPicker.dataset.signature !== pickerSignature) {
+      canvasPicker.dataset.signature = pickerSignature;
+      canvasPicker.replaceChildren(...(ordinary.length > 1 ? [h('label', { class: 'field' },
+        h('span', null, 'Screenshot canvas'),
+        selectInput({
+          title: 'Screenshot canvas',
+          value: ordinary.some(([id]) => id === state.ui.device) ? state.ui.device : state.ui.screenshotDevice,
+          options: ordinary.map(([id, device]) => [id, device.short ?? device.label]),
+          onChange: device => {
+            state.ui.allScreens = false;
+            ed.selectedIds.clear(); ed.selectedId = null; ed.scene = null; ed.inspectorStale = true;
+            zoom.value = 'fit'; ctx.go({ view: 'editor', device });
+          },
+        }))] : []));
+    }
+    storeList.hidden = !slides.some(slide => isStoreSlide(engine.project, slide));
     const signature = JSON.stringify([state.ui.device, state.ui.locale, slides.map(s => [s.id, s.name, deviceFor(s)])]);
     if (railList.dataset.signature === signature) {
-      for (const card of railList.children) {
+      for (const card of rail.querySelectorAll('.thumb')) {
         card.setAttribute('aria-selected', String(!state.ui.allScreens && card.dataset.id === state.ui.slideId));
         drawInto(card.querySelector('canvas'), { slideId: card.dataset.id, deviceId: card.dataset.device, localeId: state.ui.locale, width: 96 });
       }
       return;
     }
     railList.dataset.signature = signature;
-    railList.replaceChildren();
+    railList.replaceChildren(); storeList.replaceChildren();
     slides.forEach((slide, i) => {
       const deviceId = deviceFor(slide);
       const thumbCanvas = h('canvas');
@@ -633,7 +655,7 @@ export function createEditor(ctx) {
         badge.setAttribute('aria-label', worst === 'err' ? 'Error' : 'Warning');
         badge.title = e.detail.report.warnings.filter((x) => x.level !== 'info').map((x) => x.message).join('\n');
       });
-      railList.append(card);
+      (isStoreSlide(engine.project, slide) ? storeList : railList).append(card);
       drawInto(thumbCanvas, { slideId: slide.id, deviceId, localeId: state.ui.locale, width: 96 });
     });
     rail.querySelector('.rail-foot')?.remove();
@@ -687,7 +709,7 @@ export function createEditor(ctx) {
     state.ui.tab = 'layers'; state.ui.allScreens = false;
     ed.editTemplateId = null;
     ctx.go({ device: picked.deviceIds[0], slideId: slide.id });
-    railList.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    rail.querySelector('.thumb[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }
 
   function createSeries(picked, current) {
@@ -776,6 +798,12 @@ export function createEditor(ctx) {
   }
 
   function selectAllScreens() {
+    const phone = phoneCanvasId(engine.project, state.ui.device, state.ui.phoneDevice);
+    if (!phone) return;
+    const slides = orderedSlides(engine.project, state.ui.locale, phone);
+    if (!slides.length) return;
+    state.ui.device = phone; state.ui.phoneDevice = phone; state.ui.screenshotDevice = phone;
+    if (!slides.some(slide => slide.id === state.ui.slideId)) state.ui.slideId = slides[0].id;
     layerAliases.clear();
     state.ui.allScreens = true; ed.editTemplateId = null; ed.selectedIds.clear(); ed.selectedId = null; ed.scene = null;
     ed.inspectorStale = true; zoom.value = 'fit'; rememberUI(); buildRail(); drawStage(); buildInspector();
@@ -786,7 +814,7 @@ export function createEditor(ctx) {
     if (device !== state.ui.device) {
       ed.selectedIds.clear(); ed.selectedId = null; ed.editTemplateId = null; ed.scene = null; ed.inspectorStale = true; zoom.value = 'fit';
       ctx.go({ device, slideId: id });
-      railList.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+      rail.querySelector('.thumb[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
       return;
     }
     layerAliases.clear();
@@ -798,8 +826,8 @@ export function createEditor(ctx) {
     state.ui.slideId = id;
     rememberUI();
     if (rebuildRail || wasAll) buildRail();
-    for (const card of railList.children) card.setAttribute('aria-selected', String(card.dataset.id === id));
-    railList.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    for (const card of rail.querySelectorAll('.thumb')) card.setAttribute('aria-selected', String(card.dataset.id === id));
+    rail.querySelector('.thumb[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
     drawStage();
     buildInspector();
   }

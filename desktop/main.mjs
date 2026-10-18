@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createAppearance, appearanceBackground } from './appearance.mjs';
 import { createUpdater, RELEASES_URL } from './updater.mjs';
 import { fileURLToPath } from 'node:url';
 import { createStudioService } from '../host/service.mjs';
@@ -34,7 +35,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ORIGIN = 'studio://local';
 protocol.registerSchemesAsPrivileged([{ scheme: 'studio', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let win, aboutWindow, service, current, closing = false, busy = false, closingRequest = false, pendingOpen = null, readyForFiles = false;
-let updater, updaterClosedService = false;
+let updater, updaterClosedService = false, appearance;
 const waits = new Map();
 let settings = { recent: [] };
 const settingsFile = () => path.join(app.getPath('userData'), 'projects.json');
@@ -60,6 +61,14 @@ ipcMain.handle('studio:agent-setup', async (event, operation, value = {}) => {
     }
     throw new Error('Unknown AI setup action.');
   } finally { agentInstalling = false; }
+});
+
+ipcMain.handle('studio:appearance', (event, operation, value) => {
+  const allowed = [win, aboutWindow].some(window => window && !window.isDestroyed() && event.sender === window.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`));
+  if (!allowed || !appearance) throw new Error('Forbidden');
+  if (operation === 'get') return appearance.get();
+  if (operation === 'set') return appearance.set(value);
+  throw new Error('Invalid appearance action.');
 });
 
 let translationSettings;
@@ -292,7 +301,7 @@ ipcMain.handle('studio:import-frame-dmg', async (event, source) => {
 
 function showAbout() {
   if (aboutWindow && !aboutWindow.isDestroyed()) { aboutWindow.show(); aboutWindow.focus(); return; }
-  aboutWindow = new BrowserWindow({ width: 480, height: 420, title: 'About Screenshot Studio', resizable: false, minimizable: false, maximizable: false, backgroundColor: nativeTheme.shouldUseDarkColors ? '#101C36' : '#EEEAE3', webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  aboutWindow = new BrowserWindow({ width: 480, height: 500, title: 'About Screenshot Studio', resizable: false, minimizable: false, maximizable: false, backgroundColor: appearanceBackground(nativeTheme.shouldUseDarkColors), webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   aboutWindow.webContents.setWindowOpenHandler(({ url }) => { if (allowedExternal(url)) void shell.openExternal(url); return { action: 'deny' }; });
   aboutWindow.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${ORIGIN}/app/`)) event.preventDefault(); });
   void aboutWindow.loadURL(`${ORIGIN}/app/about.html?version=${encodeURIComponent(app.getVersion())}`);
@@ -320,6 +329,7 @@ function buildMenu() {
     ] }, { role: 'editMenu' },
     { label: 'Help', submenu: [{ label: 'Get Started Guide', click: () => win.webContents.send('studio:command', 'guide') }, { label: 'MCP and Skills Guide', click: () => win.webContents.send('studio:command', 'guide:mcp') }, { label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
     { label: 'View', submenu: [
+      { label: 'Appearance', submenu: ['system', 'light', 'dark'].map(value => ({ label: value === 'system' ? 'Follow System' : value[0].toUpperCase() + value.slice(1), type: 'radio', checked: (appearance?.get() ?? 'system') === value, click: () => { try { appearance.set(value); } catch (error) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save appearance', detail: error.message }); } } })) },
       { label: 'Welcome Screen', click: () => action('welcome') },
       { label: 'Media Library…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Shift+M', click: () => win.webContents.send('studio:command', 'media') },
       { label: 'Keyboard Shortcuts…', enabled: Boolean(current), click: () => win.webContents.send('studio:command', 'shortcuts') },
@@ -335,6 +345,10 @@ else {
     app.dock?.setIcon(path.join(ROOT, 'app', 'icons', 'screenshot-studio.png'));
     try { settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) }; } catch { /* first launch */ }
     settings.recent = Array.isArray(settings.recent) ? settings.recent.filter(p => typeof p === 'string' && p) : [];
+    appearance = createAppearance({ nativeTheme, read: () => settings.appearance, write: value => {
+      const previous = settings.appearance; settings.appearance = value;
+      try { saveSettings(); } catch (error) { settings.appearance = previous; throw error; }
+    }, windows: () => [win, aboutWindow], onChange: buildMenu });
     const welcomeService = createStudioService({ createThumbnail: exportThumbnail, appPath: path.join(ROOT, 'app'), projectPath: path.join(ROOT, 'starter'), exportPath: path.join(ROOT, 'starter', 'export'), origin: ORIGIN });
     protocol.handle('studio', req => {
       if (req.initiatorOrigin && req.initiatorOrigin !== ORIGIN) return new Response('Forbidden', { status: 403 });
@@ -343,7 +357,7 @@ else {
       return new Response('Open or create a project first.', { status: 403 });
     });
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-    win = new BrowserWindow({ width: 1480, height: 950, minWidth: 1000, minHeight: 680, title: 'Screenshot Studio', backgroundColor: nativeTheme.shouldUseDarkColors ? '#101C36' : '#EEEAE3', webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+    win = new BrowserWindow({ width: 1480, height: 950, minWidth: 1000, minHeight: 680, title: 'Screenshot Studio', backgroundColor: appearanceBackground(nativeTheme.shouldUseDarkColors), webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
     win.webContents.setWindowOpenHandler(({ url }) => { if (allowedExternal(url)) void shell.openExternal(url); return { action: 'deny' }; });
     win.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${ORIGIN}/app/`)) event.preventDefault(); });
     win.on('close', event => {

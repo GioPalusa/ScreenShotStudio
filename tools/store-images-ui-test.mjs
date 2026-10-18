@@ -15,14 +15,15 @@ try {
  fs.cpSync(path.join(root,'app'),appPath,{recursive:true}); createNewProject(projectPath,{});
  fs.writeFileSync(path.join(appPath,'store-images-test.html'),'<html><head><link rel="stylesheet" href="/app/css/studio.css"></head><body><div id="root"></div><pre id="result">PENDING</pre><script type="module" src="/app/store-images-test.js"></script></body></html>');
  fs.writeFileSync(path.join(appPath,'store-images-test.js'),`
- import {engine,state,loadAll,flushSaves,undo,redo,saveStudio,saveCopy} from '/app/js/store.js';
+ import {engine,state,loadAll,flushSaves,undo,redo,saveStudio,saveCopy,validateSelection} from '/app/js/store.js';
  import {mountStudio} from '/app/js/ui.js';
+ import {orderedSlides} from '/app/js/slide-order.js';
  import {exportPlan} from '/app/js/export-naming.js';
  import {runExport} from '/app/js/ui/export.js';
  const check=(v,m)=>{if(!v)throw new Error(m)};
  const wait=async fn=>{for(let i=0;i<500;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw new Error('UI timed out');};
  const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text);
- const canvas=id=>{const select=document.querySelector('[aria-label="Canvas"]');select.value=id;select.dispatchEvent(new Event('change'));};
+ const canvas=id=>document.querySelector('.thumb[data-device="'+id+'"]').click();
  const choose=()=>{button('＋ Add screens').click();button('Store images').click();};
  try{
   await loadAll(); const original=JSON.stringify(engine.project); const phone=state.ui.device;
@@ -46,8 +47,15 @@ try {
   canvas(phone);check(document.querySelectorAll('.thumb').length===originalSlides+2,'Store artwork is visible beside screenshots');
   const screenshotId=engine.project.slides.find(s=>!s.canvasIds).id;
   const headerId=apple.find(([,d])=>d.target==='app-store-header')[0];
-  document.querySelector('.thumb[data-device="'+headerId+'"]').click();check(state.ui.device===headerId&&document.querySelector('[aria-label="Canvas"]').value===headerId,'Click store image changes canvas in place');
-  document.querySelector('.thumb[data-id="'+screenshotId+'"]').click();check(state.ui.device===phone,'Click screenshot restores its canvas');
+  document.querySelector('.thumb[data-device="'+headerId+'"]').click();check(state.ui.device===headerId&&!document.querySelector('.topbar [aria-label="Canvas"]'),'Click store image changes canvas in place');
+  const shared=document.querySelector('.all-screens-option');
+  check([...document.querySelectorAll('.thumb')].slice(0,2).every(c=>engine.project.slides.find(s=>s.id===c.dataset.id).canvasIds),'Store artwork is first');
+  check(document.querySelector('.rail-store-list').compareDocumentPosition(shared)&Node.DOCUMENT_POSITION_FOLLOWING,'Store artwork precedes the shared edit control');
+  check(shared.querySelector('small').textContent===(engine.project.devices[phone].short??engine.project.devices[phone].label),'Shared edit keeps the phone name when store artwork is selected');
+  shared.click();check(state.ui.device===phone&&state.ui.allScreens,'Shared edit returns to the phone row');
+  check(document.querySelector('.all-screens-option .all-screens-count').textContent===originalSlides+' screen'+(originalSlides===1?'':'s'),'Shared edit counts phone screens only');
+  state.ui.device=headerId;validateSelection();check(!state.ui.allScreens,'Restoring a store canvas exits shared phone editing');
+  document.querySelector('.thumb[data-id="'+screenshotId+'"]').click();check(state.ui.device===phone&&!state.ui.allScreens,'Click screenshot restores its canvas');
   choose();button('Google Play').click();check(document.querySelectorAll('.store-image-card').length===1,'Google Play previews only feature graphic');const rect=document.querySelector('.store-image-outline').getBoundingClientRect();check(Math.abs(rect.width/rect.height-1024/500)<.03,'Feature preview keeps output proportions');button('Add Google Play feature graphic').click();
   await wait(()=>engine.project.slides.length===originalSlides+3);check(engine.project.devices[state.ui.device].size.join('x')==='1024x500','Feature graphic exact dimensions');
   const storeDevices=Object.entries(engine.project.devices).filter(([,d])=>d.screenScope==='store-image').map(([id])=>id);
@@ -63,7 +71,7 @@ try {
   for(const row of document.querySelectorAll('.lang-row'))check(row.dataset.device===document.querySelector('.thumb[data-id="'+row.dataset.slide+'"]')?.dataset.device||engine.project.slides.find(s=>s.id===row.dataset.slide).canvasIds?.includes(row.dataset.device)||row.dataset.device===phone,'Review preview uses compatible canvas');
   button('Per screen').click();check(document.querySelectorAll('.translate-screen').length===originalSlides+3,'Screen translation tabs show the whole project');
   const headerSlide=engine.project.slides.find(s=>s.canvasIds?.includes(headerId));
-  document.querySelector('[aria-label="'+(engine.project.slides.indexOf(headerSlide)+1)+'. '+headerSlide.name+'"]').click();check(state.ui.slideId===headerSlide.id&&state.ui.device===headerId,'Translation tab switches to header canvas');
+  document.querySelector('[aria-label="'+(orderedSlides(engine.project,state.ui.locale).findIndex(s=>s.id===headerSlide.id)+1)+'. '+headerSlide.name+'"]').click();check(state.ui.slideId===headerSlide.id&&state.ui.device===headerId,'Translation tab switches to header canvas');
   const swedishRow=document.querySelector('.lang-row[data-locale="sv-SE"]');check(swedishRow.querySelector('.translation-source-text').textContent.includes('Original '),'Store image manual translation includes source');
   swedishRow.querySelector('textarea').value='Ny header';swedishRow.querySelector('textarea').dispatchEvent(new Event('input'));await flushSaves();check(engine.data.copy['sv-SE'][headerSlide.id].headline==='Ny header','Store copy edits independently');
   button('Editor').click();document.querySelector('.thumb[data-id="'+screenshotId+'"]').click();

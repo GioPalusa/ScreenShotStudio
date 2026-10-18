@@ -42,7 +42,7 @@ export function openGetStarted(initial = 'start') {
       code('Preview the first screen in English and Swedish. Check text and screenshot framing. Keep Swedish as draft for my review.')))],
   ];
   const body = h('div', { class: 'guide-page' });
-  const nav = h('nav', { class: 'row wrap guide-nav', 'aria-label': 'Help pages' });
+  const nav = h('nav', { class: 'row wrap guide-nav', 'aria-label': 'Guide pages' });
   const show = id => {
     const page = pages.find(p => p[0] === id) ?? pages[0];
     for (const button of nav.children) button.setAttribute('aria-pressed', String(button.dataset.page === page[0]));

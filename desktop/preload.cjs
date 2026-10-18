@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('studioDesktop', {
+  appearance: (operation, value) => ipcRenderer.invoke('studio:appearance', operation, value),
+  onAppearance: callback => ipcRenderer.on('studio:appearance', (_event, value) => callback(value)),
   onChanged: callback => ipcRenderer.on('studio:changed', (_event, value) => callback(value)),
   onFlush: callback => ipcRenderer.on('studio:flush', async (_event, token) => {
     try { await callback(); ipcRenderer.send('studio:flushed', token, null); }

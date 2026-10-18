@@ -1,4 +1,4 @@
-import { orderedSlides } from '../slide-order.js';
+import { orderedCanvases, orderedSlides } from '../slide-order.js';
 import { PLAY_TARGETS, PLAY_SPEC_URL, playCanvasDefaults } from '../google-play.js';
 // Setup → Devices: every device the set is made for - its canvas size (change it when Apple does), the layout
 // family it is modelled on, the folder its screenshots live in, and the frame its screenshots sit in by default.
@@ -39,7 +39,7 @@ export function buildDevicesView(ctx) {
     h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', onClick: () => openAddDevice(ctx) }, '＋ Store format'), h('button', { class: 'btn', onClick: () => openAddDevice(ctx, { custom: true }) }, '＋ Custom format'))));
 
   const list = h('div', { class: 'device-list' });
-  for (const [id, device] of Object.entries(project.devices)) list.append(deviceCard(id, device));
+  for (const [id, device] of orderedCanvases(project)) list.append(deviceCard(id, device));
   root.append(list);
 
   function set(device, patch) {
@@ -65,7 +65,7 @@ export function buildDevicesView(ctx) {
 
     const label = h('input', { class: 'input grow', value: device.label, 'aria-label': 'Name' });
     label.addEventListener('change', () => { if (label.value.trim()) { set(device, { label: label.value.trim() }); refreshShell(); } });
-    const short = h('input', { class: 'input', value: device.short ?? '', style: { width: '120px' }, 'aria-label': 'Short name', title: 'Short name (shown in the top bar)' });
+    const short = h('input', { class: 'input', value: device.short ?? '', style: { width: '120px' }, 'aria-label': 'Short name', title: 'Short name (shown in the sidebar)' });
     short.addEventListener('change', () => { set(device, { short: short.value.trim() || device.label }); refreshShell(); });
     const store = h('input', { class: 'input grow', value: device.appStore ?? '', placeholder: 'App Store Connect name, e.g. iPhone 6.9″ Display', 'aria-label': 'App Store Connect name' });
     store.addEventListener('change', () => set(device, { appStore: store.value.trim() || undefined }));
