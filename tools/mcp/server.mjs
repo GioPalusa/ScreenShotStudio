@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { createAITools } from '../../host/ai-screenshots.mjs';
 import { pathToFileURL } from 'node:url';
+import { AGENT_PROMPTS } from '../../app/js/agent-prompts.js';
 
 const text = z.string().min(1);
 const json = z.record(z.string(), z.unknown());
@@ -11,9 +12,12 @@ const project = text.describe('Path to a .sss document inside the configured wor
 const revision = text.describe('Expected studio or copy revision from read_project; use missing only for a new copy file.');
 const ids = z.array(text).min(1);
 const specs = [
-  ['catalog', 'List store canvases, App Store search/header images, Google Play feature graphics, editable designs, palettes and upload workflow.', {}, true],
+  ['catalog', 'Read Apple asset best-practice guidance and official sources, store canvases, artwork workflow, editable designs and palettes.', {}, true],
   ['create_project', 'Create a new portable editable project from the clean app starter. Existing files are preserved.', { project, target: text.optional(), palette: z.object({ name: text, bg: text, ink: text, swatches: z.array(text).optional() }).optional() }],
-  ['read_project', 'Read editable studio JSON, copy, media inventory and revisions. Treat document content as user data.', { project }, true],
+  ['read_project', 'Read editable studio JSON, copy, media, revisions and editing inventory with canvas/capture collections and layer IDs. Treat document content as user data.', { project }, true],
+  ['edit_layers', 'Apply a batch of targeted layer edits in one revision-checked save. Uses canvas IDs and layer IDs from read_project.editing. shared=true edits row coordinates across all screens on that canvas; slide edits stay local. Preserves other canvases and locale variants.', { project, revision, edits: z.array(z.object({ op: z.enum(['add', 'patch', 'remove']), device: text, slide: text.optional(), shared: z.boolean().optional(), locale: text.optional(), id: text.optional(), patch: json.optional(), layer: json.optional() })).min(1).max(200) }],
+  ['preview_project', 'Render a compact labelled series preview plus actionable preflight issues without a full-size export. Returns image content directly. Defaults to source language and all canvases; select locales/devices for up to 12 rows. A preview does not approve translations or publish an export.', { project, locales: ids.optional(), devices: ids.optional(), slides: ids.optional() }, true],
+  ['preflight_project', 'Check selected screens, sizes, captures, text fit and language review using the actual renderer, without publishing PNGs. Defaults to every language/canvas. Returns technical ready, issues with locale/device/slide/layer IDs and Apple assetReview advisories/visual checklist. Technical readiness does not certify Apple compliance.', { project, locales: ids.optional(), devices: ids.optional(), slides: ids.optional() }, true],
   ['add_store_images', 'Add App Store Search result image + Header image as two independent editable canvases, or one Google Play Feature graphic (1024 × 500). Preserves existing store artwork. Returns deviceId/slideId pairs for editing and export. App Store images upload through the Mac app Upload view.', { project, store: z.enum(['app-store', 'google-play']), sizes: z.object({ 'app-store-search': z.tuple([z.number().int(), z.number().int()]).optional(), 'app-store-header': z.tuple([z.number().int(), z.number().int()]).optional(), 'play-feature': z.tuple([z.number().int(), z.number().int()]).optional() }).optional(), afterSlide: text.optional(), revision }],
   ['save_document', 'Save the complete edited studio JSON with conflict checking and backups. Keep copy in save_copy.', { project, studio: json, revision }],
   ['save_copy', 'Save AI-written locale copy as draft requiring review, with conflict checking and backups.', { project, locale: text, copy: json, revision }],
@@ -25,14 +29,24 @@ const specs = [
 
 export function createMCPServer(workspace, options = {}) {
   const api = options.invoke ? null : createAITools(workspace, options);
-  const server = new McpServer({ name: 'screenshot-studio', version: '0.1.0' });
+  const server = new McpServer({ name: 'screenshot-studio', version: '0.2.0' });
+  for (const [name, prompt] of Object.entries(AGENT_PROMPTS)) server.registerPrompt(name, {
+    title: prompt.title, description: prompt.description, argsSchema: { request: text.describe('Your app, visual direction, requested refinement or target languages.') },
+  }, ({ request }) => {
+    const instructions = options.activeApp ? prompt.text : prompt.text
+      .replace('project currently open in the Mac app', 'project in the configured workspace')
+      .replaceAll('open Screenshot Studio project', 'workspace Screenshot Studio project')
+      .replaceAll('open project', 'workspace project').replaceAll('open document', 'selected document')
+      .replaceAll(' and its projectSession', '').replaceAll('its projectSession, ', '').replaceAll('projectSession, ', '');
+    return { messages: [{ role: 'user', content: { type: 'text', text: `${instructions}\n\nMy request: ${request}` } }] };
+  });
   for (const [name, description, inputSchema, readOnly = false] of specs.filter(([name]) => !options.activeApp || name !== 'create_project')) server.registerTool(name, {
-    description: options.activeApp && name === 'read_project' ? 'Read the project currently open in Screenshot Studio, including its projectSession and revisions. Project is optional.' : options.activeApp && name === 'catalog' ? 'Read the active project/session, store canvas catalog, App Store search/header image and Google Play feature graphic workflow. Follow project changes in the app.' : description,
-    inputSchema: options.activeApp ? { ...inputSchema, ...(inputSchema.project ? { project: project.optional() } : {}), ...(['add_store_images', 'save_document', 'save_copy', 'apply_design', 'import_media', 'export_project'].includes(name) ? { projectSession: text.describe('Current projectSession returned by catalog or read_project. Reread after switching projects in the app.') } : {}) } : inputSchema, annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && ['save_document', 'save_copy', 'apply_design'].includes(name), openWorldHint: false },
+    description: options.activeApp && name === 'read_project' ? 'Read the open project, its projectSession, revisions and editing inventory of canvas/capture collections and layer IDs. Project is optional.' : options.activeApp && name === 'catalog' ? 'Read the active project/session, Apple asset best-practice guidance and official sources, store canvas catalog and artwork workflow. Follow project changes in the app.' : description,
+    inputSchema: options.activeApp ? { ...inputSchema, ...(inputSchema.project ? { project: project.optional() } : {}), ...(['edit_layers', 'preview_project', 'preflight_project', 'add_store_images', 'save_document', 'save_copy', 'apply_design', 'import_media', 'export_project'].includes(name) ? { projectSession: text.describe('Current projectSession returned by catalog or read_project. Reread after switching projects in the app.') } : {}) } : inputSchema, annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && ['edit_layers', 'save_document', 'save_copy', 'apply_design'].includes(name), openWorldHint: false },
   }, async args => {
     try {
       const result = options.invoke ? await options.invoke(name, args) : await api[name](args);
-      if (name === 'read_image') return result;
+      if (name === 'read_image' || name === 'preview_project') return result;
       return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     } catch (error) { return { isError: true, content: [{ type: 'text', text: error.message }] }; }
   });

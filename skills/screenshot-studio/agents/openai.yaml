@@ -1,4 +1,4 @@
 interface:
   display_name: "Screenshot Studio"
   short_description: "Create editable store screenshots with an AI agent"
-  default_prompt: "Use $screenshot-studio to create an editable screenshot story for my app and inspect the rendered previews."
+  default_prompt: "Use $screenshot-studio on my open project. Read its captures and canvas variants, create or refine an editable benefit-led story, and show the complete series for review before final export."

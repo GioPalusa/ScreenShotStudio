@@ -56,6 +56,9 @@ Example request:
 | `catalog` | Active project/workspace, store canvases, store image sets and upload workflow, starter designs and palettes |
 | `create_project` | Standalone mode: new clean `.sss` document; never replaces a document |
 | `read_project` | Editable document, copy, media inventory and revision hashes |
+| `edit_layers` | Atomic targeted layer edits on one canvas, a local screen or its shared row; preserves variants |
+| `preview_project` | Compact labelled whole-series image and issues; source language by default, up to 12 rows |
+| `preflight_project` | Actual-renderer checks for every selected language/canvas without publishing exports |
 | `add_store_images` | App Store search + header pair or Google Play feature graphic; keeps existing artwork |
 | `save_document` | Complete studio JSON with expected revision and backup |
 | `save_copy` | Locale text with expected revision; AI copy remains draft |
@@ -65,6 +68,14 @@ Example request:
 | `read_image` | Native MCP image content for visual inspection |
 
 Changes are acknowledged after saving. If a revision changed, reread and reconcile before retrying. Captures import under a new name, preserving existing files. Artwork imports return a content-addressed filename for an art layer's `src`. New projects contain no captures. Machine-written translations require native review, which the agent cannot approve through these tools.
+
+`read_project.editing` lists the canvas IDs, design coordinates, capture collections, screen IDs and layer IDs used by `edit_layers`. Use `slide` for local edits, `shared: true` for a continuous row, and `locale` for a localized layout. Send up to 200 add/patch/remove operations with the current studio revision; the whole batch saves or fails together. Full document saves remain available for structural changes.
+
+Use `preview_project` during design iteration instead of repeatedly exporting full-resolution sets. It returns an image directly plus the preview file path and preflight issues. Filter `locales`, `devices` and `slides` to review translations in batches. `preflight_project` returns `ready`, error/warning counts and issues keyed by locale, device, slide and layer; it checks all languages by default. Neither tool approves copy or creates a published export.
+
+MCP prompt discovery includes `design_screenshots`, `refine_series` and `translate_series`, each with a `request` argument for your brief. The in-app guide offers the same prompts with Copy buttons. For example: “Refine my open series: smaller background tiles, quieter behind headlines, preserve colour accents and flow across iPhone, iPad and Duo. Show the whole series before final export.”
+
+For App Store work, the skill and all three prompts use `catalog.assetGuidance`, based on [Apple’s asset best practices](https://developer.apple.com/app-store/asset-best-practices/) and linked official specifications (checked 18 October 2026). Preview and preflight include `assetReview`: editable-overlay advisories and a visual checklist covering imagery, claims, localization, safe areas and placement. Text heuristics are advisory; image content and editorial suitability require visual review. `ready` means technical preflight passed and does not imply Apple approval. The installed skill includes the [review procedure](../skills/screenshot-studio/references/apple-assets.md).
 
 Add languages through document metadata and copy saves. Remove languages in the Mac app, which archives their files in `_removed`; generic MCP document saves reject language removal.
 

@@ -269,6 +269,7 @@ export function resolveLayers({ project, slide, deviceId, localeId = null, inclu
     if (seen.has(l.id)) {
       let n = 2;
       while (seen.has(`${l.id}~${n}`)) n++;
+      l._sourceId = l.id;
       l.id = `${l.id}~${n}`;
     }
     seen.add(l.id);
@@ -277,7 +278,7 @@ export function resolveLayers({ project, slide, deviceId, localeId = null, inclu
     layers = applyOverrides(layers, variant.overrides);
     for (const extra of variant.layers ?? []) {
       let id = extra.id, n = 2; while (seen.has(id)) id = `${extra.id}~${n++}`;
-      seen.add(id); layers.push({ ...extra, id, _origin: 'slide' });
+      seen.add(id); layers.push({ ...extra, id, ...(id !== extra.id ? { _sourceId: extra.id } : {}), _origin: 'slide' });
     }
   }
   const captureName = variant?.capture !== undefined ? variant.capture : layout.capture !== undefined ? layout.capture : slide.capture ?? null;

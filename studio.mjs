@@ -31,7 +31,7 @@ const option = (name) => {
   const i = argv.indexOf(`--${name}`);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-const PORT = Number(option('port') ?? process.env.PORT ?? (command === 'export' ? 0 : 4729));
+const PORT = Number(option('port') ?? process.env.PORT ?? (['export', 'inspect'].includes(command) ? 0 : 4729));
 
 
 PROJECT = path.resolve(option('project') ?? PROJECT);
@@ -81,7 +81,7 @@ async function main() {
   const port = server.address().port;
   const base = `http://127.0.0.1:${port}`;
 
-  if (command === 'export') return runHeadlessExport(server, base);
+  if (['export', 'inspect'].includes(command)) return runHeadlessExport(server, base);
 
   startWatching();
   console.log(`\n  Screenshot Studio\n  ${base}\n`);
@@ -98,6 +98,7 @@ async function runHeadlessExport(server, base) {
     process.exit(1);
   }
   const params = new URLSearchParams({ headless: '1' });
+  if (command === 'inspect') { params.set('inspect', '1'); if (flag('check-only')) params.set('checkOnly', '1'); }
   for (const key of ['locale', 'device', 'slide']) if (option(key)) params.set(key, option(key));
   if (flag('strict')) params.set('strict', '1');
   if (flag('allow-placeholders')) params.set('placeholders', '1');
@@ -127,6 +128,11 @@ async function runHeadlessExport(server, base) {
   if (exportLog.warnings.length) console.log(`${exportLog.warnings.length} warning${exportLog.warnings.length === 1 ? '' : 's'}:\n  - ${exportLog.warnings.join('\n  - ')}`);
   if (exportLog.errors.length) { console.error(`${exportLog.errors.length} error(s):\n  - ${exportLog.errors.join('\n  - ')}`); process.exit(1); }
   if (!exportLog.done) { console.error('Browser closed before the export finished.'); process.exit(1); }
+  if (command === 'inspect') {
+    if (!exportLog.inspection) throw new Error('Inspection produced no result.');
+    fs.mkdirSync(EXPORT, { recursive: true });
+    fs.writeFileSync(path.join(EXPORT, 'inspection.json'), JSON.stringify(exportLog.inspection));
+  }
   if (flag('strict') && exportLog.warnings.length) process.exit(2);
   process.exit(0);
 }

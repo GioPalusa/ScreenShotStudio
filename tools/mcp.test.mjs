@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createAITools } from '../host/ai-screenshots.mjs';
 import { encodePNG, decodePNG } from './png.mjs';
+import { APP_STORE_ASSET_GUIDANCE, appStoreCopyAdvisories } from '../app/js/app-store-asset-guidance.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function fixture(t) {
@@ -24,10 +25,18 @@ test('MCP stdio negotiates, discovers tools, edits and returns usable errors', a
   t.after(() => client.close());
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 10);
+  assert.equal(tools.length, 13);
+  const prompts = (await client.listPrompts()).prompts;
+  assert.deepEqual(prompts.map(p => p.name).sort(), ['design_screenshots', 'refine_series', 'translate_series']);
+  const prompt = await client.getPrompt({ name: 'refine_series', arguments: { request: 'Make the background quieter.' } });
+  assert.match(prompt.messages[0].content.text, /Make the background quieter/);
+  assert.match(prompt.messages[0].content.text, /edit_layers/);
+  assert.match(prompt.messages[0].content.text, /catalog.assetGuidance/);
+  assert.doesNotMatch(prompt.messages[0].content.text, /projectSession/);
   assert.ok(tools.some(t=>t.name==='add_store_images'));
   const catalog=(await client.callTool({name:'catalog',arguments:{}})).structuredContent;
   assert.equal(catalog.storeImages.tool,'add_store_images');
+  assert.equal(catalog.assetGuidance.source, 'https://developer.apple.com/app-store/asset-best-practices/');
   assert.equal(tools.find(t => t.name === 'read_project').annotations.readOnlyHint, true);
   const created = await client.callTool({ name: 'create_project', arguments: { project: 'Demo.sss' } });
   assert.ok(created.structuredContent.revisions.studio);
@@ -35,6 +44,16 @@ test('MCP stdio negotiates, discovers tools, edits and returns usable errors', a
   assert.equal(denied.isError, true);
   const unknown = await client.callTool({ name: 'apply_design', arguments: { project: 'Demo.sss', slide: 'unknown', devices: ['iphone'], design: 'focus', revision: created.structuredContent.revisions.studio } });
   assert.equal(unknown.isError, true);
+});
+
+test('Apple asset checks flag promotional overlay concerns without misclassifying sample metrics or Play assets', () => {
+  const scene = { deviceDef: { target: 'iphone' }, localeId: 'en-US', deviceId: 'phone', slideId: 'run', layers: [{ id: 'headline', type: 'text' }, { id: 'hidden', type: 'text', hidden: true }] };
+  assert.equal(appStoreCopyAdvisories(scene, () => 'Run 5 km in 28:12').length, 0);
+  const issues = appStoreCopyAdvisories(scene, () => '$2.99 at https://example.com · App of the Day ©');
+  assert.deepEqual(issues.map(i => i.code).sort(), ['apple-asset-copyright', 'apple-asset-pricing', 'apple-asset-recognition', 'apple-asset-website']);
+  assert.ok(issues.every(i => i.layer === 'headline' && i.device === 'phone' && i.slide === 'run'));
+  assert.equal(appStoreCopyAdvisories({ ...scene, deviceDef: { target: 'play-phone' } }, () => 'Google Play · $2.99').length, 0);
+  assert.ok(APP_STORE_ASSET_GUIDANCE.visualChecks.some(s => s.includes('safe areas')));
 });
 
 test('new projects are clean; saves preserve backups, detect conflicts and require review', async t => {
@@ -58,6 +77,52 @@ test('new projects are clean; saves preserve backups, detect conflicts and requi
   await assert.rejects(api.save_copy({ project: 'Demo.sss', locale: '../escape', copy, revision: 'missing' }), /Add this locale/);
   studio.slides[0]._box = {};
   await assert.rejects(api.save_document({ project: 'Demo.sss', studio, revision: saved.revision }), /private renderer fields/);
+});
+
+test('targeted edits are atomic, revision checked and isolate canvases and locale layouts', async t => {
+  const { api, root } = fixture(t), project = 'Demo.sss';
+  let doc = await api.create_project({ project });
+  doc.studio.devices.ipad = { ...doc.studio.devices.iphone, label: 'iPad', layout: 'phone' };
+  const slide = doc.studio.slides[0];
+  slide.layouts = { phone: { template: 'custom', layers: [{ id: 'art', type: 'shape', shape: 'rect', cx: 30, cy: 30, w: 20, h: 20 }] } };
+  slide.localeLayouts = { sv: { ipad: { scope: 'locale', overrides: { art: { opacity: .5 } } } } };
+  await api.save_document({ project, studio: doc.studio, revision: doc.revisions.studio });
+  doc = await api.read_project({ project });
+  assert.ok(doc.editing.find(d => d.id === 'ipad').screens[0].layers.some(l => l.id === 'art'));
+  const edits = [{ op: 'patch', device: 'ipad', slide: slide.id, id: 'art', patch: { opacity: .2 } }, { op: 'add', device: 'ipad', shared: true, layer: { id: 'flow', type: 'shape', shape: 'rect', cx: 1200, cy: 200, w: 500, h: 40 } }];
+  const saved = await api.edit_layers({ project, edits, revision: doc.revisions.studio });
+  const updated = await api.read_project({ project });
+  assert.equal(updated.studio.slides[0].layouts.ipad.layers[0].opacity, .2);
+  assert.equal(updated.studio.slides[0].layouts.phone.layers[0].opacity, undefined);
+  assert.deepEqual(updated.studio.slides[0].localeLayouts, slide.localeLayouts);
+  assert.equal(updated.studio.sharedCanvas.ipad.layers[0].id, 'flow');
+  assert.equal(updated.studio.sharedCanvas.iphone, undefined);
+  await assert.rejects(api.edit_layers({ project, edits, revision: doc.revisions.studio }), /409/);
+  const disk = fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8');
+  await assert.rejects(api.edit_layers({ project, revision: saved.revision, edits: [edits[0], { ...edits[0], id: 'missing' }] }), /Unknown layer/);
+  assert.equal(fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8'), disk);
+  await assert.rejects(api.edit_layers({ project, revision: saved.revision, edits: [{ ...edits[0], patch: { _origin: 'shared' } }] }), /private/);
+  const replaced = await api.edit_layers({ project, revision: saved.revision, edits: [{ op: 'remove', device: 'ipad', shared: true, id: 'flow' }, { ...edits[1], layer: { ...edits[1].layer, id: 'new-flow' } }] });
+  await api.edit_layers({ project, revision: replaced.revision, edits: [{ op: 'remove', device: 'ipad', shared: true, id: 'new-flow' }] });
+  assert.deepEqual((await api.read_project({ project })).studio.sharedCanvas.ipad.layers, []);
+});
+
+test('conflicting legacy layer identities are reported and rejected without a misleading save', async t => {
+  const { api, root } = fixture(t), project = 'Legacy.sss';
+  const doc = await api.create_project({ project }), slide = doc.studio.slides[0];
+  slide.layouts = { iphone: { template: 'text-top', panorama: false, layers: [{ id: 'headline', type: 'text', field: 'extra', x: 30, w: 600, capTop: 200, size: 80 }] } };
+  await api.save_document({ project, studio: doc.studio, revision: doc.revisions.studio });
+  const current = await api.read_project({ project }), layer = current.editing[0].screens[0].layers.find(l => l.id === 'headline~2');
+  assert.equal(layer.editable, false);
+  const before = fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8');
+  for (const op of ['patch', 'remove']) await assert.rejects(api.edit_layers({ project, revision: current.revisions.studio, edits: [{ op, device: 'iphone', slide: slide.id, id: layer.id, patch: { opacity: .2 } }] }), /stored layer IDs conflict/);
+  assert.equal(fs.readFileSync(path.join(root, project, 'studio.json'), 'utf8'), before);
+  // A literal ID with a suffix remains editable when it does not represent a collision.
+  current.studio.slides[0].layouts.iphone.template = 'custom';
+  current.studio.slides[0].layouts.iphone.layers[0].id = 'headline~2';
+  const saved = await api.save_document({ project, studio: current.studio, revision: current.revisions.studio });
+  await api.edit_layers({ project, revision: saved.revision, edits: [{ op: 'patch', device: 'iphone', slide: slide.id, id: layer.id, patch: { opacity: .2 } }] });
+  assert.equal((await api.read_project({ project })).studio.slides[0].layouts.iphone.layers[0].opacity, .2);
 });
 
 test('media imports, designs and image content use portable document assets', async t => {
@@ -93,6 +158,18 @@ test('workspace traversal, symlinks, nested documents and invalid exports are re
 test('real renderer exports draft/final RGB and rejects final with missing captures', { skip: !process.env.STUDIO_MCP_RENDER_TEST }, async t => {
   const { api, root } = fixture(t);
   await api.create_project({ project: 'Demo.sss' });
+  const before = await api.read_project({ project: 'Demo.sss' });
+  const check = await api.preflight_project({ project: 'Demo.sss' });
+  assert.equal(check.ready, false); assert.equal(check.report.checked, 1);
+  assert.equal(check.assetReview.status, 'visual-review-required');
+  assert.equal(check.assetReview.source, APP_STORE_ASSET_GUIDANCE.source);
+  assert.ok(check.report.issues.some(i => i.code === 'capture-missing' && i.device === 'iphone' && i.slide === 'first-slide'));
+  const preview = await api.preview_project({ project: 'Demo.sss' });
+  assert.equal(preview.content[1].mimeType, 'image/jpeg');
+  assert.ok(fs.readFileSync(preview.structuredContent.file).subarray(0,2).equals(Buffer.from([255,216])));
+  assert.equal(preview.structuredContent.mode, 'preview');
+  assert.equal((await api.read_project({ project: 'Demo.sss' })).revisions.studio, before.revisions.studio);
+  assert.ok(!fs.readdirSync(path.join(root, 'previews')).some(f => f.startsWith('final-') || f.startsWith('draft-')));
   const draft = await api.export_project({ project: 'Demo.sss', allowPlaceholders: true });
   assert.equal(draft.files.length, 1);
   const buffer = fs.readFileSync(draft.files[0].absolutePath);
@@ -106,9 +183,13 @@ test('real renderer exports draft/final RGB and rejects final with missing captu
   fs.writeFileSync(screen, encodePNG({ width: 1320, height: 2868, channels: 3, data: Buffer.alloc(1320 * 2868 * 3, 128) }));
   await api.import_media({ project: 'Demo.sss', source: screen, kind: 'capture', device: 'iphone', name: 'screen' });
   const final = await api.export_project({ project: 'Demo.sss', mode: 'final' });
+  assert.equal((await api.preflight_project({ project: 'Demo.sss' })).ready, true);
   assert.equal(final.files.length, 1);
   assert.equal(JSON.parse(fs.readFileSync(final.manifest)).mode, 'final');
   assert.deepEqual(final.report.warnings, []);
+  const current = await api.read_project({ project: 'Demo.sss' });
+  const images = await api.add_store_images({ project: 'Demo.sss', store: 'app-store', revision: current.revisions.studio });
+  for (const tool of ['preflight_project', 'preview_project']) await assert.rejects(api[tool]({ project: 'Demo.sss', devices: [images.images[0].deviceId], slides: ['first-slide'] }), /No matching screen\/canvas pairs/);
 });
 
 test('store image tool exposes presets and atomically adds editable pairs with revisions', async t => {

@@ -665,6 +665,8 @@ async function api(req, res, url, method) {
     return json(res, 200, { ok: true });
   }
   if (p === '/api/export-done' && method === 'POST') {
+    const body = await readJSONBody(req);
+    if (body.inspection) exportLog.inspection = body.inspection;
     exportLog.done = true;
     if (typeof exportLog.resolve === 'function') exportLog.resolve();
     return json(res, 200, { ok: true });

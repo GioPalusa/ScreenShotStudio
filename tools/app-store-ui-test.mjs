@@ -89,7 +89,12 @@ try {
       check(document.body.textContent.includes('2 existing to replace'),'Replacement review explains removal');
       check(calls.filter(c=>c.op==='prepare').at(-1).value.replace,'Replacement sent to host review');
       button('Replace and upload images').click();await wait(()=>button('Show upload report'));
-      check(document.body.textContent.includes('Upload complete'),'Completion confirms successful upload');
+      check(document.body.textContent.includes('Upload successful'),'Completion confirms successful upload');
+      check(document.querySelector('.upload-outcome.success'),'Verified success has a distinct checkmark treatment');
+      check(document.querySelector('.upload-inventory').hidden,'Completion hides the large preview inventory');
+      check(!document.querySelector('progress'),'Completion removes the active progress bar');
+      check(!document.querySelector('.upload-transfer').textContent.includes('null'),'Completion contains no conditional placeholder text');
+      check(button('Done')===document.activeElement,'Done is the focused primary completion action');
       check(document.body.textContent.includes('196 / 196 screenshots received by Apple'),'Completion confirms receipt of every image');
       check(document.body.textContent.includes('Check image processing'),'Processing is handed off to App Store Connect');
       button('Open App Store Connect').click();await wait(()=>calls.some(c=>c.op==='open-app'));
@@ -99,14 +104,14 @@ try {
       check(button('Upload images').disabled,'Blocking server checks disable upload');m.close();
       blocked=false;done=false;m=openAppStoreUpload('/frozen-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review images').click();await wait(()=>button('Upload images'));
       button('Upload images').click();await wait(()=>button('Stop upload')&&document.body.textContent.includes('1 / 196 screenshots received by Apple'));
-      check(!document.body.textContent.includes('Upload complete'),'Partial upload must not show completion');
+      check(!document.body.textContent.includes('Upload successful'),'Partial upload must not show completion');
       m.close();await wait(()=>calls.some(c=>c.op==='stop'));
       check(!document.querySelector('[role="dialog"]'),'Closing stops upload and removes dialog');
       done=true;uploadFailed=true;
       m=openAppStoreUpload('/frozen-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review images').click();await wait(()=>button('Upload images'));
       button('Upload images').click();await wait(()=>button('Show upload report'));
       check(document.body.textContent.includes('1 / 196 screenshots received by Apple'),'Failure retains the successful transfer count');
-      check(!document.body.textContent.includes('Upload complete'),'Failed transfer cannot report complete');m.close();
+      check(!document.body.textContent.includes('Upload successful'),'Failed transfer cannot report complete');check(document.querySelector('.upload-outcome.failed')&&!document.querySelector('.upload-outcome.success'),'Failure uses attention treatment');m.close();
       uploadFailed=false;warning=true;
       m=openAppStoreUpload('/older-export');await wait(()=>document.querySelector('select[title="App"]'));await choose();button('Review images').click();await wait(()=>button('Upload anyway'));
       check(button('Upload anyway').disabled,'Warnings require user acknowledgment');
@@ -161,7 +166,7 @@ try {
       check(calls.filter(c=>c.op==='prepare').at(-1).value.exportPath==='/older-export','Saved export reaches host without exporting again');
       document.querySelector('[aria-label="I reviewed the warnings and want to upload anyway"]').click();button('Upload anyway').click();await wait(()=>button('Show upload report'));
       check(calls.filter(c=>c.op==='start').at(-1).value.acknowledgeWarnings===true,'Explicit warning acknowledgment reaches host');
-      button('Close').click();view.el.remove();
+      button('Done').click();view.el.remove();
       m=openSavedUpload();check(button('Choose export folder…'),'Standalone chooser works without loading a project');m.close();
       document.querySelector('#result').textContent='PASS: connection cancellation; destination review; explicit replacement; upload receipt, processing handoff and App Store button; partial failure; close stops upload; warning consent and reset; technical errors cannot be bypassed; saved export chooser, cancellation and upload without export; standalone entry; one Duo destination, shared limit, cross-language selection and existing language handling';
     }catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}

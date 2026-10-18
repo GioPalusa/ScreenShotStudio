@@ -43,3 +43,9 @@ export function phoneCanvasId(project, preferred, remembered) {
   const phones = Object.keys(project.devices).filter(id => isPhoneCanvas(project.devices[id]));
   return phones.includes(preferred) ? preferred : phones.includes(remembered) ? remembered : phones[0];
 }
+
+/** Shared editing follows the selected screenshot canvas, including tablets and desktop sizes. */
+export function screenshotCanvasId(project, preferred, remembered) {
+  const ids = Object.keys(project.devices).filter(id => !isStoreCanvas(project.devices[id]));
+  return ids.includes(preferred) ? preferred : ids.includes(remembered) ? remembered : ids[0];
+}

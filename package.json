@@ -21,7 +21,7 @@
     "@electron/packager": "20.3.0",
     "electron": "44.7.0"
   },
-  "version": "0.2.8",
+  "version": "0.2.9",
   "productName": "Screenshot Studio",
   "main": "desktop/entry.mjs",
   "license": "MIT",

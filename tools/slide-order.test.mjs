@@ -1,10 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { orderedSlides, reorderSlides, renameSlide } from '../app/js/project-ops.js';
-import { orderedCanvases, phoneCanvasId } from '../app/js/slide-order.js';
+import { orderedCanvases, phoneCanvasId, screenshotCanvasId } from '../app/js/slide-order.js';
 import { exportPlan } from '../app/js/export-naming.js';
 const fixture = () => ({ slides: ['a', 'b', 'c'].map(id => ({ id, name: id })), locales: [{ id: 'en-US' }, { id: 'sv' }], devices: { phone: { size: [1290, 2796], target: 'iphone' } } });
 const ids = (p, locale) => orderedSlides(p, locale).map(s => s.id);
+test('shared editing follows iPad and remembers it while a store image is selected', () => {
+ const p = fixture(); p.devices.ipad = { target: 'ipad', layout: 'tablet', size: [2064,2752] };
+ p.devices.header = { target: 'app-store-header', screenScope: 'store-image', size: [3840,1646] };
+ assert.equal(screenshotCanvasId(p, 'ipad', 'phone'), 'ipad');
+ assert.equal(screenshotCanvasId(p, 'header', 'ipad'), 'ipad');
+ delete p.devices.phone;
+ assert.equal(screenshotCanvasId(p, 'missing', 'missing'), 'ipad');
+ delete p.devices.ipad; assert.equal(screenshotCanvasId(p, 'header'), undefined);
+});
 test('languages inherit original order live until explicitly reordered', () => {
  const p = fixture(); p.locales.push({id:'ar-SA'});
  p.slideOrders={'en-US':['c','a','b']};
