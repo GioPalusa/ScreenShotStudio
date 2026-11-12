@@ -28,7 +28,7 @@ import {
 import { arrangeSelection } from '../selection.js';
 import { makeLayer, resolveLayers, canvasMetrics, paintOrder } from '../layouts.js';
 import {
-  editBlock, peekBlock, setLayoutIndependent, slideForTemplateEdit, patchLayer, addLayer, removeLayer, geometryPatch, scaleLayerGeometry, devicesSharingBlock,
+  editBlock, peekBlock, setLayoutIndependent, slideForTemplateEdit, patchLayer, addLayer, removeLayer, geometryPatch, selectionGeometryPatches, scaleLayerGeometry, devicesSharingBlock,
   duplicateLayers, saveAsTemplate, detachTemplate, updateTemplateFromSlide, templateUsage, templateOf, uniqueId, slugify, layerLabel,
 } from '../layer-ops.js';
 import { readImageInfo, imageFilesOf } from '../assets.js';
@@ -463,7 +463,7 @@ export function createEditor(ctx) {
       const patches = arrangeSelection(ed.selectionLayers(), operation, ed.scene);
       if (!patches.length) return;
       checkpoint();
-      for (const { layer, box } of patches) ed.writePatch(layer, geometryPatch(layer, box));
+      for (const { layer, patch } of selectionGeometryPatches(patches,ed.scene.allLayers)) ed.writePatch(layer,patch);
       livePaint(); ed.finishEdit(); stageApi.render();
     },
     removeSelection() {
@@ -484,18 +484,13 @@ export function createEditor(ctx) {
     isGradientEditing(id,index){return stageApi.vectorEditor.isGradient(id,index);},
     /** Write a layer's geometry and repaint immediately (used while dragging and typing numbers). */
     applyBox(layer, box, opts) {
-      const patch = geometryPatch(layer, box, opts);
+      const [{patch}] = selectionGeometryPatches([{layer,box}],ed.scene.allLayers,opts);
       ed.writePatch(layer, patch);
       livePaint();
       drawNeighbors();
     },
-    applyGroup(transforms) {
-      for (const { layer, box, scale } of transforms) {
-        const patch = geometryPatch(layer, box);
-        if (layer.type === 'text' && Math.abs(scale - 1) > 0.0001) {
-          patch.size = layer.size * scale;
-          if (layer.minSize) patch.minSize = layer.minSize * scale;
-        }
+    applyGroup(transforms,options) {
+      for (const { layer, patch } of selectionGeometryPatches(transforms,ed.scene.allLayers,options)) {
         ed.writePatch(layer, patch);
       }
       livePaint();

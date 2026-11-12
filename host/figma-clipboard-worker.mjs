@@ -1,3 +1,4 @@
+import { resolveClipboardBoolean } from './figma-boolean.mjs';
 import { parentPort, workerData } from 'node:worker_threads';
 import { decodeFigKiwiCanvas } from '@open-pencil/kiwi/fig/parse';
 import { convertFigmaFrame } from '../app/js/figma-layout.js';
@@ -51,14 +52,20 @@ function convert(html) {
   if(!encoded)throw Error('No native Figma selection was found.');
   const {nodeChanges,blobs}=decodeFigKiwiCanvas(Buffer.from(encoded,'base64'));
   if(nodeChanges.length>10000 || blobs.reduce((n,b)=>n+b.length,0)>128*1024*1024)throw Error('Copy a smaller Figma selection.');
-  const images={}, byId=new Map(), warnings=new Set();
+  const images={}, missingImages=new Map(), byId=new Map(), warnings=new Set();
   const paths = list => (list??[]).map(p=>({path:pathFromBlob(blobs[p.commandsBlob]),windingRule:p.windingRule==='ODD'?'EVENODD':p.windingRule}));
-  function paints(list){return (list??[]).map(p=>{
+  function paints(list,node){return (list??[]).map((p,index)=>{
+    if(p.visible===false)return p;
     if(p.type==='IMAGE'){
-      const bytes=blobs[p.image?.dataBlob];if(!bytes)throw Error('The copied image is not embedded. Import this selection through its Figma link instead.');
-      const ref=`clipboard-image-${p.image.dataBlob}`,data=Buffer.from(bytes),magic=data.subarray(0,8).toString('hex');
-      const mime=magic==='89504e470d0a1a0a'?'image/png':data[0]===255&&data[1]===216?'image/jpeg':data.subarray(0,4).toString()==='RIFF'&&data.subarray(8,12).toString()==='WEBP'?'image/webp':null;
-      if(!mime)throw Error('The clipboard image format is not supported.');images[ref]={mime,data:data.toString('base64')};
+      const ref=p.image?.hash?.length?`clipboard-image-${Buffer.from(p.image.hash).toString('hex')}`:Number.isInteger(p.image?.dataBlob)?`clipboard-image-${p.image.dataBlob}`:`clipboard-image-${id(node.guid)}-${index}`;
+      const bytes=blobs[p.image?.dataBlob],data=bytes?Buffer.from(bytes):null,magic=data?.subarray(0,8).toString('hex');
+      const mime=magic==='89504e470d0a1a0a'?'image/png':data?.[0]===255&&data?.[1]===216?'image/jpeg':data?.subarray(0,4).toString()==='RIFF'&&data?.subarray(8,12).toString()==='WEBP'?'image/webp':null;
+      if(mime)images[ref]={mime,data:data.toString('base64')};
+      else{
+        const missing=missingImages.get(ref)??{ref,names:[],reason:bytes?'unsupported-format':'not-embedded'};
+        const name=String(node.name??p.image?.name??'Image').slice(0,500);if(!missing.names.includes(name))missing.names.push(name);
+        missingImages.set(ref,missing);
+      }
       return {...p,imageRef:ref,scaleMode:p.imageScaleMode??'FILL',imageTransform:p.transform?matrix(p.transform):undefined};
     }
     if(p.type?.startsWith('GRADIENT')){
@@ -74,13 +81,13 @@ function convert(html) {
     const m=n.transform??identity,styleName=n.fontName?.style??'';
     if(n.type==='INSTANCE')warnings.add('Clipboard component instances need review; source geometry is retained when embedded.');
     const line=n.lineHeight,spacing=n.letterSpacing;
-    const node={id:id(n.guid),type:n.type==='ROUNDED_RECTANGLE'?'RECTANGLE':n.type==='SYMBOL'?'COMPONENT':n.type,name:n.name,size:n.size,relativeTransform:matrix(m),absoluteBoundingBox:{x:m.m02,y:m.m12,width:n.size?.x??1,height:n.size?.y??1},visible:n.visible,opacity:n.opacity,blendMode:n.blendMode,cornerRadius:n.cornerRadius,rectangleCornerRadii:n.rectangleCornerRadii,clipsContent:n.clipsContent??(n.type==='FRAME'&&n.frameMaskDisabled!==true),isMask:n.mask,fills:paints(n.fillPaints??n.backgroundPaints),strokes:paints(n.strokePaints),strokeWeight:n.strokeWeight,strokeAlign:n.strokeAlign,effects:n.effects?.map(e=>({...e,type:e.type==='FOREGROUND_BLUR'?'LAYER_BLUR':e.type})),fillGeometry:n.fillGeometry?.length?paths(n.fillGeometry):networkPaths(n,blobs),strokeGeometry:paths(n.strokeGeometry),characters:n.textData?.characters,style:{fontFamily:n.fontName?.family??'sans-serif',fontSize:n.fontSize??24,fontWeight:n.fontWeight??weight(styleName),italic:/italic|oblique/i.test(styleName),textAlignHorizontal:n.textAlignHorizontal,textAlignVertical:n.textAlignVertical,lineHeightPx:line?.units==='PIXELS'?line.value:n.derivedTextData?.baselines?.[0]?.lineHeight,lineHeightUnit:line?.units==='PERCENT'?'FONT_SIZE_%':'PIXELS',lineHeightPercentFontSize:line?.units==='PERCENT'?line.value:undefined,letterSpacing:spacing?.units==='PERCENT'?(n.fontSize??24)*spacing.value/100:spacing?.value??0},children:[],_parent:id(n.parentIndex?.guid),_position:n.parentIndex?.position??''};
+    const node={id:id(n.guid),booleanOperation:n.booleanOperation,type:n.type==='ROUNDED_RECTANGLE'?'RECTANGLE':n.type==='SYMBOL'?'COMPONENT':n.type,name:n.name,size:n.size,relativeTransform:matrix(m),absoluteBoundingBox:{x:m.m02,y:m.m12,width:n.size?.x??1,height:n.size?.y??1},visible:n.visible,opacity:n.opacity,blendMode:n.blendMode,cornerRadius:n.cornerRadius,rectangleCornerRadii:n.rectangleCornerRadii,clipsContent:n.clipsContent??(n.type==='FRAME'&&n.frameMaskDisabled!==true),isMask:n.mask,fills:paints(n.fillPaints??n.backgroundPaints,n),strokes:paints(n.strokePaints,n),strokeWeight:n.strokeWeight,strokeAlign:n.strokeAlign,effects:n.effects?.map(e=>({...e,type:e.type==='FOREGROUND_BLUR'?'LAYER_BLUR':e.type})),fillGeometry:n.fillGeometry?.length?paths(n.fillGeometry):networkPaths(n,blobs),strokeGeometry:paths(n.strokeGeometry),characters:n.textData?.characters,style:{fontFamily:n.fontName?.family??'sans-serif',fontSize:n.fontSize??24,fontWeight:n.fontWeight??weight(styleName),italic:/italic|oblique/i.test(styleName),textAlignHorizontal:n.textAlignHorizontal,textAlignVertical:n.textAlignVertical,lineHeightPx:line?.units==='PIXELS'?line.value:n.derivedTextData?.baselines?.[0]?.lineHeight,lineHeightUnit:line?.units==='PERCENT'?'FONT_SIZE_%':'PIXELS',lineHeightPercentFontSize:line?.units==='PERCENT'?line.value:undefined,letterSpacing:spacing?.units==='PERCENT'?(n.fontSize??24)*spacing.value/100:spacing?.value??0},children:[],_parent:id(n.parentIndex?.guid),_position:n.parentIndex?.position??''};
     if(n.textData?.styleOverrideTable?.length)node.characterStyleOverrides=n.textData.characterStyleIDs;
     byId.set(node.id,node);
   }
   const roots=[];
   for(const node of byId.values()){const parent=byId.get(node._parent);if(parent)parent.children.push(node);else roots.push(node);}
-  const visit=(node,depth=0)=>{if(depth>64)throw Error('Copy fewer nested groups.');node.children.sort((a,b)=>a._position.localeCompare(b._position));for(const child of node.children)visit(child,depth+1);delete node._parent;delete node._position;};
+  const visit=(node,depth=0)=>{if(depth>64)throw Error('Copy fewer nested groups.');node.children.sort((a,b)=>a._position.localeCompare(b._position));for(const child of node.children)visit(child,depth+1);resolveClipboardBoolean(node);delete node._parent;delete node._position;};
   roots.forEach(n=>visit(n));if(!roots.length)throw Error('The clipboard has no supported design layers.');
   let root=roots[0];
   if(roots.length>1){
@@ -89,7 +96,7 @@ function convert(html) {
     root={id:'clipboard',name:'Figma selection',type:'FRAME',size:{x:right-x,y:bottom-y},children:roots};
   }
   const design=convertFigmaFrame(root,{minSize:1});design.width=Math.max(100,design.width);design.height=Math.max(100,design.height);design.warnings.push(...warnings);
-  return {designs:[{id:root.id,...design}],images};
+  return {designs:[{id:root.id,...design}],images,missingImages:[...missingImages.values()].filter(image=>design.images.includes(image.ref)&&!images[image.ref])};
 }
 
 try { parentPort.postMessage({result:convert(workerData)}); }

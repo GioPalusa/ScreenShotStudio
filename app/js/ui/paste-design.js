@@ -1,5 +1,6 @@
+import { resolveClipboardImages, clipboardImageFiles } from './figma-clipboard-images.js';
 import { resolveDesignFonts } from './import-fonts.js';
-import { engine,state,checkpoint,saveCopy,saveStudio,uploadAsset } from '../store.js';
+import { engine,state,api,checkpoint,saveCopy,saveStudio,uploadAsset } from '../store.js';
 import { pasteLayerClipboard } from '../layer-transfer.js';
 import { sharedLayerId } from '../shared-canvas.js';
 import { parseSVG } from '../svg-import.js';
@@ -41,15 +42,34 @@ export function pasteDesignText(ed,text,active){
 }
 import { mergeProjectFonts } from '../project-fonts.js';
 
-export function pasteFigmaClipboard(ed,html,active) {
-  openImportFigma(ed.ctx,{clipboardHTML:html,onPaste:async({design,assets,fonts})=>{
-    if(!active())throw Error('The destination changed. Return to your screen and paste again.');
+const pendingFigmaPastes = new WeakSet();
+export async function pasteFigmaClipboard(ed,html,active=()=>true) {
+  if(pendingFigmaPastes.has(ed))return;
+  const project=engine.project,current=()=>active()&&project===engine.project;
+  pendingFigmaPastes.add(ed);
+  try{
+    if(!ed.scene)throw Error('Wait for the canvas preview before pasting.');
+    const decoded=await api('/api/import/figma-clipboard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({html})});
+    if(!current())return;
+    const data=await resolveClipboardImages(decoded,current);if(!data||!current())return;
+    let design=data.designs[0];
+    if(!design?.layers.length){toast('Nothing remains to paste after skipping the missing images.');return;}
+    const files=await clipboardImageFiles(data.images);if(!current())return;
+    const typography=await resolveDesignFonts(design.layers,current);if(!typography||!current())return;
+    design={...design,layers:typography.layers};
+    const assets={};
+    for(const [ref,file] of Object.entries(files)){
+      if(!current())return;assets[ref]=(await uploadAsset(file)).file;
+    }
+    if(!current())return;
     const entries=scaleFigmaLayers(design,design.width,design.height,assets).map(layer=>({layer,text:layer.type==='text'?{[state.ui.locale]:{value:design.texts[layer.field],needsReview:true}}:{}}));
     checkpoint(null,{copyLocales:[state.ui.locale]});
-    if(fonts.length){engine.project.fonts??={};engine.project.fonts.files=mergeProjectFonts(engine.project.fonts.files,fonts);}
+    if(typography.fonts.length){engine.project.fonts??={};engine.project.fonts.files=mergeProjectFonts(engine.project.fonts.files,typography.fonts);}
     const result=pasteLayerClipboard({entries},{block:ed.block(),resolved:ed.scene.allLayers,copy:engine.data.copy,slideIds:[ed.slide().id],shared:ed.allScreens(),dx:(ed.scene.W-design.width)/2,dy:(ed.scene.H-design.height)/2});
     ed.selectedIds=new Set(result.layers.map(l=>ed.allScreens()?sharedLayerId(l.id):l.id));ed.selectedId=[...ed.selectedIds].at(-1);
     result.changedLocales.forEach(saveCopy);saveStudio();ed.refresh({immediate:true,inspector:true,rail:true});
-    toast(`${result.layers.length} editable Figma layers pasted.`);
-  }});
+    const skipped=data.skippedImages?.length??0;
+    toast(`${result.layers.length} editable Figma layers pasted.${skipped?` ${skipped} missing image${skipped===1?'':'s'} skipped.`:''}`,{timeout:5000});
+  }catch(error){if(current())toast(error.message,{error:true});}
+  finally{pendingFigmaPastes.delete(ed);}
 }

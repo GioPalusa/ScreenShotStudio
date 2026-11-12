@@ -325,7 +325,7 @@ export function createStage(ed) {
     if (drag.id === '__selection') {
       ed.applyGroup(transformSelection(drag.members, drag.box, box));
     } else if (drag.kind === 'move' && drag.members?.length > 1) {
-      for (const item of drag.members) ed.applyBox(item.layer, { ...item.box, x: item.box.x + box.x - drag.box.x, y: item.box.y + box.y - drag.box.y });
+      ed.applyGroup(drag.members.map(item=>({layer:item.layer,box:{...item.box,x:item.box.x+box.x-drag.box.x,y:item.box.y+box.y-drag.box.y}})));
     } else ed.applyBox(layer, box, { vertical: drag.kind === 'move' || drag.handle?.includes('n') || drag.handle?.includes('s') || drag.kind === 'rotate' });
     render();
   }
@@ -373,7 +373,7 @@ export function createStage(ed) {
       const layer = ed.layerById(ed.selectedId);
       if (!layer?._box || layer.locked) return false;
       ed.startEdit(`nudge:${layer.id}`);
-      for (const item of ed.selectionLayers()) { const b = item._box; ed.applyBox(item, { ...b, x: b.x + dx, y: b.y + dy }, { vertical: dy !== 0 }); }
+      ed.applyGroup(ed.selectionLayers().map(layer=>({layer,box:{...layer._box,x:layer._box.x+dx,y:layer._box.y+dy}})),{vertical:dy!==0});
       ed.finishEdit({ quick: true });
       return true;
     },

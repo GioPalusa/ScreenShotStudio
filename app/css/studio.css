@@ -868,6 +868,15 @@ select[aria-label="Font"] { width: 78%; min-width: 0; font-weight: 400; }
 .import-design-row { display:grid; grid-template-columns:20px 64px minmax(0,1fr) 160px; align-items:center; gap:14px; padding:12px; border:1px solid var(--line); border-radius:10px; }
 .import-design-row img { width:64px; height:105px; object-fit:contain; background:var(--panel-2); border-radius:5px; }
 .import-design-row small { display:block; overflow-wrap:anywhere; }
+/* Figma artwork has its own columns; import metadata stays outside the bitmap. */
+.figma-import-preview { display:grid; grid-template-columns:minmax(0,200px) minmax(0,1fr); align-items:start; gap:16px; margin:0; padding:16px; border:1px solid var(--line); border-radius:10px; }
+.figma-import-artwork { min-width:0; display:flex; justify-content:center; }
+.figma-import-artwork canvas { display:block; width:auto; height:auto; max-width:100%; max-height:320px; }
+.figma-import-preview figcaption { min-width:0; overflow-wrap:anywhere; }
+.figma-import-preview figcaption p { margin:8px 0 0; }
+.figma-import-counts { color:var(--muted); font-size:12px; }
+@media (max-width:560px) { .figma-import-preview { grid-template-columns:minmax(0,1fr); } }
+
 .import-design-copy { white-space:pre-line; margin:6px 0; }
 
 .design-appearance { display: grid; gap: 12px; }
@@ -1266,3 +1275,7 @@ a { color: var(--link); }
 .stage-canvas .handle.rotate { cursor: var(--cursor-rotate, grab); }
 .stage-canvas .corner-widget { cursor: var(--cursor-corner, crosshair); }
 .stage-canvas.panning, .stage-canvas.panning * { cursor: var(--cursor-grabbing, grabbing) !important; }
+
+.paste-missing-image { padding:12px 0; border-top:1px solid var(--line); }
+.paste-missing-image .field { margin:10px 0; }
+.paste-missing-image input[type="file"] { max-width:100%; }

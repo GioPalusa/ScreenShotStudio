@@ -582,6 +582,36 @@ export function geometryPatch(layer, nb, { vertical = true } = {}) {
   }
 }
 
+/** Move a clipping frame only when all of its members receive the same canvas transform. */
+export function selectionGeometryPatches(transforms, resolved, options) {
+  const multiply = (a,b) => [a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];
+  const key = (layer,scope) => `${layer._sharedId?'shared':layer._sourceSlideId??'local'}\0${scope.id}`;
+  const matrices = new Map();
+  for(const {layer,box} of transforms){
+    const before=layer._box;if(!before||before.w<=0||before.h<=0)continue;
+    const a=-(before.rot??0)*Math.PI/180,b=(box.rot??0)*Math.PI/180;
+    const origin=[Math.cos(a),Math.sin(a),-Math.sin(a),Math.cos(a),0,0];
+    const target=[Math.cos(b),Math.sin(b),-Math.sin(b),Math.cos(b),box.x+box.w/2,box.y+box.h/2];
+    matrices.set(layer.id,multiply(multiply(target,[box.w/before.w,0,0,box.h/before.h,0,0]),multiply(origin,[1,0,0,1,-before.x-before.w/2,-before.y-before.h/2])));
+  }
+  const scopes=new Map();
+  for(const layer of resolved)for(const scope of layer.compositing??[]){
+    if(!scope.clip)continue;
+    const id=key(layer,scope),matrix=matrices.get(layer.id),state=scopes.get(id);
+    if(!state)scopes.set(id,{matrix,complete:Boolean(matrix)});
+    else if(!matrix||!state.matrix||matrix.some((v,i)=>Math.abs(v-state.matrix[i])>1e-6))state.complete=false;
+  }
+  return transforms.map(({layer,box,scale=1})=>{
+    const patch=geometryPatch(layer,box,options);
+    if(layer.type==='text'&&Math.abs(scale-1)>.0001){patch.size=layer.size*scale;if(layer.minSize)patch.minSize=layer.minSize*scale;}
+    if(layer.compositing?.some(scope=>scope.clip&&scopes.get(key(layer,scope))?.complete))patch.compositing=layer.compositing.map(scope=>{
+      const state=scopes.get(key(layer,scope));
+      return scope.clip&&state?.complete?{...scope,clip:{...scope.clip,matrix:multiply(state.matrix,scope.clip.matrix)}}:structuredClone(scope);
+    });
+    return {layer,patch};
+  });
+}
+
 /** Turn the selected capture into an unframed store screenshot, retaining its source and ID. */
 export function fitStoreScreenshot(block, layers, layer, { W, H, size }) {
   for (const other of layers) if (other.id !== layer.id) removeLayer(block, other);

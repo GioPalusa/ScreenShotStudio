@@ -36,6 +36,8 @@ In the Mac app, choose **Export…**, review the selected images and checks, the
 
 **Overview → Import designs…** (also in Media) accepts PNG/JPEG exports, folders and ZIPs from other screenshot tools. Images remain image layers; fastlane Framefile sources also import editable text and generic devices. Preview the language mapping before adding slides. [Supported formats, limits and research](imports-and-translation.md).
 
+**Paste from Figma:** copying layers in Figma and pressing **⌘V** in the editor pastes editable content directly. If fonts are unavailable, only the font-resolution dialog appears. If Figma omitted image files, **Missing images** lets you attach PNG/JPEG/WebP replacements, skip individual images or skip all unresolved images and paste the rest. Cancelling leaves the document unchanged; the completed paste is one Undo step. Figma links and **Import from Figma…** keep the view-selection and preview workflow.
+
 ## Details follows the selection
 
 With no object selected, **Details** shows document facts and shortcuts to settings, fonts and the layer list. Selecting an object replaces those controls with its own properties. Position and Effects come before the type-specific controls, so shadows are available without scrolling past fills, gradients or paths. Screen-edge behaviour and secondary object actions are collapsible sections.

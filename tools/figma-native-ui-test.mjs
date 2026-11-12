@@ -33,6 +33,11 @@ try{
     button('Preview selected views').click();await wait(()=>button('Import 1 view')&&!button('Import 1 view').disabled);
     check(JSON.stringify(engine.project)===original,'Preview must not mutate project');
     check(document.body.textContent.includes('editable text layers')&&document.body.textContent.includes('vector layers'),'Preview must report native types');
+    const previewCanvas=document.querySelector('canvas[aria-label^="Figma preview"]'),artBounds=previewCanvas.getBoundingClientRect();
+    for(const label of document.querySelectorAll('.import-design-preview p,.import-design-preview b,.import-design-preview strong')){
+      const b=label.getBoundingClientRect();check(b.left>=artBounds.right||b.right<=artBounds.left||b.top>=artBounds.bottom||b.bottom<=artBounds.top,'Import labels must never overlap the actual design preview');
+    }
+
     check(!JSON.stringify(engine.data).includes('test-only-figma-key')&&!JSON.stringify(localStorage).includes('test-only-figma-key'),'No key in document/storage');
     button('Import 1 view').click();await wait(()=>!document.querySelector('[aria-label="Figma access token"]'));await flushSaves();
     const slide=engine.project.slides.at(-1),device=state.ui.device;
@@ -75,9 +80,9 @@ try{
     const nativeHTML=await(await fetch('/native-clipboard.html')).text(),nativeTransfer=new DataTransfer();nativeTransfer.setData('text/html',nativeHTML);
     const beforeNative=engine.project.slides.at(-1).localeLayouts['en-US'][device].layers.length;
     document.dispatchEvent(new ClipboardEvent('paste',{clipboardData:nativeTransfer,bubbles:true,cancelable:true}));
-    await wait(()=>button('Paste editable selection')&&!button('Paste editable selection').disabled);
-    check(!document.querySelector('[aria-label="Figma access token"]'),'Native clipboard does not ask for an API key');
-    button('Paste editable selection').click();await wait(()=>!document.querySelector('.modal-backdrop'));await flushSaves();
+    await wait(()=>engine.project.slides.at(-1).localeLayouts['en-US'][device].layers.length>beforeNative);
+    check(!document.querySelector('.modal-backdrop'),'Complete native clipboard pastes directly without an import dialog');
+    await flushSaves();
     const nativeLayers=engine.project.slides.at(-1).localeLayouts['en-US'][device].layers;
     check(nativeLayers.length===beforeNative+3,'Native Figma clipboard inserts all three native layers');
     check(nativeLayers.slice(-3).some(l=>l.type==='text'&&engine.data.copy['en-US'][slide.id][l.field]==='Editable clipboard text'),'Clipboard text remains editable text');
@@ -130,7 +135,7 @@ try{
     service.handle(req,res,server.address().port);
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-  const {stdout}=await runBrowserTest(chrome,['--headless','--disable-gpu','--no-sandbox','--no-first-run',`--user-data-dir=${path.join(temp,'chrome')}`,'--window-size=1400,1000',`http://127.0.0.1:${server.address().port}/app/native-test.html`],{timeout:40000});
+  const {stdout}=await runBrowserTest(chrome,['--headless','--disable-gpu','--no-sandbox','--no-first-run',`--user-data-dir=${path.join(temp,'chrome')}`,`--window-size=${process.env.FIGMA_UI_TEST_WIDTH??1400},1000`,`http://127.0.0.1:${server.address().port}/app/native-test.html`],{timeout:40000});
   fs.writeFileSync('/tmp/studio-figma-native-dom.html',stdout);const verdict=stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1]??'No result';assert.match(verdict,/^PASS:/,verdict);
   const saved=fs.readFileSync(path.join(projectPath,'studio.json'),'utf8');assert.ok(!saved.includes('test-only-figma-key'));console.log(verdict);
 }finally{server?.closeAllConnections();await new Promise(resolve=>server?server.close(resolve):resolve());service?.close();fs.rmSync(temp,{recursive:true,force:true});}

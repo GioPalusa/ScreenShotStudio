@@ -280,6 +280,7 @@ try {
   execFileSync(process.execPath, ['tools/editor-appearance-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/shape-operations-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/figma-native-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, ['tools/figma-paste-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/orientation-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/frame-import-ui-test.mjs'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, ['tools/connected-render-test.mjs'], { cwd: root, stdio: 'inherit' });

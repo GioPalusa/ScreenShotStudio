@@ -2,6 +2,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { snapshotLayer, transferLayer, encodeLayerClipboard, decodeLayerClipboard, pasteLayerClipboard } from '../app/js/layer-transfer.js';
 import { sharedLayers } from '../app/js/shared-canvas.js';
+import { selectionGeometryPatches } from '../app/js/layer-ops.js';
+import { selectionBounds, transformSelection } from '../app/js/selection.js';
+
+const clippedLayer=(id,x,scopes)=>({id,type:'shape',cx:x+10,cy:20,w:20,h:20,_box:{x,y:10,w:20,h:20},compositing:structuredClone(scopes)});
+const scope=(id,x=0)=>({id,clip:{matrix:[1,0,0,1,x,0],w:80,h:60,radius:8}});
+test('complete nested clipping scopes follow translation, scale and rotation without mutating source data',()=>{
+  const layers=[clippedLayer('a',10,[scope('outer'),scope('inner',5)]),clippedLayer('b',40,[scope('outer'),scope('inner',5)])],before=structuredClone(layers);
+  const bounds=selectionBounds(layers),members=layers.map(layer=>({layer,box:layer._box}));
+  const translated=selectionGeometryPatches(transformSelection(members,bounds,{...bounds,x:bounds.x+120,y:bounds.y-80}),layers);
+  for(const {patch} of translated)for(const [i,s] of patch.compositing.entries())assert.deepEqual(s.clip.matrix,[1,0,0,1,i===0?120:125,-80]);
+  const transformed=selectionGeometryPatches(transformSelection(members,bounds,{x:100,y:200,w:bounds.w*2,h:bounds.h*2,rot:90}),layers);
+  // (0,0) maps to (190,150) under the selection's common canvas transform.
+  const matrix=transformed[0].patch.compositing[0].clip.matrix;
+  for(const [i,v] of [0,2,-2,0,190,150].entries())assert.ok(Math.abs(matrix[i]-v)<1e-9);
+  assert.deepEqual(layers,before);
+});
+test('moving only an inner frame preserves its outer clipping frame and unselected siblings',()=>{
+  const layers=[clippedLayer('a',10,[scope('outer'),scope('inner')]),clippedLayer('b',40,[scope('outer')])];
+  const [edit]=selectionGeometryPatches([{layer:layers[0],box:{...layers[0]._box,x:30,y:50}}],layers);
+  assert.deepEqual(edit.patch.compositing[0],layers[0].compositing[0]);
+  assert.deepEqual(edit.patch.compositing[1].clip.matrix,[1,0,0,1,20,40]);
+  const hidden={...layers[1],hidden:true,compositing:[scope('inner')]};
+  assert.equal(selectionGeometryPatches([{layer:layers[0],box:{...layers[0]._box,x:30}}],[layers[0],hidden])[0].patch.compositing?.[1].clip.matrix[4]??0,0);
+});
+test('independent member alignment leaves their shared clip fixed; screen scopes stay separate',()=>{
+  const a=clippedLayer('a',10,[scope('frame')]),b=clippedLayer('b',40,[scope('frame')]);
+  const edits=selectionGeometryPatches([{layer:a,box:{...a._box,x:20}},{layer:b,box:{...b._box,x:20}}],[a,b]);
+  assert.ok(edits.every(e=>!e.patch.compositing));
+  a._sourceSlideId='a';b._sourceSlideId='b';
+  const [edit]=selectionGeometryPatches([{layer:a,box:{...a._box,x:20}}],[a,b]);
+  assert.deepEqual(edit.patch.compositing[0].clip.matrix,[1,0,0,1,10,0]);
+});
 
 const text = { id:'headline', type:'text', field:'headline', x:20, capTop:{after:'title',gap:40}, w:300, size:60, _box:{x:20,y:180,w:300,h:80}, _origin:'template' };
 test('object snapshots freeze flow and inherited appearance and strip rendering state', () => {

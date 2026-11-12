@@ -1,3 +1,4 @@
+import { resolveClipboardImages } from './figma-clipboard-images.js';
 import { figmaProjectSeed } from '../figma-project.js';
 import { importFontControls } from './import-fonts.js';
 import { engine,state,api,uploadAsset,importExternalDesigns,flushSaves } from '../store.js';
@@ -42,7 +43,7 @@ export function openImportFigma(ctx,{url:initialURL='',onImported,newProject=fal
   const load=h('button',{class:'btn primary',onClick:async()=>{
     if(busy||!active())return;setBusy(true);status.textContent='Loading Figma views…';rows=[];previews.replaceChildren();
     try{
-      if(clipboardHTML){clipboardData=await api('/api/import/figma-clipboard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({html:clipboardHTML})});source={name:'Copied Figma selection',frames:clipboardData.designs.map(d=>({id:d.id,name:d.name,width:d.width,height:d.height}))};}
+      if(clipboardHTML){clipboardData=await api('/api/import/figma-clipboard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({html:clipboardHTML})});clipboardData=await resolveClipboardImages(clipboardData,active);if(!clipboardData||!active())return;source={name:'Copied Figma selection',frames:clipboardData.designs.map(d=>({id:d.id,name:d.name,width:d.width,height:d.height}))};}
       else source=await request('inspect');if(!active())return;
       if(newProject&&projectName.value==='Figma import')projectName.value=source.name.slice(0,80);
       list.replaceChildren(h('p',null,source.name),h('div',{class:'row'},h('button',{class:'btn small',onClick:()=>{if(busy)return;for(const el of list.querySelectorAll('input[type=checkbox]'))el.checked=true;rows=[];previews.replaceChildren();update();}},'Select all'),h('button',{class:'btn small',onClick:()=>{if(busy)return;for(const el of list.querySelectorAll('input[type=checkbox]'))el.checked=false;rows=[];previews.replaceChildren();update();}},'Deselect all')),...source.frames.map(f=>h('label',{class:'row check'},h('input',{type:'checkbox',value:f.id,checked:source.frames.length===1,onChange:()=>{rows=[];previews.replaceChildren();update();}}),`${f.page?f.page+' / ':''}${f.name} · ${Math.round(f.width)} × ${Math.round(f.height)}`)));
@@ -68,11 +69,11 @@ export function openImportFigma(ctx,{url:initialURL='',onImported,newProject=fal
         const result=applyExternalImport(project,copy,[row],{canvasId:canvas.value||null,assets:previewAssets,fonts:fontControls.previewFonts});
         const renderer=new Engine();previewRenderers.push(renderer);renderer.setData({...engine.data,studio:result.project,copy:result.copy});
         const baseURL=renderer.assetUrl.bind(renderer);renderer.assetUrl=(kind,file)=>file.startsWith('data:')?file:baseURL(kind,file);
-        const image=h('canvas',{'aria-label':`Figma preview ${row.name}`});image.style.width='120px';image.style.height='auto';
+        const image=h('canvas',{'aria-label':`Figma preview ${row.name}`});
         await renderer.render(image,renderer.scene(result.slides[0],result.deviceId,row.locale),{scale:Math.min(1,240/row.design.width)});if(!active())return;
         const types=row.design.layers.reduce((m,l)=>(m[l.type]=(m[l.type]??0)+1,m),{}),warnings=[...row.design.warnings];
 
-        previews.append(h('article',{class:'import-design-row'},image,h('div',null,h('b',null,row.name),h('p',null,`${types.text??0} editable text layers · ${row.design.layers.filter(l=>l.shape==='path').length} vector layers · ${row.design.layers.filter(l=>l.type==='shape'&&l.shape!=='path').length} shapes`),...warnings.map(w=>h('p',{class:'hint'},w)))));
+        previews.append(h('figure',{class:'figma-import-preview'},h('div',{class:'figma-import-artwork'},image),h('figcaption',null,h('strong',null,row.name),h('p',{class:'figma-import-counts'},`${types.text??0} editable text layers · ${row.design.layers.filter(l=>l.shape==='path').length} vector layers · ${row.design.layers.filter(l=>l.type==='shape'&&l.shape!=='path').length} shapes`),...warnings.map(w=>h('p',{class:'hint'},w)))));
       }
       status.textContent='Review the native layers above. No text, shapes or vectors will be flattened into images.';
     }catch(error){if(active()){rows=[];previews.replaceChildren();status.textContent=requestError(error);}}
