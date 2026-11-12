@@ -52,6 +52,18 @@ Select a vector and choose **Details → Shape → Edit points**, double-click i
 
 **Fill** edits solid colours and linear/radial gradients, including each stop’s colour, position and opacity. **Edit gradient on canvas** exposes its direction handles; radial gradients also have a width handle. **Outline** edits width, colour and inside/centre/outside alignment. **Blur** has a slider and a precise pixel field. Multiple imported fills remain separate. SVG code is tucked away in **Advanced path data** and is unnecessary for visual editing.
 
+## Appearance, spacing and shape operations
+
+Choose **Copy appearance** and **Paste appearance** in Details, the context menu or the Mac Edit menu. **⌥⌘C** copies the active object's compatible fills, outline and effects; **⌥⌘V** applies them to the selection without replacing its geometry or content. Text-to-text transfer also copies typography. Image fills can be transferred within the same project.
+
+Shift-click objects to edit them together. Details offers common opacity, blur, fill, outline, rectangle corners, text typography and shadows where applicable. **Mixed** indicates different values. Each change is undoable; a slider drag is one Undo step.
+
+Dragging an object shows measured edge gaps and snaps to equal spacing between neighbouring objects. Hold **Option** while hovering another object to inspect distances. Hold **⌘/Ctrl** during a drag to disable snapping.
+
+Select at least two objects and choose **Use as mask** or press **⌥⌘M**. The frontmost object masks the others. Both the mask and its contents remain editable objects. **Release mask** restores their previous grouping and visibility. The objects must belong to the same screen, or all be shared objects.
+
+For two or more closed shapes, Details offers **Union**, **Subtract**, **Intersect** and **Exclude**. Subtract removes the front shapes from the backmost one. The result is an editable vector path using the backmost shape's appearance; use **Edit points** to reshape it. One Undo restores the original objects. Operations require 2–100 unlocked shapes on the same screen and in the same clipping group. An empty result leaves the document unchanged.
+
 ## Development
 
 This is an open-source community project under the [MIT license](../LICENSE). See [CONTRIBUTING.md](../CONTRIBUTING.md) to get involved and [SECURITY.md](../SECURITY.md) to report vulnerabilities. Use Node 22.12 or newer (Node 24 recommended):
