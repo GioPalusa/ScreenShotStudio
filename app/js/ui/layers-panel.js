@@ -1,3 +1,5 @@
+import {shadowFields} from './shadow-panel.js';
+import { shapeFields as visualShapeFields } from './shape-panel.js';
 import { layerTag } from '../layer-tags.js';
 import { editLayerTag } from './layer-tag.js';
 import { checkControl } from './review-check.js';
@@ -235,24 +237,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
     op.addEventListener('input', () => { opNum.textContent = `${op.value}%`; ed.setLayer(current(layer), { opacity: Number(op.value) / 100 }, { key: `opacity:${layer.id}` }); });
     const wrap = h('div', { class: 'field' }, h('label', null, 'Opacity'), h('div', { class: 'row' }, op, opNum));
 
-    if (layer.type !== 'text' && layer.type !== 'route') {
-      const shadow = layer.shadow;
-      const toggle = h('input', { type: 'checkbox', checked: Boolean(shadow) });
-      toggle.addEventListener('change', () => ed.setLayer(current(layer), { shadow: toggle.checked ? { color: '#000000', alpha: 0.3, blur: 50, dy: 24 } : undefined }, { rebuild: true }));
-      wrap.append(h('label', { class: 'row check' }, toggle, 'Shadow'));
-      if (shadow) {
-        const slider = (label, key, min, max, fmt = (v) => v) => {
-          const input = h('input', { type: 'range', min, max, step: key === 'alpha' ? 0.01 : 1, value: shadow[key] ?? (key === 'alpha' ? 0.3 : 0) });
-          const out = h('output', { class: 'mono' }, fmt(Number(input.value)));
-          input.addEventListener('input', () => { out.textContent = fmt(Number(input.value)); ed.setLayer(current(layer), { shadow: { ...current(layer).shadow, [key]: Number(input.value) } }, { key: `shadow:${key}:${layer.id}` }); });
-          return h('div', { class: 'row shadow-row' }, h('span', null, label), input, out);
-        };
-        const color = h('input', { type: 'color', value: (shadow.color ?? '#000000').slice(0, 7) });
-        color.addEventListener('input', () => ed.setLayer(current(layer), { shadow: { ...current(layer).shadow, color: color.value } }, { key: `shadow:color:${layer.id}` }));
-        wrap.append(h('div', { class: 'row' }, h('span', { class: 'label' }, 'Colour'), color),
-          slider('Strength', 'alpha', 0, 1, (v) => `${Math.round(v * 100)}%`), slider('Blur', 'blur', 0, 200), slider('Drop', 'dy', -100, 200));
-      }
-    }
+    wrap.append(shadowFields(ed,layer,()=>current(layer)));
     return wrap;
   }
 
@@ -305,43 +290,10 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
         Object.keys(variants).filter((id) => id !== locale.id).length ? h('div', { class: 'hint' }, `Other language versions: ${Object.keys(variants).filter((id) => id !== locale.id).join(', ')}`) : null));
   }
 
-  function shapeFields(layer) {
-    const gradient = layer.gradient;
-    const set = (patch, o) => ed.setLayer(current(layer), patch, o);
-    const color = (value, onInput, key) => {
-      const input = h('input', { type: 'color', value: (value ?? '#ffffff').slice(0, 7) });
-      input.addEventListener('input', () => onInput(input.value));
-      return input;
-    };
-    const slider = (label, value, min, max, step, onInput, fmt = (v) => v) => {
-      const input = h('input', { type: 'range', min, max, step, value });
-      const out = h('output', { class: 'mono' }, fmt(Number(value)));
-      input.addEventListener('input', () => { out.textContent = fmt(Number(input.value)); onInput(Number(input.value)); });
-      return h('div', { class: 'row shadow-row' }, h('span', null, label), input, out);
-    };
-    const b = layer._box ?? { w: 400, h: 400 };
-    const fills = gradient
-      ? [
-        h('div', { class: 'row' }, selectInput({ options: [['linear', 'Linear'], ['radial', 'Radial (glow)']], value: gradient.type ?? 'linear', onChange: (v) => set({ gradient: { ...current(layer).gradient, type: v } }, { rebuild: true }) })),
-        h('div', { class: 'row' }, h('span', { class: 'label' }, 'From'), color(gradient.from, (v) => set({ gradient: { ...current(layer).gradient, from: v } }, { key: `grad:${layer.id}` })),
-          h('span', { class: 'label' }, 'To'), color(gradient.to, (v) => set({ gradient: { ...current(layer).gradient, to: v } }, { key: `grad:${layer.id}` }))),
-        slider('Start opacity', gradient.fromAlpha ?? 1, 0, 1, 0.01, (v) => set({ gradient: { ...current(layer).gradient, fromAlpha: v } }, { key: `grad:${layer.id}` }), (v) => `${Math.round(v * 100)}%`),
-        slider('End opacity', gradient.toAlpha ?? 0, 0, 1, 0.01, (v) => set({ gradient: { ...current(layer).gradient, toAlpha: v } }, { key: `grad:${layer.id}` }), (v) => `${Math.round(v * 100)}%`),
-        gradient.type !== 'radial' ? slider('Angle', gradient.angle ?? 180, 0, 360, 1, (v) => set({ gradient: { ...current(layer).gradient, angle: v } }, { key: `grad:${layer.id}` }), (v) => `${v}°`) : null,
-      ]
-      : [h('div', { class: 'row' }, h('span', { class: 'label' }, 'Colour'), color(layer.fill, (v) => set({ fill: v }, { key: `fill:${layer.id}` })))];
-    return h('div', { class: 'field' }, h('label', null, 'Shape'),
-      segmented({ options: [['rect', 'Rectangle'], ['ellipse', 'Ellipse']], value: layer.shape ?? 'rect', onChange: (v) => set({ shape: v }, { rebuild: true }) }),
-      segmented({ options: [['solid', 'Solid'], ['gradient', 'Gradient']], value: gradient ? 'gradient' : 'solid', onChange: (v) => set(v === 'gradient' ? { gradient: { type: 'linear', from: layer.fill ?? '#ffffff', to: layer.fill ?? '#ffffff', fromAlpha: 0.9, toAlpha: 0, angle: 180 } } : { gradient: undefined }, { rebuild: true }) }),
-      ...fills,
-      !gradient ? paletteSwatches(ed, fill => set({ fill }, { rebuild: true })) : null,
-      (layer.shape ?? 'rect') === 'rect' ? slider('Corner radius', layer.radius ?? 0, 0, Math.round(Math.min(b.w, b.h) / 2), 1, (v) => set({ radius: v || undefined }, { key: `radius:${layer.id}` }), (v) => `${Math.round(v)}px`) : null,
-      slider('Outline', layer.stroke?.width ?? 0, 0, 60, 1, (v) => set({ stroke: v ? { color: current(layer).stroke?.color ?? '#ffffff', width: v } : undefined }, { key: `stroke:${layer.id}` }), (v) => `${v}px`),
-      layer.stroke?.width ? h('div', { class: 'row' }, h('span', { class: 'label' }, 'Outline colour'), color(layer.stroke.color, (v) => set({ stroke: { ...current(layer).stroke, color: v } }, { key: `stroke:${layer.id}` }))) : null);
-  }
+  function shapeFields(layer) { return visualShapeFields(ed,layer); }
 
   function textFields(layer) {
-    const set = (patch, o) => ed.setLayer(current(layer), patch, o);
+    const set = (patch, o) => ed.setLayer(current(layer), { ...patch, ...(Object.hasOwn(patch,'color')?{textPaint:undefined}:{}) }, o);
     const lineLimit = numberInput({ value: layer.maxLines ?? 99, min: 0, step: 1, width: 64, title: 'Maximum number of lines. Set 0 for unlimited.', onChange: v => {
       if (!Number.isInteger(v) || v < 0) { lineLimit.value = current(layer).maxLines ?? 99; return; }
       set({ maxLines: v });
@@ -362,9 +314,10 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
         const fresh = current(layer);
         set(v === 'frame' ? { textFit: 'frame', boxHeight: fresh.boxHeight ?? fresh._box?.h ?? fresh.size ?? 100 } : { textFit: undefined }, { rebuild: true });
       } })),
-      layer.textFit === 'frame' ? h('div', { class: 'hint' }, 'Text grows or shrinks to fit the frame. Enter keeps a line break. Resize the frame to change the text size.') : slider('Max size', Math.round(layer.size ?? 100), 24, 400, 1, (v) => set({ size: v }, { key: `size:${layer.id}` }), (v) => `${v}px`),
+      layer.textFit === 'frame' ? h('div', { class: 'hint' }, 'Text grows or shrinks to fit the frame. Enter keeps a line break. Resize the frame to change the text size.') : slider('Max size', Math.round(layer.size ?? 100), 1, Math.max(400,Math.ceil(layer.size??100)), 1, (v) => set({ size: v }, { key: `size:${layer.id}` }), (v) => `${v}px`),
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Weight'),
-        selectInput({ options: [[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Heavy']], value: layer.weight ?? 700, onChange: (v) => set({ weight: Number(v) }) })),
+        selectInput({ options: [[100,'Thin'],[200,'Extra light'],[300,'Light'],[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Heavy'],[900,'Black']], value: layer.weight ?? 700, onChange: (v) => set({ weight: Number(v) }) })),
+      layer.figmaText?h('div',{class:'row'},h('label',{class:'check'},h('input',{type:'checkbox',checked:layer.figmaText.italic,onChange:e=>set({figmaText:{...current(layer).figmaText,italic:e.target.checked}})}),'Italic'),h('label',null,'Letter spacing ',numberInput({value:layer.figmaText.letterSpacing??0,step:.1,onChange:v=>set({figmaText:{...current(layer).figmaText,letterSpacing:v}})}))):null,
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Align'), iconChoices({ label: 'Text alignment', options: [['start', scene.locale?.dir === 'rtl' ? 'text.alignright' : 'text.alignleft', 'Align to language start'], ['center', 'text.aligncenter', 'Centre text'], ['end', scene.locale?.dir === 'rtl' ? 'text.alignleft' : 'text.alignright', 'Align to language end']], value: layer.align ?? 'start', onChange: (v) => set({ align: v }) })),
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Colour'), color, layer.color ? h('button', { class: 'btn small', onClick: () => set({ color: undefined }, { rebuild: true }) }, 'Slide colour') : h('span', { class: 'hint' }, 'follows the slide')),
       paletteSwatches(ed, colour => set({ color: colour }, { rebuild: true })),

@@ -6,8 +6,8 @@ export function isTextEditing(element) {
 
 export const SHORTCUTS = [
   ['Project', [['⌘N', 'New project'], ['⌘O', 'Open project'], ['⌘S', 'Save now'], ['⇧⌘S', 'Save as .sss'], ['⌘E', 'Export'], ['⇧⌘M', 'Media library'], ['?', 'Show shortcuts']]],
-  ['Create', [['T', 'Text layer'], ['R', 'Rectangle'], ['O', 'Ellipse'], ['D', 'Device'], ['I', 'Image from media']]],
-  ['Layers', [['↵ / F2', 'Rename selected layer'], ['Arrows', 'Move 1 px'], ['⇧ Arrows', 'Move 10 px'], ['⌘C / ⌘V', 'Copy / paste selected objects'], ['⌘D', 'Duplicate'], ['Delete', 'Delete'], ['⌥↓ / ⌥↑', 'Send backward / bring forward'], ['⇧⌥↓ / ⇧⌥↑', 'Send to back / bring to front'], ['⌘G / ⇧⌘G', 'Group / ungroup'], ['⇧⌘L', 'Lock / unlock'], ['⇧⌘H', 'Hide / show'], ['⌘A', 'Select all unlocked layers'], ['Esc', 'Deselect / cancel drag']]],
+  ['Tools', [['V', 'Select / move'], ['A', 'Edit vector points'], ['B', 'Bend path segments'], ['R', 'Draw rectangle'], ['O', 'Draw ellipse / circle'], ['L', 'Draw line'], ['P', 'Pen / vector'], ['T', 'Text layer'], ['D', 'Device'], ['I', 'Image from media'], ['X', 'Choose fill / outline'], ['⇧X', 'Swap fill and outline'], ['/', 'No colour for active paint']]],
+  ['Layers', [['↵ / F2', 'Edit vector points / rename layer'], ['Arrows', 'Move 1 px'], ['⇧ Arrows', 'Move 10 px'], ['⌘C / ⌘V', 'Copy / paste selected objects'], ['⌘D', 'Duplicate'], ['Delete', 'Delete'], ['⌥↓ / ⌥↑', 'Send backward / bring forward'], ['⇧⌥↓ / ⇧⌥↑', 'Send to back / bring to front'], ['⌘G / ⇧⌘G', 'Group / ungroup'], ['⇧⌘L', 'Lock / unlock'], ['⇧⌘H', 'Hide / show'], ['⌘A', 'Select all unlocked layers'], ['Esc', 'Deselect / cancel drag']]],
   ['Navigate', [['[ / ]', 'Previous / next language'], ['1–9', 'Choose canvas'], ['↑ / ↓', 'Previous / next slide, with no layer selected'], ['Pinch', 'Zoom around the pointer'], ['Two-finger scroll', 'Pan the canvas'], ['0', 'Fit canvas'], ['− / +', 'Zoom out / in'], ['⌘Z / ⇧⌘Z', 'Undo / redo']]],
 ];
 

@@ -1,0 +1,44 @@
+import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import http from 'node:http';import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {createStudioService} from '../host/service.mjs';import {createProjectPackage} from '../host/new-project.mjs';import {starterProject} from '../app/js/onboarding.js';import {convertFigmaFrame} from '../app/js/figma-layout.js';import {runBrowserTest} from './browser-test-runner.mjs';
+const root=fileURLToPath(new URL('../',import.meta.url)),temp=fs.mkdtempSync(path.join(os.tmpdir(),'studio-vector-ui-')),appPath=path.join(temp,'app'),projectPath=path.join(temp,'Vectors.sss');
+const data=starterProject({});data.project.devices.iphone.size=[600,600];data.project.slides[0].name='Editable imported vector';const imported=convertFigmaFrame({id:'1:1',type:'FRAME',name:'Test',size:{x:600,y:600},children:[{id:'1:2',name:'Imported curve',type:'VECTOR',size:{x:600,y:600},relativeTransform:[[1,0,0],[0,1,0]],fillGeometry:[{path:'M100 150C170 50 380 100 440 200L420 400L150 430Z'}],fills:[{type:'GRADIENT_LINEAR',gradientHandlePositions:[{x:0,y:.5},{x:1,y:.5},{x:0,y:1.5}],gradientStops:[{position:0,color:{r:.93,g:.13,b:.33,a:1}},{position:.4,color:{r:.47,g:.2,b:.93,a:1}},{position:1,color:{r:.27,g:.8,b:1,a:1}}]}]}]});imported.layers[0].stroke={color:'#112233',width:4};imported.layers[0].name='Imported curve';data.project.slides[0].layouts.iphone.layers=imported.layers;
+let service,server;
+try{
+ fs.cpSync(path.join(root,'app'),appPath,{recursive:true});createProjectPackage(projectPath,()=>data);
+ if(process.env.VECTOR_NATIVE_FIXTURE){createProjectPackage(process.env.VECTOR_NATIVE_FIXTURE,()=>data);console.log('Native fixture created.');}
+ fs.writeFileSync(path.join(appPath,'vector-test.html'),'<!doctype html><link rel="stylesheet" href="/app/css/studio.css"><div id="root"></div><pre id="result">PENDING</pre><script type="module" src="/app/vector-test.js"></script>');
+ fs.writeFileSync(path.join(appPath,'vector-test.js'),`
+ const out=document.querySelector('#result'),check=(v,m)=>{if(!v)throw Error(m)},button=text=>[...document.querySelectorAll('button')].reverse().find(b=>b.textContent.trim()===text),q=s=>document.querySelector(s);
+ const tick=()=>new Promise(r=>setTimeout(r,120));const wait=async f=>{for(let i=0;i<100;i++){if(f())return;await tick();}throw Error('Timed out: '+document.body.textContent);};
+ try{
+  const store=await import('/app/js/store.js'),{engine,state,loadAll,flushSaves,undo,redo}=store,{mountStudio}=await import('/app/js/ui.js');
+  await loadAll();state.ui.locale='en-US';state.ui.device='iphone';state.ui.slideId=engine.project.slides[0].id;state.ui.view='editor';state.ui.allScreens=false;state.ui.tab='details';mountStudio(q('#root'));await wait(()=>button('Imported curve'));
+  const stored=()=>engine.project.slides[0].layouts.iphone.layers[0],original=JSON.stringify(stored()),path=()=>stored().paths[0].d;
+  button('Imported curve').click();await wait(()=>button('Edit points'));check(!q('[data-section="vector-code"]').open,'SVG code is hidden by default');
+  button('Edit points').click();await wait(()=>q('[aria-label="Point 1 · path 1"]'));check(q('[aria-label="Vector points"]'),'Point toolbar visible');
+  const overlay=q('.overlay');overlay.setPointerCapture=()=>{};overlay.releasePointerCapture=()=>{};
+  const send=(el,type,x,y)=>el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:y}));
+  const drag=(selector,dx,dy)=>{const el=q(selector),r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;send(el,'pointerdown',x,y);send(overlay,'pointermove',x+dx,y+dy);send(overlay,'pointerup',x+dx,y+dy);};
+  const before=path();drag('[aria-label="Point 1 · path 1"]',32,20);check(path()!==before,'Dragging canvas anchor changes native path');await flushSaves();await tick();
+  const afterAnchor=path();check(q('[aria-label="Outgoing curve handle"]'),'Selected anchor exposes real curve handles');drag('[aria-label="Outgoing curve handle"]',15,-25);check(path()!==afterAnchor,'Dragging curve handle changes curve');await tick();
+  const curve=path();button('Corner').click();check(path()!==curve,'Corner collapses attached handles');button('Smooth').click();check(path()!==curve,'Smooth recomputes adjacent handles');check(q('[aria-label="Vector points"]'),'Toolbar click stays in point editing');
+  const {parseVectorPath,vectorAnchors,vectorSegments,segmentPoint,vectorToScene}=await import('/app/js/vector-path.js');
+  let resolved=engine.scene(state.ui.slideId,'iphone','en-US').layers.find(l=>l.id===stored().id),commands=parseVectorPath(path()),count=vectorAnchors(commands).length,segment=vectorSegments(commands).find(s=>s.cmd==='L'),p=vectorToScene(resolved,segmentPoint(segment,.5)),r=overlay.getBoundingClientRect(),scale=r.width/600;
+  overlay.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,clientX:r.left+p[0]*scale,clientY:r.top+p[1]*scale}));check(vectorAnchors(parseVectorPath(path())).length===count+1,'Double-click edge adds a point');
+  button('Delete point').click();check(vectorAnchors(parseVectorPath(path())).length===count,'Delete point removes anchor without deleting vector');
+  button('Done').click();check(!q('[aria-label="Vector points"]'),'Done exits mode');
+  const change=(label,value)=>{const el=q('[aria-label="'+label+'"]');check(el,'Missing '+label);el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
+  check(stored().paints[0].stops.length===3,'Imported multistop gradient retained');change('Stop 2 position',55);check(stored().paints[0].stops[1].position===.55,'Gradient stop position updates');change('Stop 2 opacity',60);check(stored().paints[0].stops[1].color.endsWith('99'),'Gradient opacity updates');
+  button('Add colour').click();await tick();check(stored().paints[0].stops.length===4,'Add colour adds a gradient stop');
+  button('Edit gradient on canvas').click();await wait(()=>q('[aria-label="Gradient end"]'));const handles=JSON.stringify(stored().paints[0].handles);drag('[aria-label="Gradient end"]',-35,28);check(JSON.stringify(stored().paints[0].handles)!==handles,'Canvas gradient handle changes gradient');await tick();button('Done').click();
+  change('Outline width',12);change('Outline alignment','inside');check(stored().stroke.width===12&&stored().stroke.align==='inside','Ordinary outline controls update native stroke: '+JSON.stringify(stored().stroke)+' pathSize '+JSON.stringify(stored().pathSize)+' w '+stored().w);change('Layer blur pixels',14);check(stored().blur===14,'Numeric blur updates layer');const blur=q('[aria-label="Layer blur"]');blur.value=23;blur.dispatchEvent(new Event('input',{bubbles:true}));check(stored().blur===23,'Blur slider updates layer');
+  await flushSaves();const final=JSON.stringify(stored());check(final!==original,'Real edits stored');const reopened=await store.api('/api/project');check(JSON.stringify(reopened.studio.slides[0].layouts.iphone.layers[0])===final,'Save/reopen preserves editable geometry and paints');
+  undo();await flushSaves();check(stored().blur===undefined,'Undo returns to the original blur');redo();await flushSaves();check(stored().blur===23,'Redo restores blur');
+  const {Engine}=await import('/app/js/render.js'),render=async eng=>{const canvas=document.createElement('canvas');await eng.render(canvas,eng.scene(state.ui.slideId,'iphone','en-US'),{scale:1});return canvas.toDataURL();},reloaded=new Engine();reloaded.setData(await store.api('/api/project'));check(await render(engine)===await render(reloaded),'Reopened document renders identical pixels');
+  out.textContent='PASS: imported vector anchor/curve-handle drags, corner/smooth, edge insertion, point deletion, gradient stop/opacity/add/canvas handles, outline, blur slider, Undo/Redo and identical saved/reopened pixels';
+ }catch(e){out.textContent='FAIL: '+e.stack;}
+ `);
+ service=createStudioService({appPath,projectPath,exportPath:path.join(temp,'export')});server=http.createServer((req,res)=>service.handle(req,res,server.address().port));await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const {stdout}=await runBrowserTest('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless','--disable-gpu','--no-sandbox',`--user-data-dir=${path.join(temp,'chrome')}`,'--window-size=1600,1100',`http://127.0.0.1:${server.address().port}/app/vector-test.html`],{timeout:40000});fs.writeFileSync('/tmp/studio-vector-ui-dom.html',stdout);const verdict=stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1]??'No result';assert.match(verdict,/^PASS:/,verdict);console.log(verdict);
+}finally{server?.closeAllConnections();await new Promise(r=>server?server.close(r):r());service?.close();fs.rmSync(temp,{recursive:true,force:true});}

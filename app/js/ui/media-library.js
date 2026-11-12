@@ -115,5 +115,6 @@ export function openMediaLibrary({ kind = 'all', pick = null, localeId = state.u
     body.addEventListener('drop', e => { if (filter === 'frames') return; e.preventDefault(); void importFiles(imageFilesOf(e.dataTransfer.files)); });
     const m = modal({ title, body, wide: true, onClose: () => finish(null), actions: [h('button', { class: 'btn', onClick: () => finish(null) }, pick ? 'Cancel' : 'Done')] });
     buildControls(); buildGrid();
+    search.focus({preventScroll:true});
   });
 }

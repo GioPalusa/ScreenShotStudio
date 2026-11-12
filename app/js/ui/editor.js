@@ -7,6 +7,7 @@ import { addStoreImages } from '../store-images.js';
 import { moveScreen, renameScreen } from './slide-actions.js';
 import { editLayerTag } from './layer-tag.js';
 import { adjacentSlides, neighborPreferences } from '../preview-context.js';
+import { pasteDesignText,pasteSVGDesign,pasteFigmaClipboard } from './paste-design.js';
 import { creationShortcut, isTextEditing } from '../shortcuts.js';
 import { snapshotLayer, transferLayer, removeConnectedFragments, containTextSource, screenScopeFor, screenTileForLayer, encodeLayerClipboard, decodeLayerClipboard, pasteLayerClipboard, LAYER_CLIPBOARD_MIME } from '../layer-transfer.js';
 import { deviceForLayer } from '../profiles.js';
@@ -98,7 +99,8 @@ export function createEditor(ctx) {
   const opacityControl = h('label', { class: 'neighbor-opacity' }, neighborOpacity, opacityValue);
   const neighborControls = h('span', { class: 'neighbor-controls' }, neighborToggle, opacityControl);
   const orientationControl = h('span');
-  const stage = h('section', { class: 'stage' }, h('div', { class: 'stage-bar' }, titleEl, metaEl, h('span', { class: 'spacer' }), chipsEl, neighborControls, orientationControl, zoom, h('span', { class: 'row' }, undoBtn, redoBtn)), stageCanvas);
+  const stageWorkspace=h('div',{class:'stage-workspace'},stageCanvas);
+  const stage = h('section', { class: 'stage' }, h('div', { class: 'stage-bar' }, titleEl, metaEl, h('span', { class: 'spacer' }), chipsEl, neighborControls, orientationControl, zoom, h('span', { class: 'row' }, undoBtn, redoBtn)), stageWorkspace);
   const inspector = h('aside', { class: 'inspector' });
   const el = h('div', { class: 'editor' }, rail, stage, inspector);
 
@@ -210,11 +212,11 @@ export function createEditor(ctx) {
       ed.selectedIds = new Set(ids); ed.selectedId = ids.at(-1);
       changedLocales.forEach(locale => saveCopy(locale)); saveStudio(); ed.refresh({ immediate: true, inspector: true, rail: true });
     },
-    writePatch(layer, patch) {
+    writePatch(layer, patch, {preserveScope=false}={}) {
       const alias = layerAliases.get(layer.id);
       const source = alias && sharedBlock(engine.project, state.ui.device).layers?.find(l => sharedLayerId(l.id) === alias);
       layer = source ? { ...layer, id: alias, _sharedId: source.id, _offsetX: state.ui.allScreens ? 0 : layer._offsetX } : ed.layerById(layer.id) ?? layer;
-      if (state.ui.allScreens && !layer._sharedId && ed.screenScope(layer) && ['cx', 'cy', 'x', 'top', 'capTop', 'baseline', 'w', 'h', 'rotate', 'decorationBox'].some(key => key in patch)) layer = ed.shareLayer(layer);
+      if (!preserveScope && state.ui.allScreens && !layer._sharedId && ed.screenScope(layer) && ['cx', 'cy', 'x', 'top', 'capTop', 'baseline', 'w', 'h', 'rotate', 'decorationBox'].some(key => key in patch)) layer = ed.shareLayer(layer);
       if (layer._sharedId) { patchSharedLayer(engine.project, state.ui.device, layer, patch); return; }
       const target = ed.sourceFor(layer);
       const local = offsetLayer(patch, -(layer._offsetX ?? 0));
@@ -318,6 +320,12 @@ export function createEditor(ctx) {
     },
     // ----- editing layers
     startEdit(key) { checkpoint(key); return ed.block(); },
+    applyVector(layer,patch){ed.writePatch(layer,patch,{preserveScope:true});livePaint();drawNeighbors();},
+    cancelEdit(){undo();},
+    editVector(layer){stageApi.vectorEditor.enter(layer);},
+    editGradient(layer,index){stageApi.vectorEditor.enter(layer,index);},
+    isVectorEditing(id){return stageApi.vectorEditor.isEditing(id);},
+    isGradientEditing(id,index){return stageApi.vectorEditor.isGradient(id,index);},
     /** Write a layer's geometry and repaint immediately (used while dragging and typing numbers). */
     applyBox(layer, box, opts) {
       const patch = geometryPatch(layer, box, opts);
@@ -373,6 +381,13 @@ export function createEditor(ctx) {
       saveStudio();
       ed.refresh({ immediate: true, inspector: rebuild, rail: Boolean(layer.seriesLayer) });
     },
+    setLayerPaints(edits, key) {
+      if (!edits.length) return;
+      checkpoint(key);
+      for (const {layer, patch} of edits) ed.writePatch(layer, patch);
+      saveStudio();
+      ed.refresh({ immediate: true, inspector: true, rail: true });
+    },
     /** Change the stacking order: `fn(block)` does the moving. */
     restack(fn) {
       checkpoint();
@@ -397,8 +412,8 @@ export function createEditor(ctx) {
       const tile = state.ui.allScreens ? sharedGeometry(engine.project, state.ui.device, state.ui.locale).tiles[0] : null;
       const layer = makeLayer(kind, { cls: scene.cls, W: tile?.W ?? scene.W, H: tile?.H ?? scene.H, id, ...extra });
       if (tile) {
-        if (Number.isFinite(layer.cx)) layer.cx = scene.W / 2;
-        if (Number.isFinite(layer.x)) layer.x = scene.W / 2 - layer.w / 2;
+        if (Number.isFinite(layer.cx)&&!Number.isFinite(extra.cx)) layer.cx = scene.W / 2;
+        if (Number.isFinite(layer.x)&&!Number.isFinite(extra.x)) layer.x = scene.W / 2 - layer.w / 2;
         layer.allowCrop = true;
         if (layer.type === 'device') { layer.frame = structuredClone(engine.project.devices[state.ui.device].frame ?? { type: 'plain', screen: [...engine.project.devices[state.ui.device].size] }); }
         if (layer.type === 'text') { layer.color = scene.theme.ink; layer.copySlideId = currentSlide().id; layer.field = uniqueId([...Object.values(engine.data.copy).flatMap(doc => Object.keys(doc[currentSlide().id] ?? {})), ...(ed.block().layers ?? []).map(l => l.field)], `shared-${layer.field}`); }
@@ -416,12 +431,17 @@ export function createEditor(ctx) {
       const picked = [];
       if (files) {
         for (const file of files) {
+          if(file.type==='image/svg+xml'||/\.svg$/i.test(file.name??'')){
+            const project=engine.project;
+            await pasteSVGDesign(ed,await file.text(),()=>el.isConnected&&engine.project===project&&started.slideId===state.ui.slideId&&started.deviceId===state.ui.device);continue;
+          }
           try { const info = await readImageInfo(file); const res = await uploadAsset(file); picked.push({ file: res.file, width: info.width, height: info.height }); }
           catch (err) { toast(`Could not add ${file.name}: ${err.message}`, { error: true }); }
         }
       } else {
         const one = await openImagePicker({ title: 'Add an image' });
-        if (one) picked.push(one);
+        if(one&&/\.svg$/i.test(one.file)){const project=engine.project;await pasteSVGDesign(ed,await(await fetch(engine.assetUrl('art',one.file))).text(),()=>el.isConnected&&engine.project===project&&started.slideId===state.ui.slideId&&started.deviceId===state.ui.device);}
+        else if (one) picked.push(one);
       }
       if (!picked.length) return;
       if (started.allScreens !== state.ui.allScreens || started.locale !== state.ui.locale || started.scope !== ed.localeScope() || started.slideId !== state.ui.slideId || started.deviceId !== state.ui.device || started.template !== ed.editTemplateId) {
@@ -545,6 +565,7 @@ export function createEditor(ctx) {
   stageCanvas.addEventListener('pointerup', () => { pan = null; });
   stageCanvas.addEventListener('pointercancel', () => { pan = null; });
   const stageApi = createStage(ed);
+  stageWorkspace.prepend(stageApi.drawing.toolbar);
   stageCanvas.addEventListener('wheel', e => {
     if (!currentSlide() || !ed.stageWidth) return;
     e.preventDefault();
@@ -1060,10 +1081,16 @@ export function createEditor(ctx) {
       result.changedLocales.forEach(locale => saveCopy(locale)); saveStudio();
       ed.refresh({ immediate: true, inspector: true, rail: true }); return;
     }
+    const svg=e.clipboardData?.getData('image/svg+xml') || payload;
+    const clipboardProject=engine.project;
+    const target={slide:state.ui.slideId,device:state.ui.device,locale:state.ui.locale,all:state.ui.allScreens};
+    const html=e.clipboardData?.getData('text/html');
+    if(html?.includes('(figma)')){e.preventDefault();pasteFigmaClipboard(ed,html,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens);return;}
+    if(pasteDesignText(ed,svg,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens)){e.preventDefault();return;}
     const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
     if (!item) return;
     e.preventDefault();
-    if (state.ui.allScreens) ed.addImage([item.getAsFile()]); else applyCapture(ed, item.getAsFile());
+    ed.addImage([item.getAsFile()]);
   });
 
   // ---------------------------------------------------------------------------------------------
@@ -1142,7 +1169,11 @@ export function createEditor(ctx) {
     if (!el.isConnected) return false;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+    if(e.key==='Escape'&&stageApi.objectDragging){e.preventDefault();stageApi.cancelDrag();doUndo();return true;}
+    if(stageApi.drawing.key(e))return true;
     if (mod && key === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return true; }
+    if(stageApi.vectorEditor.key(e))return true;
+    if(!mod&&e.key==='Enter'&&!e.altKey&&ed.layerById(ed.selectedId)?.shape==='path'&&!stageApi.vectorEditor.active){e.preventDefault();ed.editVector(ed.layerById(ed.selectedId));return true;}
     if (mod && key === 'a') { e.preventDefault(); ed.selectedIds = new Set(ed.scene?.layers.filter(l => l._box && !l.locked).map(l => l.id)); ed.selectedId = [...ed.selectedIds].at(-1) ?? null; ed.setTab('layers'); stageApi.render(); return true; }
     if (mod && key === 'g') { e.preventDefault(); ed.groupSelection(e.shiftKey); return true; }
     if (mod && key === 'y') { e.preventDefault(); doRedo(); return true; }

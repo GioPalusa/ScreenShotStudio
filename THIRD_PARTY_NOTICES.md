@@ -7,3 +7,5 @@ Electron and its bundled components retain their upstream licenses and notices. 
 Apple Design Resources, imported device bezels, user screenshots and locally installed fonts are not licensed by this repository. Apple artwork and user projects are excluded from public source and application packages. Users obtain and accept any applicable terms themselves. System font references do not bundle font files.
 
 The interface uses original SVG icons rather than redistributed Apple system-symbol PNGs.
+
+The compact drawing toolbar uses Lucide icons (ISC license), copyright Lucide Icons and Contributors. Icon assets and their license are bundled in `app/icons/lucide/`. Text and image actions use the existing original SVG interface icons. Source: https://github.com/lucide-icons/lucide.

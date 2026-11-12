@@ -1,6 +1,6 @@
 import { h } from './helpers.js';
 
-// Original MIT-licensed SVG masks; they follow the current UI colour.
+// SVG masks follow the current UI colour; icon licenses are in THIRD_PARTY_NOTICES.md.
 export const icon = name => h('span', { class: 'sf-symbol', 'aria-hidden': 'true', style: { maskImage: `url("/app/icons/${name}.svg")` } });
 export function iconButton(name, label, onClick, props = {}) {
   return h('button', { class: 'symbol-button', title: label, 'aria-label': label, onClick, ...props }, icon(name));

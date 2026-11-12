@@ -1,3 +1,6 @@
+import {createCornerEditor} from './corner-editor.js';
+import {createDrawingTools} from './drawing-tools.js';
+import { createVectorEditor } from './vector-editor.js';
 // Direct manipulation on the preview: click to select, drag to move, handles to resize, a knob to rotate,
 // guides that snap to the canvas and to other layers, arrow keys to nudge.
 //
@@ -115,6 +118,11 @@ export function createStage(ed) {
     return { x: (e.clientX - r.left) / k(), y: (e.clientY - r.top) / k() };
   };
 
+  const vectorEditor=createVectorEditor(ed,{scale:k,point:design,redraw:()=>render()});
+  const drawing=createDrawingTools(ed,{scale:k,point:design,redraw:()=>render(),hitTest:p=>hitTest(p),vectorEditor});
+
+  const corners=createCornerEditor(ed,{scale:k,point:design,redraw:()=>render(),direct:()=>drawing.tool==='points'||vectorEditor.active});
+
   function hitTest(p, { skip = 0 } = {}) {
     const hits = paintOrder(scene().layers).filter(l => selectable(l) && (l.type !== 'route' || l.id === ed.selectedId)).reverse().filter((l) => {
       if (l._clip && (p.x < l._clip.x || p.x > l._clip.x + l._clip.w || p.y < l._clip.y || p.y > l._clip.y + l._clip.h)) return false;
@@ -175,7 +183,11 @@ export function createStage(ed) {
   function render() {
     overlay.replaceChildren();
     const s = scene();
+    overlay.classList.remove('editing-vector');
     if (!s) return;
+    if(vectorEditor.render()){drawing.render();corners.render();return;}
+    if(drawing.render())return;
+    corners.render();
     const selected = s.layers.find((l) => l.id === ed.selectedId && l._box);
     const hovered = hoverId && hoverId !== ed.selectedId ? s.layers.find((l) => l.id === hoverId && l._box) : null;
     if (hovered && !drag) overlay.append(chrome(hovered, { selected: false }));
@@ -202,6 +214,9 @@ export function createStage(ed) {
   // ----- pointer handling
 
   function onPointerDown(e) {
+    if(corners.down(e))return;
+    if(vectorEditor.active&&vectorEditor.down(e))return;
+    if(drawing.down(e))return;
     if (e.button !== 0 || !scene()) return;
     const p = design(e);
     const handle = e.target.dataset?.handle;
@@ -234,6 +249,9 @@ export function createStage(ed) {
   }
 
   function onPointerMove(e) {
+    if(corners.move(e))return;
+    if(vectorEditor.active&&vectorEditor.move(e))return;
+    if(!drag&&drawing.move(e))return;
     if (!scene()) return;
     if (!drag) {
       const hit = e.buttons ? null : hitTest(design(e));
@@ -305,6 +323,9 @@ export function createStage(ed) {
   }
 
   function onPointerUp(e) {
+    if(corners.up(e))return;
+    if(vectorEditor.active&&vectorEditor.up(e))return;
+    if(!drag&&drawing.up(e))return;
     if (!drag) return;
     try { overlay.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     const wasActive = drag.active;
@@ -321,8 +342,10 @@ export function createStage(ed) {
   overlay.addEventListener('pointercancel', onPointerUp);
   overlay.addEventListener('pointerleave', () => { if (!drag && hoverId) { hoverId = null; render(); } });
   overlay.addEventListener('dblclick', (e) => {
+    if(drawing.double())return;
+    if(vectorEditor.double(e))return;
     const hit = hitTest(design(e));
-    if (hit) ed.openLayer(hit);
+    if (hit?.shape==='path'){ed.select(hit.id,{from:'stage',individual:true});vectorEditor.enter(hit);}else if(hit)ed.openLayer(hit);
   });
   overlay.addEventListener('contextmenu', e => {
     if (!scene()) return;
@@ -333,7 +356,9 @@ export function createStage(ed) {
   return {
     render,
     placeSelected,
-    get dragging() { return Boolean(drag?.active); },
+    vectorEditor,drawing,
+    get objectDragging(){return Boolean(drag?.active)||corners.active;},
+    get dragging() { return Boolean(drag?.active)||corners.dragging||vectorEditor.dragging||drawing.dragging; },
     /** Arrow-key nudge of the selected layer by (dx, dy) design pixels. */
     nudge(dx, dy) {
       const layer = ed.layerById(ed.selectedId);
@@ -343,6 +368,6 @@ export function createStage(ed) {
       ed.finishEdit({ quick: true });
       return true;
     },
-    cancelDrag() { drag = null; guides = []; readout = ''; render(); },
+    cancelDrag() { corners.cancelDrag();vectorEditor.cancelDrag();drag = null; guides = []; readout = ''; render(); },
   };
 }
