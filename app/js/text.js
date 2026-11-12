@@ -67,11 +67,11 @@ function balance(units, sep, maxWidth, targetLines, measure) {
 
 export const fontString = (weight, size, family) => `${weight} ${size}px ${family}`;
 
-function applyContext(ctx, { weight, size, family, lang, dir }) {
-  ctx.font = fontString(weight, size, family);
+function applyContext(ctx, { weight, size, family, lang, dir, italic = false, letterSpacing = 0 }) {
+  ctx.font = (italic ? 'italic ' : '')+fontString(weight, size, family);
   ctx.direction = dir;
   if ('lang' in ctx) ctx.lang = lang;
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${letterSpacing}px`;
   ctx.fontKerning = 'normal';
   ctx.textRendering = 'optimizeLegibility';
 }
@@ -109,7 +109,7 @@ export function layoutText(ctx, text, o) {
   const tokenized = items.map((item) => item.split('\n').map((segment) => tokenize(segment, lang)));
 
   const attempt = (size) => {
-    applyContext(ctx, { weight, size, family, lang, dir });
+    applyContext(ctx, { weight, size, family, lang, dir, italic:o.italic,letterSpacing:o.letterSpacing });
     const measure = (s) => ctx.measureText(s).width;
     const hang = marker ? measure(marker + ' ') : 0;
     const available = boxW - hang;
@@ -209,7 +209,7 @@ export function drawLines(ctx, layout, o) {
   blockLeft += rtl ? -dx : dx;
 
   ctx.save();
-  applyContext(ctx, { weight, size: layout.size, family, lang, dir });
+  applyContext(ctx, { weight, size: layout.size, family, lang, dir, italic:o.italic,letterSpacing:o.letterSpacing });
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = color;

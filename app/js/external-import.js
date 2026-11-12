@@ -1,7 +1,9 @@
 // Import adapters consume inert file data only. Framefile Ruby/configuration code is never run.
+import { mergeProjectFonts } from './project-fonts.js';
 import { uniqueId, slugify } from './layer-ops.js';
 import { addDevice } from './project-ops.js';
 import { canvasForSlide } from './canvas-orientation.js';
+import { scaleFigmaLayers } from './figma-layout.js';
 const basename = path => path.split('/').at(-1);
 const dirname = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
 const colour = value => /^#[0-9a-f]{3,8}$/i.test(value ?? '') ? value : '#171717';
@@ -23,6 +25,11 @@ export function parseStrings(text) {
 }
 const mergeConfig = (a, b) => ({ ...a, ...b, title: { ...a.title, ...b.title }, keyword: { ...a.keyword, ...b.keyword } });
 export function planExternalImport(files, { locales, localeId }) {
+  if (files.some(f => f.kind === 'figma-view')) {
+    if (files.some(f => f.kind !== 'figma-view')) throw new Error('Import Figma exports separately from other designs.');
+    return { rows: files.map(f => ({ path: f.path, name: f.name, file: f, locale: localeId, selected: true, kind: 'figma', layers: f.layers, group: f.path })),
+      warnings: ['Figma views retain their original size and stacking order. Each part is an image layer; text, vectors and device frames inside it are rendered pixels.', ...(files.some(f => f.flattened) ? ['Some views use one image to preserve masks, blending or effects.'] : [])] };
+  }
   const byPath = new Map(files.map(f => [importPath(f.path), f]));
   if (byPath.size !== files.length) throw new Error('Some selected files have the same path. Import their folder instead.');
   const configs = files.filter(f => basename(f.path).toLowerCase() === 'framefile.json').map(file => {
@@ -66,10 +73,11 @@ export function planExternalImport(files, { locales, localeId }) {
 }
 
 /** Build a complete edit first, then callers checkpoint and publish it once. Uploaded assets have unique names. */
-export function applyExternalImport(project, copy, rows, { canvasId = null, assets, captures = {} }) {
+export function applyExternalImport(project, copy, rows, { canvasId = null, assets, captures = {}, fonts = [] }) {
   if (!rows.length) throw new Error('Select at least one screenshot.');
   const next = structuredClone(project), texts = structuredClone(copy), groups = new Map(), newDevices = new Map(), destinations = new Set();
   const imported = [], locales = new Set(); let firstDevice;
+  if (fonts.length) { next.fonts ??= {}; next.fonts.files = mergeProjectFonts(next.fonts.files, fonts); }
   for (const row of rows) {
     if (!next.locales.some(l => l.id === row.locale)) throw new Error('An import language is no longer in this project.');
     let deviceId = canvasId;
@@ -100,7 +108,17 @@ export function applyExternalImport(project, copy, rows, { canvasId = null, asse
       return { id, type: 'art', name: id === 'imported-image' ? 'Imported design' : 'Background', src, cx: W / 2, cy: H / 2, w, h: cover ? H : w * file.height / file.width, aspect: file.width / file.height, ...(cover ? { fit: 'cover' } : {}) };
     };
     const layers = [];
-    if (row.kind === 'image') layers.push(image('imported-image', row.file));
+    if(row.kind==='figma-editable'){
+      layers.push(...scaleFigmaLayers(row.design,W,H,assets));
+      const doc=(texts[row.locale]??={});doc[slide.id]={...doc[slide.id],...row.design.texts};
+      if(Object.keys(row.design.texts).length){doc._meta={...doc._meta,status:'draft',needsReview:['*']};locales.add(row.locale);}
+    }else if (row.kind === 'figma') {
+      const scale = Math.min(W / size[0], H / size[1]);
+      for (const [i, entry] of row.layers.entries()) {
+        if (!assets[entry.path]) throw new Error('An imported Figma layer is missing.');
+        layers.push({ id: `figma-${i + 1}`, type: 'art', name: entry.name, src: assets[entry.path], cx: W / 2, cy: H / 2, w: size[0] * scale, h: size[1] * scale, aspect: size[0] / size[1] });
+      }
+    } else if (row.kind === 'image') layers.push(image('imported-image', row.file));
     else {
       if (row.background) layers.push(image('background', row.background, true));
       const hasText = row.title || row.keyword, below = row.config.title_below_image === true, pad = number(row.config.padding, W * .05, 0, W * .2);

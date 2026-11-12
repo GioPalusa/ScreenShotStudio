@@ -50,6 +50,7 @@ export function offsetLayer(layer, dx) {
   for (const key of ['cx', 'x']) if (Number.isFinite(out[key])) out[key] += dx;
   if (out.decorationBox) out.decorationBox = { ...out.decorationBox, x: out.decorationBox.x + dx };
   if (out._box) out._box = { ...out._box, x: out._box.x + dx };
+  if(out.compositing)out.compositing=out.compositing.map(s=>s.clip?{...s,clip:{...s.clip,matrix:s.clip.matrix.map((v,i)=>i===4?v+dx:v)}}:{...s});
   return out;
 }
 

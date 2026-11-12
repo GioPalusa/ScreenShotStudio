@@ -100,12 +100,15 @@ export function pasteLayerClipboard(data, { block, resolved, copy, slideIds, sha
   const taken = new Set([...resolved.map(l => l.id), ...(block.layers ?? []).map(l => l.id), ...Object.keys(block.overrides ?? {})]);
   const groupIds = new Set([...resolved, ...(block.layers ?? [])].map(l => l.group).filter(Boolean));
   const fields = new Set(Object.values(copy).flatMap(doc => slideIds.flatMap(id => Object.keys(doc[id] ?? {}))));
+  const originalIds=new Map(),scopeIds=new Set(resolved.flatMap(l=>(l.compositing??[]).map(s=>s.id))),scopeMap=new Map();
   for (const entry of data.entries) {
     const layer = offsetLayer(clone(entry.layer), dx);
     layer.id = uniqueId(taken, `${slugify(layer.id, layer.type)}-copy`); taken.add(layer.id);
+    originalIds.set(entry.layer.id,layer.id);
     if (layer.name) layer.name += ' copy';
     for (const key of ['cy', 'top', 'capTop', 'baseline']) if (Number.isFinite(layer[key])) layer[key] += dy;
     if (layer.decorationBox) layer.decorationBox.y += dy;
+    for(const scope of layer.compositing??[]){if(!scopeMap.has(scope.id)){const id=uniqueId(scopeIds,`${slugify(scope.id)}-copy`);scopeMap.set(scope.id,id);scopeIds.add(id);}scope.id=scopeMap.get(scope.id);if(scope.clip)scope.clip.matrix[5]+=dy;}
     delete layer.locked; delete layer.localeId; delete layer.copySlideId; delete layer.zOrder; delete layer.screenScope;
     if (layer.group) {
       if (!groups.has(layer.group)) { const group = uniqueId(groupIds, `${slugify(layer.group)}-copy`); groups.set(layer.group, group); groupIds.add(group); }
@@ -128,5 +131,6 @@ export function pasteLayerClipboard(data, { block, resolved, copy, slideIds, sha
     }
     layers.push(addLayer(block, layer, [...resolved, ...layers]));
   }
+  for(const layer of layers)if(layer.compositing)layer.compositing=layer.compositing.filter(s=>!s.maskId||originalIds.has(s.maskId)).map(s=>s.maskId?{...s,maskId:originalIds.get(s.maskId)}:s);
   return { layers, changedLocales: [...changedLocales] };
 }

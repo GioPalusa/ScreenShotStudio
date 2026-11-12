@@ -61,7 +61,7 @@ export function imageUsage(project, file) {
       if (block?.linkedLayout) scan({ layouts: { linked: block.linkedLayout } }, label);
       const layers = [...(block?.layers ?? []), ...Object.entries(block?.overrides ?? {}).filter(([, o]) => o && typeof o === 'object').map(([id, patch]) => ({ ...patch, id }))];
       for (const layer of layers) {
-        const srcs = [layer.src, ...Object.values(layer.variants ?? {})];
+        const srcs = [layer.src, ...Object.values(layer.variants ?? {}), ...(layer.paints ?? []).filter(p=>p.type==='image').map(p=>p.src)];
         if (srcs.includes(file) || srcs.includes(file.replace(/\.png$/, ''))) uses.push({ owner: label, deviceKey: key, layerId: layer.id });
       }
     }

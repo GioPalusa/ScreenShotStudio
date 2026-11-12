@@ -4,10 +4,16 @@ import crypto from 'node:crypto';
 import { starterProject } from '../app/js/onboarding.js';
 import { atomicWrite } from './files.mjs';
 import { isProjectFile } from '../app/js/project-file.js';
+import { validateDocument } from '../app/js/document.js';
 
 /** Publish a complete new document; replacement requires the native dialog's consent. */
 export function createNewProject(destination, options, { replace = false } = {}) {
   const { project, copy } = starterProject(options);
+  return createProjectPackage(destination, () => ({ project, copy }), { replace });
+}
+
+/** Prepare all document data and media in staging before publishing anything. */
+export function createProjectPackage(destination, prepare, { replace = false } = {}) {
   const checkDestination = () => {
     if (!fs.existsSync(destination)) return false;
     if (!replace) throw new Error('Existing projects are never overwritten.');
@@ -19,6 +25,8 @@ export function createNewProject(destination, options, { replace = false } = {})
   const staging = fs.mkdtempSync(path.join(path.dirname(destination), '.studio-new-'));
   let preserveStaging = false;
   try {
+    const { project, copy } = prepare(staging);
+    validateDocument(project);
     atomicWrite(path.join(staging, 'studio.json'), JSON.stringify(project, null, 2));
     for (const [locale, text] of Object.entries(copy)) atomicWrite(path.join(staging, 'copy', `${locale}.json`), JSON.stringify(text, null, 2));
     if (checkDestination()) {

@@ -1,3 +1,4 @@
+import { ProjectFonts } from './project-fonts.js';
 import { sharedGeometry, sharedLayers, offsetLayer, boxIntersects } from './shared-canvas.js';
 import { canvasForSlide } from './canvas-orientation.js';
 // The rendering engine. One code path produces the live preview, the thumbnails and the exported
@@ -21,12 +22,14 @@ import { composeBezel, composeDuo, composeAndroid, composeGeneric, composePlain,
 import { resolveLayers, paintOrder } from './layouts.js';
 import { frameKey, frameScreenSize, DEFAULT_FRAME } from './frames.js';
 import { analyzeFrameData } from './measure.js';
+import { drawNativeShape, paintLayerTree,nativePaintStyle } from './vector-render.js';
 
 const measureCanvas = document.createElement('canvas');
 const measureCtx = measureCanvas.getContext('2d');
 
-const KEEP_WARNINGS = new Set(['frame-missing', 'asset-missing']);
+const KEEP_WARNINGS = new Set(['frame-missing', 'asset-missing', 'font-missing']);
 const rad = (deg) => ((deg ?? 0) * Math.PI) / 180;
+
 
 /** "#rrggbb" + alpha -> "rgba(...)" */
 export function withAlpha(hex, alpha = 1) {
@@ -39,6 +42,7 @@ export function withAlpha(hex, alpha = 1) {
 export class Engine {
   constructor() {
     this.data = { studio: null, copy: {}, frames: {}, captures: {}, assets: { art: [] } };
+    this.projectFonts = new ProjectFonts();
     this.assetVersion = 0; this.projectURL = '/project';
     this.images = new Map();
     this.deviceCache = new Map(); // small LRU of composed device canvases
@@ -51,8 +55,14 @@ export class Engine {
 
   /** Forget cached images (called when files change on disk). */
   invalidate({ assets = true } = {}) {
+    this.projectFonts.retryFailed();
     if (assets) { this.assetVersion++; this.images.clear(); this.frameCache.clear(); }
     this.deviceCache.clear();
+  }
+
+  textFamily(layer, fonts) {
+    const original = layer.fontFamily || fonts.family || 'system-ui', family = this.projectFonts.family(original);
+    return family !== original || layer.figmaText ? `${family.includes(',') ? family : JSON.stringify(family)}, system-ui, sans-serif` : family;
   }
 
   get project() { return this.data.studio; }
@@ -226,8 +236,15 @@ export class Engine {
       scene.assets = {}; return scene.assets;
     }
     const assets = { captures: {}, frames: {}, art: {} };
+    const missingFonts = await this.projectFonts.prepare(this.project.fonts?.files, this.projectURL);
+    scene.fontFamilies = Object.fromEntries((this.project.fonts?.files ?? []).map(font => [font.family, this.projectFonts.family(font.family)]));
     scene.warnings = scene.warnings.filter((w) => !KEEP_WARNINGS.has(w.code));
+    for (const family of missingFonts.filter(family => scene.layers.some(layer => layer.type === 'text' && (layer.fontFamily || scene.fonts.family) === family))) scene.warnings.push({ level: 'error', code: 'font-missing', message: `Project font “${family}” could not be loaded. Add the font file again before exporting.` });
     for (const layer of scene.layers) {
+      for (const [i,paint] of (layer.paints ?? []).entries()) if (paint.type === 'image' && paint.src) {
+        assets.art[`${layer.id}:paint:${i}`] = await this.loadImage(this.assetUrl('art',paint.src));
+        if (!assets.art[`${layer.id}:paint:${i}`]) scene.warnings.push({level:'error',code:'asset-missing',layer:layer.id,message:`Image “${paint.src}” is missing (project/assets/art/)`});
+      }
       if (layer.type === 'device') {
         const ref = this.frameRefFor(scene.deviceDef, layer);
         const key = frameKey(ref);
@@ -289,15 +306,13 @@ export class Engine {
     }
 
     // pass 2: paint back to front
-    for (const l of paintOrder(layers)) {
-      ctx.save();
-      if (l.type === 'route') this.drawRoute(ctx, scene, l);
-      else if (l.type === 'art') this.drawArt(ctx, scene, l);
-      else if (l.type === 'shape') this.drawShape(ctx, scene, l);
-      else if (l.type === 'device') this.drawDevice(ctx, scene, l);
-      else if (l.type === 'text') this.drawTextLayer(ctx, scene, l);
-      ctx.restore();
-    }
+    paintLayerTree(ctx,scene,paintOrder(layers),(target,l)=>{
+      if (l.type === 'route') this.drawRoute(target, scene, l);
+      else if (l.type === 'art') this.drawArt(target, scene, l);
+      else if (l.type === 'shape') this.drawShape(target, scene, l);
+      else if (l.type === 'device') this.drawDevice(target, scene, l);
+      else if (l.type === 'text') this.drawTextLayer(target, scene, l);
+    },(target,shadow)=>this.applyShadow(target,scene,shadow));
     ctx.restore();
 
     // report
@@ -340,13 +355,13 @@ export class Engine {
 
   /** How much the English text had to shrink in this layer: the design's own baseline for "fits well". */
   englishShrink(layer, text, lineHeight) {
-    const key = JSON.stringify([text, layer.size, layer.minSize, layer.maxLines, layer.w, layer.weight, layer.lineHeight, layer.oneLine, layer.marker, layer.balanced, layer.maxHeight, layer.boxHeight, layer.fontFamily, layer.textFit]);
+    const key = JSON.stringify([text, layer.size, layer.minSize, layer.maxLines, layer.w, layer.weight, layer.lineHeight, layer.oneLine, layer.marker, layer.balanced, layer.maxHeight, layer.boxHeight, this.textFamily(layer, this.fontsFor('en-US')), layer.textFit]);
     this.baseCache ??= new Map();
     if (!this.baseCache.has(key)) {
       const fonts = this.fontsFor('en-US');
       const list = Array.isArray(text);
       const result = layoutText(measureCtx, text, {
-        family: layer.fontFamily || fonts.family, weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines, fitFrame: layer.textFit === 'frame',
+        family: this.textFamily(layer,fonts), weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines, fitFrame: layer.textFit === 'frame',italic:layer.figmaText?.italic,letterSpacing:layer.figmaText?.letterSpacing,
         boxW: layer.w, lang: 'en-US', dir: 'ltr', lineHeight, marker: list ? (layer.marker ?? '-') : (layer.marker ?? ''),
         itemGap: layer.itemGap ?? 0, balanced: layer.balanced !== false, oneLine: layer.oneLine ?? 0, maxHeight: layer.boxHeight ?? layer.maxHeight ?? Infinity, heightIncludesGlyphs: layer.boxHeight !== undefined,
       });
@@ -370,7 +385,7 @@ export class Engine {
       return;
     }
     const list = Array.isArray(copy.value);
-    const lineHeight = (layer.lineHeight ?? 1.2) * (fonts.lineHeight ?? 1);
+    const lineHeight = (layer.lineHeight ?? 1.2) * (layer.figmaText ? 1 : fonts.lineHeight ?? 1);
     // Placeholder copy uses its source language's line-breaking rules.
     const original = originalLocale(this.project);
     const originalCopy = this.data.copy[original]?.[layer.copySlideId ?? scene.slideId]?.[layer.field];
@@ -379,11 +394,12 @@ export class Engine {
     layer._lang = textLang;
     layer._dir = textLocale.dir ?? 'ltr';
     const layout = layoutText(measureCtx, copy.value, {
-      family: layer.fontFamily || fonts.family, weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines, fitFrame: layer.textFit === 'frame',
+      family: this.textFamily(layer,fonts), weight: layer.weight ?? 700, size: layer.size, minSize: layer.minSize, maxLines: layer.maxLines, fitFrame: layer.textFit === 'frame',
       boxW: layer.w, lang: textLang, dir: layer._dir, lineHeight,
+      italic:layer.figmaText?.italic,letterSpacing:layer.figmaText?.letterSpacing,
       marker: list ? (layer.marker ?? '-') : (layer.marker ?? ''), itemGap: layer.itemGap ?? 0, balanced: layer.balanced !== false, oneLine: layer.oneLine ?? 0, maxHeight: layer.boxHeight ?? layer.maxHeight ?? Infinity, heightIncludesGlyphs: layer.boxHeight !== undefined,
     });
-    const cap = capHeight(measureCtx, { weight: layer.weight ?? 700, size: layout.size, family: layer.fontFamily || fonts.family });
+    const cap = capHeight(measureCtx, { weight: layer.weight ?? 700, size: layout.size, family: this.textFamily(layer,fonts) });
     let firstBaseline;
     const fillFrame = layer.textFit === 'frame' && layer.boxHeight !== undefined;
     if ((layer.anchor ?? 'top') === 'bottom') firstBaseline = layer.baseline - layout.height - (fillFrame ? layout.descent : 0);
@@ -394,6 +410,13 @@ export class Engine {
     layer._copy = copy;
     metrics[layer.id] = { top: firstBaseline - (fillFrame ? layout.ascent : cap), bottom: firstBaseline + layout.height + (fillFrame ? layout.descent : 0) };
     layer._box = { x: layer.x, y: layer.anchor === 'bottom' && layer.boxHeight ? layer.baseline - layer.boxHeight : firstBaseline - (fillFrame ? layout.ascent : cap), w: layer.w, h: layer.boxHeight ?? layout.height + cap, rot: layer.rotate ?? 0 };
+    if(layer.figmaText){
+      measureCtx.font=`${layer.weight??400} ${layout.size}px ${this.textFamily(layer,fonts)}`;
+      const m=measureCtx.measureText('Ag'),ascent=m.fontBoundingBoxAscent??layout.size*.8,descent=m.fontBoundingBoxDescent??layout.size*.2;
+      const line=layout.size*lineHeight,content=(layout.lines.length-1)*line+ascent+descent;
+      const offset=layer.figmaText.vertical==='CENTER'?Math.max(0,(layer.boxHeight-content)/2):layer.figmaText.vertical==='BOTTOM'?Math.max(0,layer.boxHeight-content):Math.max(0,(line-ascent-descent)/2);
+      layer._baseline=layer.capTop+(layer.figmaText.baselineRatio!==undefined?layer.figmaText.baselineRatio*layout.size:layer.figmaText.baselineOffset??(offset+ascent));layer._box.y=layer.capTop;
+    }
     let baseShrink = layout.shrink;
     if (scene.localeId !== 'en-US') {
       const en = this.copyFor('en-US', layer.copySlideId ?? scene.slideId, layer.field);
@@ -406,11 +429,14 @@ export class Engine {
     if (!layer._layout) return;
     const px = scene.px ?? 1;
     const shadow = layer.shadow ? { color: layer.shadow.alpha !== undefined ? withAlpha(layer.shadow.color ?? '#000000', layer.shadow.alpha) : layer.shadow.color, blur: (layer.shadow.blur ?? 0) * px, dx: (layer.shadow.dx ?? 0) * px, dy: (layer.shadow.dy ?? 0) * px } : undefined;
-    if (layer.rotate) { const b = layer._box; ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.rotate(rad(layer.rotate)); ctx.translate(-b.x - b.w / 2, -b.y - b.h / 2); }
+    if (layer.rotate||layer.basis) { const b = layer._box; ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.rotate(rad(layer.rotate)); if(layer.basis)ctx.transform(...layer.basis,0,0);ctx.translate(-b.x - b.w / 2, -b.y - b.h / 2); }
+    let color=layer.color ?? scene.theme.ink;
+    if(layer.textPaint)color=nativePaintStyle(ctx,layer.textPaint,layer.w,layer.boxHeight??layer.size,layer.x,layer.capTop);
     drawLines(ctx, layer._layout, {
       x: layer.x, w: layer.w, firstBaseline: layer._baseline, align: layer.align, block: layer.block,
-      dir: layer._dir ?? scene.locale.dir ?? 'ltr', weight: layer.weight ?? 700, family: layer.fontFamily || scene.fonts.family, lang: layer._lang ?? scene.locale.lang,
-      color: layer.color ?? scene.theme.ink, opacity: layer.opacity ?? 1, shadow, dx: layer.dx ?? 0,
+      dir: layer._dir ?? scene.locale.dir ?? 'ltr', weight: layer.weight ?? 700, family: this.textFamily(layer,scene.fonts), lang: layer._lang ?? scene.locale.lang,
+      color, opacity: layer.opacity ?? 1, shadow, dx: layer.dx ?? 0,
+      italic:layer.figmaText?.italic,letterSpacing:layer.figmaText?.letterSpacing,
     });
   }
 
@@ -436,6 +462,7 @@ export class Engine {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.setLineDash(layer.dash ?? [79.78, 79.78]);
+    this.applyShadow(ctx,scene,layer.shadow,{blur:40,dy:20});
     ctx.stroke(new Path2D(layer.d));
   }
 
@@ -495,6 +522,7 @@ export class Engine {
 
   /** A plain rectangle or ellipse: solid fill or gradient, optional outline and shadow. */
   drawShape(ctx, scene, layer) {
+    if(layer.shape==='path'||layer.paints||layer.basis||layer.radii||layer.stroke?.align)return drawNativeShape(ctx,scene,layer,()=>this.applyShadow(ctx,scene,layer.shadow,{blur:40,dy:20}));
     const w = layer.w ?? 400;
     const h = layer.h ?? w;
     layer._box = { x: layer.cx - w / 2, y: layer.cy - h / 2, w, h, rot: layer.rotate ?? 0 };

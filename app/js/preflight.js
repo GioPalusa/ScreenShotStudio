@@ -8,7 +8,7 @@ import { EXPORT_TARGETS, acceptedFormat, canvasIssues, exportTarget } from './ex
 export const WATCH_SIZES = EXPORT_TARGETS.watch.formats.map(f => f.size);
 
 export function sceneHasContent(scene) {
-  return scene.layers.some(l => l.type !== 'route' && l._origin !== 'panorama' && l._box && (l.type !== 'text' || l._layout) && (l.opacity ?? 1) > 0);
+  return scene.layers.some(l => !l.maskOnly && l.type !== 'route' && l._origin !== 'panorama' && l._box && (l.type !== 'text' || l._layout) && (l.opacity ?? 1) > 0);
 }
 
 export function preflightScene(scene, bundle, { fontAvailable = () => true, checkCanvas = true } = {}) {
@@ -26,9 +26,9 @@ export function preflightScene(scene, bundle, { fontAvailable = () => true, chec
     const rw = Math.abs(box.w * Math.cos(angle)) + Math.abs(box.h * Math.sin(angle));
     const rh = Math.abs(box.w * Math.sin(angle)) + Math.abs(box.h * Math.cos(angle));
     const x = box.x + box.w / 2 - rw / 2, y = box.y + box.h / 2 - rh / 2;
-    if (!layer.allowCrop && (x < -1 || y < -1 || x + rw > scene.W + 1 || y + rh > scene.H + 1)) add('outside-canvas', 'Layer extends outside the canvas. Confirm intentional cropping in Layers.', layer);
+    if (!layer.allowCrop && !layer.compositing?.some(s=>s.clip) && (x < -1 || y < -1 || x + rw > scene.W + 1 || y + rh > scene.H + 1)) add('outside-canvas', 'Layer extends outside the canvas. Confirm intentional cropping in Layers.', layer);
     if (layer.type === 'text') {
-      if (!fontAvailable(layer.fontFamily || scene.fonts.family)) add('font-missing', `Font unavailable: ${layer.fontFamily || scene.fonts.family}`, layer);
+      if (!fontAvailable(scene.fontFamilies?.[layer.fontFamily || scene.fonts.family] || layer.fontFamily || scene.fonts.family)) add('font-missing', `Font unavailable: ${layer.fontFamily || scene.fonts.family}`, layer);
     }
     const capture = scene.assets?.captures?.[layer.id];
     const img = layer.type === 'art' ? scene.assets?.art?.[layer.id] : capture?.image;

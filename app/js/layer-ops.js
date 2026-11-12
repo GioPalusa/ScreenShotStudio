@@ -510,7 +510,12 @@ export function scaleLayerGeometry(layer, from, to) {
   }
   for (const key of ['cx', 'x']) if (typeof out[key] === 'number') out[key] *= kx;
   for (const key of ['cy', 'top', 'capTop', 'baseline']) if (typeof out[key] === 'number') out[key] *= ky;
-  for (const key of ['w', 'h', 'size', 'minSize', 'maxHeight', 'boxHeight']) if (typeof out[key] === 'number') out[key] *= k;
+  for (const key of ['w', 'h', 'size', 'minSize', 'maxHeight', 'boxHeight', 'blur']) if (typeof out[key] === 'number') out[key] *= k;
+  for(const scope of out.compositing??[])if(scope.clip)scope.clip.matrix=scope.clip.matrix.map((v,i)=>v*(i===5?ky:k));
+  for(const shadow of [out.shadow,...(out.innerShadows??[]),...(out.compositing??[]).flatMap(s=>[s.shadow,...(s.shadows??[])])].filter(Boolean))for(const key of ['blur','dx','dy'])if(Number.isFinite(shadow[key]))shadow[key]*=k;
+  for(const scope of out.compositing??[])if(scope.blur)scope.blur*=k;
+  if(out.figmaText?.baselineOffset!==undefined)out.figmaText.baselineOffset*=k;
+  if(out.figmaText?.letterSpacing!==undefined)out.figmaText.letterSpacing*=k;
   return out;
 }
 
@@ -529,7 +534,7 @@ export function layerLabel(layer, { captureLabel } = {}) {
       if (layer.panoramaOffset !== undefined) return layer.id === 'globe' ? 'Globe' : `Decoration · ${layer.id}`;
       return String(layer.src ?? 'Image').replace(/-[0-9a-f]{6}(?=\.)/, '').replace(/^.*\//, '');
     }
-    case 'shape': return layer.shape === 'ellipse' ? 'Ellipse' : 'Rectangle';
+    case 'shape': return layer.shape === 'path' ? 'Vector' : layer.shape === 'ellipse' ? 'Ellipse' : 'Rectangle';
     case 'route': return 'Dashed route';
     default: return layer.id;
   }

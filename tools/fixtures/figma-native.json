@@ -1,0 +1,370 @@
+{
+  "name": "Native fixture",
+  "version": "123",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "0:1",
+        "type": "CANVAS",
+        "name": "Screens",
+        "children": [
+          {
+            "id": "1:1",
+            "type": "FRAME",
+            "name": "Editable native view",
+            "size": {
+              "x": 320,
+              "y": 560
+            },
+            "relativeTransform": [
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0
+              ]
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1,
+                  "a": 1
+                }
+              }
+            ],
+            "clipsContent": true,
+            "children": [
+              {
+                "id": "1:2",
+                "type": "TEXT",
+                "name": "TEXT 1:2",
+                "size": {
+                  "x": 280,
+                  "y": 40
+                },
+                "relativeTransform": [
+                  [
+                    1,
+                    0,
+                    20
+                  ],
+                  [
+                    0,
+                    1,
+                    20
+                  ]
+                ],
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": {
+                      "r": 0,
+                      "g": 0,
+                      "b": 0,
+                      "a": 1
+                    }
+                  }
+                ],
+                "characters": "Editable headline",
+                "style": {
+                  "fontFamily": "Arial",
+                  "fontSize": 24,
+                  "fontWeight": 400,
+                  "lineHeightPx": 28,
+                  "textAlignHorizontal": "LEFT",
+                  "textAlignVertical": "TOP"
+                }
+              },
+              {
+                "id": "1:3",
+                "type": "RECTANGLE",
+                "name": "Green rectangle",
+                "size": {
+                  "x": 100,
+                  "y": 80
+                },
+                "relativeTransform": [
+                  [
+                    1,
+                    0,
+                    20
+                  ],
+                  [
+                    0,
+                    1,
+                    100
+                  ]
+                ],
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": {
+                      "r": 0,
+                      "g": 1,
+                      "b": 0,
+                      "a": 1
+                    }
+                  }
+                ],
+                "cornerRadius": 12
+              },
+              {
+                "id": "1:4",
+                "type": "VECTOR",
+                "name": "Blue vector",
+                "size": {
+                  "x": 100,
+                  "y": 100
+                },
+                "relativeTransform": [
+                  [
+                    1,
+                    0,
+                    160
+                  ],
+                  [
+                    0,
+                    1,
+                    100
+                  ]
+                ],
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": {
+                      "r": 0,
+                      "g": 0,
+                      "b": 1,
+                      "a": 1
+                    }
+                  }
+                ],
+                "fillGeometry": [
+                  {
+                    "path": "M0 100 L50 0 L100 100 Z",
+                    "windingRule": "NONZERO"
+                  }
+                ]
+              },
+              {
+                "id": "1:5",
+                "type": "GROUP",
+                "name": "Opacity group",
+                "size": {
+                  "x": 160,
+                  "y": 80
+                },
+                "relativeTransform": [
+                  [
+                    1,
+                    0,
+                    20
+                  ],
+                  [
+                    0,
+                    1,
+                    230
+                  ]
+                ],
+                "fills": [],
+                "opacity": 0.5,
+                "children": [
+                  {
+                    "id": "1:6",
+                    "type": "RECTANGLE",
+                    "name": "RECTANGLE 1:6",
+                    "size": {
+                      "x": 100,
+                      "y": 80
+                    },
+                    "relativeTransform": [
+                      [
+                        1,
+                        0,
+                        0
+                      ],
+                      [
+                        0,
+                        1,
+                        0
+                      ]
+                    ],
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 1,
+                          "g": 0,
+                          "b": 0,
+                          "a": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "1:7",
+                    "type": "RECTANGLE",
+                    "name": "RECTANGLE 1:7",
+                    "size": {
+                      "x": 100,
+                      "y": 80
+                    },
+                    "relativeTransform": [
+                      [
+                        1,
+                        0,
+                        50
+                      ],
+                      [
+                        0,
+                        1,
+                        0
+                      ]
+                    ],
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 1,
+                          "g": 0,
+                          "b": 0,
+                          "a": 1
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "1:8",
+                "type": "GROUP",
+                "name": "Mask group",
+                "size": {
+                  "x": 150,
+                  "y": 100
+                },
+                "relativeTransform": [
+                  [
+                    1,
+                    0,
+                    20
+                  ],
+                  [
+                    0,
+                    1,
+                    350
+                  ]
+                ],
+                "fills": [],
+                "children": [
+                  {
+                    "id": "1:9",
+                    "type": "ELLIPSE",
+                    "name": "Editable mask",
+                    "size": {
+                      "x": 80,
+                      "y": 80
+                    },
+                    "relativeTransform": [
+                      [
+                        1,
+                        0,
+                        0
+                      ],
+                      [
+                        0,
+                        1,
+                        0
+                      ]
+                    ],
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 1,
+                          "g": 1,
+                          "b": 1,
+                          "a": 1
+                        }
+                      }
+                    ],
+                    "isMask": true
+                  },
+                  {
+                    "id": "1:10",
+                    "type": "RECTANGLE",
+                    "name": "Masked red",
+                    "size": {
+                      "x": 150,
+                      "y": 100
+                    },
+                    "relativeTransform": [
+                      [
+                        1,
+                        0,
+                        0
+                      ],
+                      [
+                        0,
+                        1,
+                        0
+                      ]
+                    ],
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 1,
+                          "g": 0,
+                          "b": 0,
+                          "a": 1
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "1:11",
+                "type": "RECTANGLE",
+                "name": "Image fill",
+                "size": {
+                  "x": 80,
+                  "y": 80
+                },
+                "relativeTransform": [
+                  [
+                    1,
+                    0,
+                    200
+                  ],
+                  [
+                    0,
+                    1,
+                    350
+                  ]
+                ],
+                "fills": [
+                  {
+                    "type": "IMAGE",
+                    "imageRef": "test-image",
+                    "scaleMode": "FILL"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

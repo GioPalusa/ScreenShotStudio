@@ -18,12 +18,15 @@ import { migrateDocument, validateDocument } from '../app/js/document.js';
 import { installedFonts } from './fonts.mjs';
 import { translateText, listTranslationModels } from './translation.mjs';
 import { readImportArchive } from './import-archive.mjs';
+import { importFigmaClipboard } from './figma-clipboard.mjs';
+import { importFigma } from './figma.mjs';
+import { resolveGoogleFonts, inspectFontFiles, saveProjectFonts } from './project-fonts.mjs';
 
-export function createStudioService({ appPath, projectPath, exportPath, frameLibraryPath = null, origin = null, createThumbnail = null, onExportLog = line => console.log(line), onChange = () => {} }) {
+export function createStudioService({ appPath, projectPath, exportPath, frameLibraryPath = null, origin = null, installLegacyFrames = true, allowFontWrites = true, createThumbnail = null, onExportLog = line => console.log(line), onChange = () => {} }) {
 const ROOT = path.dirname(appPath), APP = appPath, PROJECT = projectPath, EXPORT = exportPath;
 const sessions = new ExportSessions(PROJECT, EXPORT);
 const frameLibrary = new FrameLibrary(PROJECT, frameLibraryPath);
-frameLibrary.installLegacy();
+if (installLegacyFrames) frameLibrary.installLegacy();
 const exportDestinations = new Map();
 // Called only by the trusted native directory picker, never by a renderer path.
 function authorizeExportDestination(directory) {
@@ -44,7 +47,7 @@ function uploadExportPath(exportPath) {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
 };
 
 // ---------------------------------------------------------------------------
@@ -272,7 +275,7 @@ function listExports() {
   return out;
 }
 
-function loadProjectBundle() {
+function loadProjectBundle({ includeExports = true } = {}) {
   rejectLinks(PROJECT);
   const studio = migrateDocument(JSON.parse(fs.readFileSync(path.join(PROJECT, 'studio.json'), 'utf8')));
   const copy = {};
@@ -282,7 +285,7 @@ function loadProjectBundle() {
   }
   const frames = frameLibrary.all();
   // `api` tells the browser app which endpoints this server has (2: images, frames, language removal)
-  return { api: 3, projectId: crypto.createHash('sha256').update(PROJECT).digest('hex').slice(0, 16), name: projectName(path.basename(PROJECT)), revisions: { studio: revision(path.join(PROJECT, 'studio.json')), ...Object.fromEntries(Object.keys(copy).map(id => [`copy:${id}`, revision(path.join(copyDir, `${id}.json`))])) }, studio, copy, frames, captures: listCaptures(), assets: listAssets(), removed: listRemovedLocales(), exports: listExports() };
+  return { api: 3, projectId: crypto.createHash('sha256').update(PROJECT).digest('hex').slice(0, 16), name: projectName(path.basename(PROJECT)), revisions: { studio: revision(path.join(PROJECT, 'studio.json')), ...Object.fromEntries(Object.keys(copy).map(id => [`copy:${id}`, revision(path.join(copyDir, `${id}.json`))])) }, studio, copy, frames, captures: listCaptures(), assets: listAssets(), removed: listRemovedLocales(), exports: includeExports ? listExports() : [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +399,23 @@ async function api(req, res, url, method) {
 
   if (p === '/api/project' && method === 'GET') return json(res, 200, loadProjectBundle());
   if (p === '/api/fonts' && method === 'GET') return json(res, 200, await installedFonts());
+  if (p === '/api/import/fonts' && method === 'POST') {
+    const controller = new AbortController(), cancel = () => { if (!res.writableEnded) controller.abort(); }; res.once('close', cancel);
+    try {
+      const input = await readJSONBody(req, 180 * 1024 * 1024);
+      if (input.action === 'resolve') return json(res, 200, await resolveGoogleFonts(input.families, { signal: controller.signal }));
+      if (input.action === 'inspect') return json(res, 200, { fonts: inspectFontFiles(input.fonts) });
+      if (input.action === 'save' && allowFontWrites) return json(res, 200, { fonts: saveProjectFonts(PROJECT, input.fonts) });
+      throw httpError(400, 'Invalid font import action.');
+    } finally { res.off('close', cancel); }
+  }
+  if (p === '/api/import/figma-clipboard' && method === 'POST') return json(res,200,await importFigmaClipboard((await readJSONBody(req,34*1024*1024)).html));
   if (p === '/api/import/archive' && method === 'POST') return json(res, 200, readImportArchive(await readBody(req, 64 * 1024 * 1024)));
+  if (p === '/api/import/figma' && method === 'POST') {
+    const controller=new AbortController(),cancel=()=>{if(!res.writableEnded)controller.abort();};res.once('close',cancel);
+    try{return json(res,200,await importFigma(await readJSONBody(req,12*1024),{signal:controller.signal}));}
+    finally{res.off('close',cancel);}
+  }
   if (['/api/translate', '/api/translate/models'].includes(p) && method === 'POST') {
     const controller = new AbortController();
     const cancel = () => { if (!res.writableEnded) controller.abort(); };

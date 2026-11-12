@@ -8,6 +8,7 @@ export function validateDocument(doc) {
   if (!doc.slides.length || !doc.themes || typeof doc.themes !== 'object') throw new Error('Keep at least one slide and a theme collection.');
   const safeId = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !value.includes('..') && !['__proto__', 'prototype', 'constructor'].includes(value);
   const localeIds = new Set();
+  if (doc.fonts?.files != null && (!Array.isArray(doc.fonts.files) || doc.fonts.files.length > 256 || doc.fonts.files.some(f => !f || typeof f.family !== 'string' || !f.family.trim() || f.family.length > 200 || !/^[a-f0-9]{64}\.(?:ttf|otf)$/.test(f.file) || !['normal', 'italic'].includes(f.style) || !/^\d+(?:\.\d+)?(?: \d+(?:\.\d+)?)?$/.test(String(f.weight)) || f.license != null && !/^[a-f0-9]{64}\.license\.txt$/.test(f.license)))) throw new Error('Invalid project font files.');
   for (const locale of doc.locales) { if (!safeId(locale.id) || localeIds.has(locale.id.toLowerCase())) throw new Error('Language IDs must be unique.'); localeIds.add(locale.id.toLowerCase()); }
   for (const [id, profile] of Object.entries(doc.profiles ?? {})) if (!safeId(id) || !safeId(profile.capture) || !Array.isArray(profile.screen) || profile.screen.length !== 2 || !profile.screen.every(v => Number.isInteger(v) && v >= 100 && v <= 12000)) throw new Error(`Invalid device profile: ${id}`);
   const ids = new Set();

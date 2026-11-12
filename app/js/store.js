@@ -145,7 +145,7 @@ if (typeof window !== 'undefined') {
 // pass the same key and are folded into one undo step; keys are scoped to the slide and device being edited.
 // Removing or duplicating a slide also changes its text: pass `copySlides: [slideId]` and that text is part of the step.
 
-const HISTORY_KEYS = ['sourceLocale', 'sharedCanvas', 'slides', 'templates', 'devices', 'profiles', 'removedProfiles', 'themes', 'panorama'];
+const HISTORY_KEYS = ['fonts', 'sourceLocale', 'sharedCanvas', 'slides', 'templates', 'devices', 'profiles', 'removedProfiles', 'themes', 'panorama'];
 const history = { past: [], future: [], lastKey: null, lastAt: 0, seq: 0 };
 
 function snapshot(copySlides = [], copyLocales = []) {
