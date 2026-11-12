@@ -67,6 +67,25 @@ select.input, .input {
 textarea.input { height: auto; padding: 7px 9px; resize: vertical; line-height: 1.35; width: 100%; display: block; field-sizing: content; min-height: 34px; max-height: 220px; }
 .input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 
+/* Keep native select semantics while allowing real font samples in its popup. */
+@supports (appearance: base-select) {
+  select.font-picker, select.font-picker::picker(select) { appearance: base-select; }
+  select.font-picker { flex: 1; align-items: center; font-weight: 400; }
+  select.font-picker::picker(select) {
+    min-width: min(360px, calc(100vw - 16px)); max-width: calc(100vw - 16px); max-height: min(420px, 70vh);
+    padding: 4px; border: 1px solid var(--input-line); border-radius: 10px;
+    background: var(--panel); color: var(--text); box-shadow: var(--shadow); overflow: auto;
+  }
+  select.font-picker option { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 5px 9px; border-radius: 6px; font-weight: 400; }
+  select.font-picker option::after { content: 'Aa Bb 123' / ''; margin-left: auto; min-width: 110px; text-align: right; font: 20px/1.4 var(--font-preview, system-ui); }
+  select.font-picker option:disabled::after { content: none; }
+  select.font-picker option:hover, select.font-picker option:focus { background: var(--panel-2); }
+  select.font-picker option:checked { background: var(--accent-soft); }
+  select.font-picker option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  select.font-picker option::checkmark { color: var(--link); }
+  select.font-picker::picker-icon { color: var(--muted); }
+}
+
 .chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
   font-size: 11px; font-weight: 600; background: var(--panel-2); color: var(--muted); white-space: nowrap;

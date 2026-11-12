@@ -11,6 +11,7 @@ import { resolveLayers } from '../layouts.js';
 import { textOverflowMessage } from '../text.js';
 import { isOriginalLocale } from '../copy-review.js';
 import { h, localeLabel } from './helpers.js';
+import { reviewSceneText, TEXT_REVIEW_POLICY } from '../text-review.js';
 
 const FIELD_LABEL = { headline: 'Headline', headlineAccent: 'Accent line', eyebrow: 'Eyebrow', caption: 'Sub text', bullets: 'Bullet list' };
 const FIELD_HELP = {
@@ -85,6 +86,15 @@ export function buildTextPanel(ed, { fields = null, compact = false } = {}) {
       else if (t.shrink < 0.995) node.textContent = `Fits · scaled to ${Math.round(t.shrink * 100)}% · ${lines}`;
       else { node.className = 'hint ok'; node.textContent = `Fits at full size · ${lines}`; }
     }
+    const local = scene.tiles?.find(tile => tile.scene.slideId === slide.id)?.scene ?? scene;
+    const review = reviewSceneText(local);
+    for (const node of panel.querySelectorAll('[data-readability]')) {
+      const id = selected?._sourceLayerId ?? selected?.id;
+      const text = selected ? review.layers.find(l => l.id === id) : review.layers.find(l => l.field === node.dataset.readability);
+      node.textContent = text ? `Small-size preview · ${text.previews.map(p => `${p.fontSize ?? 'visual check'}${p.fontSize === null ? '' : ' px'} at ${p.width} px wide`).join(' · ')}. ${text.contrast.ratio ? `Contrast ${text.contrast.ratio}:1.` : 'Check contrast visually.'}` : '';
+      node.className = `hint${text?.contrast.status === 'review' || text?.previews.some(p => p.fontSize !== null && p.fontSize < TEXT_REVIEW_POLICY.minFontSize) ? ' warn' : ''}`;
+      node.title = 'Diagnostic image widths, not fixed App Store sizes. The 12 px target is a design heuristic; these suggestions do not block export.';
+    }
   }
 
   return {
@@ -125,7 +135,7 @@ function fieldEditor(ed, slide, locale, field, updateReview, compact = false) {
     ta.addEventListener('input', () => { editCopy(locale.id, slide.id, field, ta.value); updateReview(); ed.refresh(); });
     wrap.append(ta);
   }
-  wrap.append(meaningReviewNote(locale.id, slide.id, field), h('div', { class: 'hint', dataset: { fit: field } }));
+  wrap.append(meaningReviewNote(locale.id, slide.id, field), h('div', { class: 'hint', dataset: { fit: field } }), h('div', { class: 'hint', dataset: { readability: field } }));
   if (locale.id !== 'en-US' && english) {
     const line = Array.isArray(english) ? english.join(' · ') : english.replace(/\n/g, ' ⏎ ');
     wrap.append(h('details', { class: 'disclosure' }, h('summary', null, 'Original · English'),

@@ -9,6 +9,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { createAITools } from '../host/ai-screenshots.mjs';
 import { encodePNG, decodePNG } from './png.mjs';
 import { APP_STORE_ASSET_GUIDANCE, appStoreCopyAdvisories } from '../app/js/app-store-asset-guidance.js';
+import { ACTIVE_TOOLS } from '../host/active-project-tools.mjs';
+import { AGENT_PROMPTS } from '../app/js/agent-prompts.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function fixture(t) {
@@ -25,9 +27,13 @@ test('MCP stdio negotiates, discovers tools, edits and returns usable errors', a
   t.after(() => client.close());
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 13);
+  assert.deepEqual(tools.map(t => t.name).sort(), [...ACTIVE_TOOLS, 'create_project'].sort());
   const prompts = (await client.listPrompts()).prompts;
-  assert.deepEqual(prompts.map(p => p.name).sort(), ['design_screenshots', 'refine_series', 'translate_series']);
+  assert.deepEqual(prompts.map(p => p.name).sort(), Object.keys(AGENT_PROMPTS).sort());
+  const resources = (await client.listResources()).resources;
+  assert.equal(resources.length, 4);
+  const guide = await client.readResource({ uri: 'screenshot-studio://guide/advanced-editing' });
+  assert.match(guide.contents[0].text, /edit_layers/);
   const prompt = await client.getPrompt({ name: 'refine_series', arguments: { request: 'Make the background quieter.' } });
   assert.match(prompt.messages[0].content.text, /Make the background quieter/);
   assert.match(prompt.messages[0].content.text, /edit_layers/);
@@ -40,6 +46,12 @@ test('MCP stdio negotiates, discovers tools, edits and returns usable errors', a
   assert.equal(tools.find(t => t.name === 'read_project').annotations.readOnlyHint, true);
   const created = await client.callTool({ name: 'create_project', arguments: { project: 'Demo.sss' } });
   assert.ok(created.structuredContent.revisions.studio);
+  const native = await client.callTool({name:'edit_layers',arguments:{project:'Demo.sss',revision:created.structuredContent.revisions.studio,edits:[{op:'shadow',device:'iphone',slide:'first-slide',ids:['device'],preset:'soft',distance:16,angle:110}]}});
+  assert.ok(!native.isError,JSON.stringify(native));
+  const inspected = await client.callTool({name:'inspect_layers',arguments:{project:'Demo.sss',device:'iphone',slide:'first-slide',ids:['device']}});
+  assert.equal(inspected.structuredContent.layers[0].data.shadow.blur,32);
+  const invalidCorner = await client.callTool({name:'edit_layers',arguments:{project:'Demo.sss',revision:native.structuredContent.revision,edits:[{op:'corners',device:'iphone',slide:'first-slide',ids:['device'],radius:-1}]}});
+  assert.equal(invalidCorner.isError,true);
   const denied = await client.callTool({ name: 'create_project', arguments: { project: '../Escape.sss' } });
   assert.equal(denied.isError, true);
   const unknown = await client.callTool({ name: 'apply_design', arguments: { project: 'Demo.sss', slide: 'unknown', devices: ['iphone'], design: 'focus', revision: created.structuredContent.revisions.studio } });
@@ -159,15 +171,24 @@ test('real renderer exports draft/final RGB and rejects final with missing captu
   const { api, root } = fixture(t);
   await api.create_project({ project: 'Demo.sss' });
   const before = await api.read_project({ project: 'Demo.sss' });
-  const check = await api.preflight_project({ project: 'Demo.sss' });
+  const check = await api.preflight_project({ project: 'Demo.sss', details: true });
   assert.equal(check.ready, false); assert.equal(check.report.checked, 1);
+  assert.equal(check.revisions.studio, before.revisions.studio);
+  assert.deepEqual(check.scenes[0].size, [1320, 2868]);
+  assert.ok(check.scenes[0].layers.some(l => l.type === 'device' && l.bounds?.w > 0 && l.capture.missing));
   assert.equal(check.assetReview.status, 'visual-review-required');
   assert.equal(check.assetReview.source, APP_STORE_ASSET_GUIDANCE.source);
+  assert.equal(check.textReview.status, 'visual-review-required');
+  assert.ok(check.textReview.scenes[0].layers.some(l => l.previews.some(p => p.width === 160 && p.fontSize > 0)));
+  assert.equal(check.textReview.scenes[0].presentation.cropVerified, false);
   assert.ok(check.report.issues.some(i => i.code === 'capture-missing' && i.device === 'iphone' && i.slide === 'first-slide'));
-  const preview = await api.preview_project({ project: 'Demo.sss' });
+  const preview = await api.preview_project({ project: 'Demo.sss', previewWidth: 160 });
   assert.equal(preview.content[1].mimeType, 'image/jpeg');
   assert.ok(fs.readFileSync(preview.structuredContent.file).subarray(0,2).equals(Buffer.from([255,216])));
   assert.equal(preview.structuredContent.mode, 'preview');
+  assert.equal(preview.structuredContent.preview.imageWidth, 160);
+  assert.deepEqual(preview.structuredContent.textReview.widths, [160, 240, 320]);
+  await assert.rejects(api.preview_project({ project: 'Demo.sss', previewWidth: 0 }), /Preview width/);
   assert.equal((await api.read_project({ project: 'Demo.sss' })).revisions.studio, before.revisions.studio);
   assert.ok(!fs.readdirSync(path.join(root, 'previews')).some(f => f.startsWith('final-') || f.startsWith('draft-')));
   const draft = await api.export_project({ project: 'Demo.sss', allowPlaceholders: true });

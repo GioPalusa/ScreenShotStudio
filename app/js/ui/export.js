@@ -15,6 +15,8 @@ import { uploadChecks } from '../upload-checks.js';
 import { exportPlan } from '../export-naming.js';
 import { slideSupportsCanvas } from '../slide-order.js';
 import { icon } from './icons.js';
+import { reviewSceneText, textReviewReport } from '../text-review.js';
+import { openTextReview } from './text-review.js';
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -50,7 +52,7 @@ export async function runExport({ locales, devices, slides, allowPlaceholders = 
   const snapshot = await post('/api/export/start', { mode, selection, ...(destination ? { destination } : {}) });
   const frozen = new Engine(); frozen.setData(snapshot.bundle); frozen.projectURL = snapshot.projectURL;
   const results = { environment: { renderer: navigator.userAgent, fonts: frozen.project.fonts, fontOverrides: frozen.project.locales.filter(l => l.font).map(l => ({ locale: l.id, font: l.font })) }, written: 0, bytes: 0, skipped: [], warnings: [], issues: [], files: [], checked: false, mode };
-  const jobs = [];
+  const jobs = [], textReviews = [];
   const total = exportPlan(frozen.project, selection).length;
   let done = 0, complete = false;
   const checkAbort = () => { if (signal?.aborted) throw new Error('Export stopped. No partial export was published.'); };
@@ -67,6 +69,7 @@ export async function runExport({ locales, devices, slides, allowPlaceholders = 
       const scene = frozen.scene(slide.id, device, locale);
       const canvas = document.createElement('canvas');
       await frozen.render(canvas, scene, { scale: Math.min(1, 600 / scene.W) });
+      textReviews.push(reviewSceneText(scene));
       const warnings = preflightScene(scene, frozen.data, { fontAvailable, checkCanvas: false });
       const missing = warnings.find(w => ['capture-missing', 'frame-missing', 'asset-missing'].includes(w.code));
       if (missing && !allowPlaceholders) results.skipped.push(`${label}: ${missing.message}`);
@@ -79,6 +82,7 @@ export async function runExport({ locales, devices, slides, allowPlaceholders = 
       done++;
     }
     checkAbort();
+    results.textReview = textReviewReport(textReviews);
     if (preflightOnly || (mode === 'final' && (results.warnings.length || results.skipped.length)) || (onPreflight && !await onPreflight(results))) {
       results.checked = true; results.blocked = !preflightOnly; return results;
     }
@@ -146,6 +150,9 @@ export function openExport(ctx, previous = null) {
     readiness.replaceChildren(
       h('div', { class: 'label' }, r.issues.length ? 'Review before export' : '✓ Ready to export'),
       checkCounts(r),
+      h('div', { class: 'export-text-review' },
+        h('p', { class: 'hint' }, r.textReview?.advisories.length ? `${r.textReview.advisories.length} text readability suggestion${r.textReview.advisories.length === 1 ? '' : 's'} · does not block export` : 'Check text at small sizes before publishing.'),
+        h('button', { class: 'btn small', onClick: () => openTextReview(selection()) }, 'Review text at small sizes…')),
       ...(r.issues.length ? [
         h('p', { class: 'hint' }, 'Export anyway creates a draft. Missing images use placeholders.'),
         h('details', { class: 'disclosure export-check-details', open: r.issues.some(i => i.level === 'error') },
@@ -294,7 +301,7 @@ export async function runHeadless(params) {
     if (slideIds && slides.length !== slideIds.length) throw new Error(`Unknown slide in “${slideIds.join(',')}”. Known: ${project.slides.map((s) => s.id).join(', ')}`);
     if (params.get('inspect') === '1') {
       const { inspectProject } = await import('../agent-inspection.js');
-      const inspection = await inspectProject({ locales, devices, slides, checkOnly: params.get('checkOnly') === '1' });
+      const inspection = await inspectProject({ locales, devices, slides, checkOnly: params.get('checkOnly') === '1', details: params.get('details') === '1', ...(params.has('previewWidth') ? { previewWidth: Number(params.get('previewWidth')) } : {}) });
       const response = await post('/api/export-done', { inspection });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));

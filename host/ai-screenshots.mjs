@@ -11,6 +11,20 @@ import { STARTER_DESIGNS, STARTER_PALETTES, previewStarterDesign } from '../app/
 import { addStoreImages, STORE_IMAGE_SETS } from '../app/js/store-images.js';
 import { editingInventory, editLayers } from '../app/js/agent-edits.js';
 import { APP_STORE_ASSET_GUIDANCE } from '../app/js/app-store-asset-guidance.js';
+import paper from 'paper';
+import { EDITING_CAPABILITIES } from '../app/js/agent-capabilities.js';
+import { inspectLayers } from '../app/js/agent-layer-inspection.js';
+import { editProject } from '../app/js/agent-project-operations.js';
+import { availableProfilesFor } from '../app/js/profiles.js';
+import { installedFonts } from './fonts.mjs';
+import { inspectFontFiles, resolveGoogleFonts } from './project-fonts.mjs';
+import { mergeProjectFonts } from '../app/js/project-fonts.js';
+import { prepareDesignImport } from './agent-design-import.mjs';
+import { resolveLayers } from '../app/js/layouts.js';
+import { geometryPatch } from '../app/js/layer-ops.js';
+import { arrangeSelection } from '../app/js/selection.js';
+import { readLocalInput } from './local-input.mjs';
+import { slideSupportsCanvas } from '../app/js/slide-order.js';
 
 export const STORE_IMAGE_CATALOG = {
   tool: 'add_store_images', sets: STORE_IMAGE_SETS,
@@ -22,7 +36,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const run = promisify(execFile);
 
 /** Filesystem authority is the explicitly configured workspace, never the client's cwd. */
-export function createAITools(workspace, { exportProject, boundProject = null, boundService = null } = {}) {
+export function createAITools(workspace, { exportProject, boundProject = null, boundService = null, figmaRequest, fontCatalog = installedFonts, resolveFonts = resolveGoogleFonts } = {}) {
   const configuredRoot = path.resolve(workspace);
   const root = fs.realpathSync(workspace);
   if (!fs.statSync(root).isDirectory()) throw new Error('Workspace must be an existing directory.');
@@ -76,7 +90,11 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
     if (boundProject && !file.startsWith(boundProject + path.sep) && !file.startsWith(path.join(root, 'inputs') + path.sep)) throw new Error('Use images in the active project or its adjacent inputs folder.');
     return file;
   };
+  const readLocal = (value, limit) => {
+    return readLocalInput(mediaPath(value), limit);
+  };
   const inspect = (input, checkOnly) => withProject(input.project, async (s, source) => {
+    if (input.previewWidth !== undefined && (!Number.isInteger(input.previewWidth) || input.previewWidth < 80 || input.previewWidth > 640)) throw new Error('Preview width must be an integer from 80 to 640 pixels.');
     const bundle = s.loadProjectBundle(), project = bundle.studio;
     const selection = {
       locales: input.locales ?? (checkOnly ? project.locales.map(l => l.id) : [project.sourceLocale ?? project.locales[0].id]),
@@ -91,11 +109,13 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
     const destination = fs.mkdtempSync(path.join(base, 'ai-'));
     try {
       let result;
-      if (exportProject) result = await exportProject({ source, destination, mode: 'inspect', ...selection, checkOnly });
+      if (exportProject) result = await exportProject({ source, destination, mode: 'inspect', ...selection, checkOnly, details: input.details ?? false, previewWidth: input.previewWidth });
       else {
         const args = [path.join(ROOT, 'studio.mjs'), 'inspect', '--project', source, '--output', destination];
         for (const [flag, key] of [['locale', 'locales'], ['device', 'devices'], ['slide', 'slides']]) args.push(`--${flag}`, selection[key].join(','));
         if (checkOnly) args.push('--check-only');
+        if (input.details) args.push('--details');
+        if (input.previewWidth !== undefined) args.push('--preview-width', String(input.previewWidth));
         await run(process.execPath, args, { cwd: ROOT, timeout: 31 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
         result = JSON.parse(fs.readFileSync(path.join(destination, 'inspection.json'), 'utf8'));
         fs.unlinkSync(path.join(destination, 'inspection.json'));
@@ -112,7 +132,7 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
     } finally { if (checkOnly) fs.rmSync(destination, { recursive: true, force: true }); }
   });
   return {
-    catalog: async () => ({ workspace: boundProject ?? root, ...(boundProject ? { project: boundProject, inputDirectory: path.join(root, 'inputs'), mode: 'active-app' } : {}), targets: EXPORT_TARGETS, assetGuidance: APP_STORE_ASSET_GUIDANCE, storeImages: STORE_IMAGE_CATALOG, designs: STARTER_DESIGNS, palettes: STARTER_PALETTES,
+    catalog: async () => ({ workspace: boundProject ?? root, ...(boundProject ? { project: boundProject, inputDirectory: path.join(root, 'inputs'), mode: 'active-app' } : {}), targets: EXPORT_TARGETS, assetGuidance: APP_STORE_ASSET_GUIDANCE, storeImages: STORE_IMAGE_CATALOG, designs: STARTER_DESIGNS, palettes: STARTER_PALETTES, editing: EDITING_CAPABILITIES,
       workflow: boundProject ? 'Read the open project and its editing inventory. Use edit_layers for targeted changes, save_copy for text, preview_project for a whole series, preflight_project for all selected languages, then export_project for final delivery.' : 'Create or read a project, import real captures, edit_layers and save_copy, preview_project to inspect the series, preflight_project, then export_project for final delivery.',
       capturePath: 'captures/<locale ID or default>/<device.capture>/<slide.capture>.png',
       artLayer: { id: 'artwork', type: 'art', src: '<file returned by import_media>', cx: 660, cy: 1400, w: 800, h: 800 },
@@ -125,13 +145,88 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
       createNewProject(destination, { target, ...(palette ? { palette } : {}) });
       return { project: destination, ...await withProject(destination, s => s.loadProjectBundle()) };
     },
-    read_project: async ({ project }) => withProject(project, s => { const bundle = s.loadProjectBundle(); return { ...bundle, editing: editingInventory(bundle.studio) }; }),
+    read_project: async ({ project }) => withProject(project, s => { const bundle = s.loadProjectBundle(); return { ...bundle, editing: editingInventory(bundle.studio), hardware: availableProfilesFor(bundle.studio, bundle.frames) }; }),
+    inspect_layers: async input => withProject(input.project, s => inspectLayers(s.loadProjectBundle(), input)),
     edit_layers: async ({ project, edits, revision }) => withProject(project, async s => {
       const bundle = s.loadProjectBundle();
       if (expected(revision) !== bundle.revisions.studio) throw new Error('409: The document changed. Read the project again and reconcile this edit.');
-      const studio = editLayers(bundle.studio, edits);
+      const studio = editLayers(bundle.studio, edits, { paper });
       const saved = await request(s, '/api/studio', { body: studio, revision: expected(revision) });
       return { ...saved, edited: edits.length, editing: editingInventory(studio) };
+    }),
+    arrange_layers: async input => withProject(input.project, async s => {
+      const bundle = s.loadProjectBundle(), { device, slide, ids, operation, revision } = input;
+      if (expected(revision) !== bundle.revisions.studio) throw new Error('409: The document changed. Read it again before arranging layers.');
+      if (!['left', 'right', 'top', 'bottom', 'center-x', 'center-y', 'distribute-x', 'distribute-y'].includes(operation)) throw new Error('Choose an alignment or distribution operation.');
+      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length || ids.length > 200) throw new Error('Supply 1–200 unique layer IDs.');
+      if (operation.startsWith('distribute') && ids.length < 3) throw new Error('Select at least three layers to distribute.');
+      const locale = input.locale ?? bundle.studio.sourceLocale ?? bundle.studio.locales[0].id;
+      const target = bundle.studio.slides.find(item => item.id === slide);
+      if (!bundle.studio.devices[device] || !target || !slideSupportsCanvas(bundle.studio, target, device)) throw new Error('Choose a screen on this canvas.');
+      const local = resolveLayers({ project: bundle.studio, slide: target, deviceId: device, localeId: locale, includeShared: false }).layers;
+      for (const id of ids) { const layer = local.find(l => l.id === id); if (!layer || layer._sourceId || layer.locked || layer.type === 'route') throw new Error(`Choose an unlocked editable local layer: ${id}`); }
+      const measured = await inspect({ project: input.project, devices: [device], slides: [slide], locales: [locale], details: true }, true);
+      const current = s.loadProjectBundle();
+      if (Object.entries(bundle.revisions).some(([key, value]) => measured.revisions?.[key] !== value || current.revisions[key] !== value)) throw new Error('409: The document or its text changed while measuring. Read it again.');
+      const scene = measured.scenes?.find(scene => scene.device === device && scene.slide === slide && scene.locale === locale);
+      if (!scene) throw new Error('The renderer returned no measurements for this screen.');
+      const layers = ids.map(id => {
+        const result = scene.layers.find(l => l.id === id && !l.scope.shared);
+        if (!result?.bounds) throw new Error(`Layer ${id} has no measured bounds. Check missing assets or hidden objects.`);
+        return { ...local.find(l => l.id === id), _box: result.bounds };
+      });
+      const edits = arrangeSelection(layers, operation, { W: scene.designSize[0], H: scene.designSize[1] }).map(({ layer, box }) => ({
+        op: 'patch', device, slide, ...(input.locale || target.localeLayouts?.[locale]?.[device] ? { locale } : {}), id: layer.id,
+        patch: Object.fromEntries(Object.entries(geometryPatch(layer, box)).map(([k, v]) => [k, v === undefined ? null : v])),
+      }));
+      const studio = editLayers(bundle.studio, edits, { paper });
+      const saved = await request(s, '/api/studio', { body: studio, revision });
+      return { ...saved, arranged: edits.length, operation, editing: editingInventory(studio) };
+    }),
+    edit_project: async ({ project, edits, revision }) => withProject(project, async s => {
+      const bundle = s.loadProjectBundle();
+      if (expected(revision) !== bundle.revisions.studio) throw new Error('409: The document changed. Read the project again and reconcile this edit.');
+      const result = editProject(bundle.studio, edits);
+      const saved = await request(s, '/api/studio', { body: result.studio, revision });
+      return { ...saved, results: result.results, editing: editingInventory(result.studio) };
+    }),
+    font_catalog: async ({ project, search }) => withProject(project, async s => {
+      const bundle = s.loadProjectBundle(), usage = [];
+      for (const locale of bundle.studio.locales) for (const device of Object.keys(bundle.studio.devices)) for (const slide of bundle.studio.slides) {
+        if (!slideSupportsCanvas(bundle.studio, slide, device)) continue;
+        for (const layer of resolveLayers({ project: bundle.studio, slide, deviceId: device, localeId: locale.id }).layers) if (layer.type === 'text') {
+          const lang = locale.lang ?? locale.id, fonts = bundle.studio.fonts;
+          const family = layer.fontFamily ?? locale.font?.family ?? fonts?.byLang?.[lang]?.family ?? fonts?.byLang?.[lang.split('-')[0]]?.family ?? fonts?.default?.family;
+          if (family) usage.push({ family, locale: locale.id, device, slide: slide.id, layer: layer.id });
+        }
+      }
+      const installed = await fontCatalog(), embedded = bundle.studio.fonts?.files ?? [];
+      const matches = family => !search || family.toLowerCase().includes(search.toLowerCase());
+      const families = new Set([...(installed.families ?? []), ...embedded.map(f => f.family)]);
+      return { revision: bundle.revisions.studio, installed: installed.families.filter(matches), embedded: embedded.filter(f => matches(f.family)),
+        usage: usage.filter(u => matches(u.family)), missing: [...new Set(usage.map(u => u.family))].filter(f => matches(f) && !families.has(f) && !['system-ui', 'sans-serif', 'serif', 'monospace', '-apple-system'].includes(f)),
+        ...(installed.unavailable ? { unavailable: installed.unavailable } : {}), next: 'Import missing licensed fonts to embed them portably. System fonts are local availability, not portable files. Preview to verify actual font loading and glyph coverage.' };
+    }),
+    import_fonts: async ({ project, sources = [], families = [], revision }) => withProject(project, async s => {
+      const bundle = s.loadProjectBundle();
+      if (expected(revision) !== bundle.revisions.studio) throw new Error('409: The document changed. Read the project again before importing fonts.');
+      if (!Array.isArray(sources) || sources.length > 64 || !Array.isArray(families) || families.length > 32 || !sources.length && !families.length) throw new Error('Supply up to 64 local font paths or 32 Google Fonts families.');
+      const localFonts = [];
+      for (const source of sources) localFonts.push({ data: (await readLocal(source, 32 * 1024 * 1024)).toString('base64'), source: 'Local font file' });
+      const downloaded = families.length ? await resolveFonts(families) : { fonts: [], missing: [] };
+      const fonts = [...localFonts, ...downloaded.fonts];
+      if (!fonts.length) return { revision, fonts: [], missing: downloaded.missing };
+      inspectFontFiles(fonts);
+      if (s.loadProjectBundle().revisions.studio !== revision) throw new Error('409: The document changed while preparing fonts. Read it again.');
+      const stored = await request(s, '/api/import/fonts', { method: 'POST', body: { action: 'save', fonts } });
+      const studio = structuredClone(bundle.studio); studio.fonts ??= {}; studio.fonts.files = mergeProjectFonts(studio.fonts.files, stored.fonts);
+      const saved = await request(s, '/api/studio', { body: studio, revision });
+      return { ...saved, fonts: stored.fonts, missing: downloaded.missing, next: 'Use these family names in text layers. Preview to verify glyph coverage; font files now travel with this document.' };
+    }),
+    prepare_design_import: async input => withProject(input.project, async s => {
+      const bundle = s.loadProjectBundle();
+      if (input.action === 'prepare' && expected(input.revision) !== bundle.revisions.studio) throw new Error('409: The document changed. Read it again before preparing an import.');
+      return prepareDesignImport(bundle, input, { readLocal, figmaRequest, importImage: (bytes, name) => request(s, `/api/asset?${new URLSearchParams({ name })}`, { method: 'POST', body: bytes }) });
     }),
     preview_project: input => inspect(input, false),
     preflight_project: input => inspect(input, true),
@@ -168,8 +263,7 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
     }),
     import_media: async ({ project, source, kind, scope = 'default', device, name }) => withProject(project, async s => {
       const file = mediaPath(source);
-      if (!fs.statSync(file).isFile() || fs.statSync(file).size > 64 * 1024 * 1024) throw new Error('Choose a local image smaller than 64 MiB.');
-      const body = fs.readFileSync(file);
+      const body = await readLocal(source, 64 * 1024 * 1024);
       if (kind === 'art') return request(s, `/api/asset?${new URLSearchParams({ name: name ?? path.basename(file) })}`, { method: 'POST', body });
       if (kind !== 'capture' || !device || !name) throw new Error('Capture imports need device (capture collection) and name (slide.capture).');
       // Import creates new captures; replacement is an explicit document/media edit in the app.
@@ -209,11 +303,10 @@ export function createAITools(workspace, { exportProject, boundProject = null, b
       return { directory, manifest: manifestPath, files: manifest.files.map(f => ({ ...f, absolutePath: path.join(directory, f.path) })), report: manifest.report };
     }),
     read_image: async ({ file }) => {
-      const target = mediaPath(file), size = fs.statSync(target).size;
-      if (!fs.statSync(target).isFile() || size > 16 * 1024 * 1024) throw new Error('Preview images must be smaller than 16 MiB.');
+      const target = mediaPath(file);
       const mimeType = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' })[path.extname(target).toLowerCase()];
       if (!mimeType) throw new Error('Preview PNG, JPEG or WebP images.');
-      return { content: [{ type: 'image', mimeType, data: fs.readFileSync(target).toString('base64') }] };
+      return { content: [{ type: 'image', mimeType, data: (await readLocal(file, 16 * 1024 * 1024)).toString('base64') }] };
     },
   };
 }

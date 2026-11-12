@@ -8,15 +8,17 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { verifyStoreImageUpload } from './store-image-upload-check.mjs';
 import { encodePNG } from './png.mjs';
 import { startActiveAgentLink } from '../desktop/active-agent-link.mjs';
-import { createActiveProjectTools } from '../host/active-project-tools.mjs';
+import { createActiveProjectTools, ACTIVE_TOOLS } from '../host/active-project-tools.mjs';
 import { createNewProject } from '../host/new-project.mjs';
 import { createStudioService } from '../host/service.mjs';
 import { testAgentConnection } from '../desktop/agent-connection.mjs';
+import { verifyActiveMCPProcess } from './mcp-process-check.mjs';
 const bundle = process.argv[2];
 if (!bundle?.endsWith('.app')) throw new Error('Pass the packaged Screenshot Studio.app path.');
 const root = path.join(bundle, 'Contents', 'Resources', 'app');
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/SKILL.md')));
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/editing.md')));
+assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/advanced-editing.md')));
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/store-images.md')));
 assert.ok(fs.existsSync(path.join(root, 'skills/screenshot-studio/references/apple-assets.md')));
 assert.ok(fs.existsSync(path.join(root, 'node_modules/@modelcontextprotocol/sdk/package.json')));
@@ -27,12 +29,14 @@ let errors = '';
 const call = (name, args) => client.callTool({ name, arguments: args }, undefined, { timeout: 90000 });
 try {
   const probe = await testAgentConnection({ command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--workspace', workspace] });
-  assert.equal(probe.tools, 13);
+  assert.equal(probe.tools, ACTIVE_TOOLS.length + 1);
   const connecting = client.connect(transport, { timeout: 30000 });
   transport.stderr?.on('data', bytes => { if (errors.length < 10000) errors += bytes.toString(); });
   await connecting;
-  assert.equal((await client.listTools()).tools.length, 13);
+  assert.equal((await client.listTools()).tools.length, ACTIVE_TOOLS.length + 1);
   const catalog = await call('catalog', {}); assert.equal(catalog.structuredContent.workspace, fs.realpathSync(workspace));
+  assert.ok(catalog.structuredContent.editing.layerOperations.includes('boolean'));
+  assert.match((await client.readResource({uri:'screenshot-studio://guide/advanced-editing'})).contents[0].text,/arrange_layers/);
   const created = await call('create_project', { project: 'Demo.sss' }); assert.ok(!created.isError, JSON.stringify(created));
   const check = await call('preflight_project', { project: 'Demo.sss' });
   assert.ok(!check.isError, JSON.stringify(check)); assert.equal(check.structuredContent.ready, false);
@@ -60,6 +64,30 @@ try {
   const storeExport=await call('export_project',{project:'Demo.sss',devices:added.structuredContent.images.map(i=>i.deviceId),slides:added.structuredContent.images.map(i=>i.slideId),mode:'final'});
   assert.ok(!storeExport.isError,JSON.stringify(storeExport));assert.equal(storeExport.structuredContent.files.length,2);
   await verifyStoreImageUpload(storeExport.structuredContent.directory);
+  // Exercise shipped native geometry, fonts and measured editing, not only tool discovery.
+  let nativeDoc = (await call('read_project', {project:'Demo.sss'})).structuredContent;
+  const nativeCanvas = added.structuredContent.images[0];
+  const nativeScope = {device:nativeCanvas.deviceId,slide:nativeCanvas.slideId};
+  const nativeEdit = await call('edit_layers',{project:'Demo.sss',revision:nativeDoc.revisions.studio,edits:[
+    {...nativeScope,op:'add',layer:{id:'left-shape',type:'shape',shape:'rect',cx:50,cy:50,w:100,h:100,fill:'#cc3355'}},
+    {...nativeScope,op:'add',layer:{id:'right-shape',type:'shape',shape:'ellipse',cx:100,cy:50,w:100,h:100,fill:'#cc3355'}},
+    {...nativeScope,op:'boolean',ids:['right-shape','left-shape'],operation:'unite',resultId:'native-union'},
+    {...nativeScope,op:'shadow',ids:['native-union'],preset:'soft',distance:12,angle:90},
+  ]});
+  assert.ok(!nativeEdit.isError,JSON.stringify(nativeEdit));
+  const nativeLayers = await call('inspect_layers',{project:'Demo.sss',...nativeScope,ids:['native-union'],vectors:true});
+  assert.ok(!nativeLayers.isError,JSON.stringify(nativeLayers));
+  assert.equal(nativeLayers.structuredContent.layers[0].data.shape,'path');
+  assert.ok(nativeLayers.structuredContent.layers[0].vector.paths[0].anchors.length>2);
+  fs.copyFileSync(new URL('./fixtures/fonts/Mulish.ttf',import.meta.url),path.join(workspace,'font.ttf'));
+  const embedded = await call('import_fonts',{project:'Demo.sss',sources:['font.ttf'],revision:nativeEdit.structuredContent.revision});
+  assert.ok(!embedded.isError,JSON.stringify(embedded));assert.equal(embedded.structuredContent.fonts[0].family,'Mulish');
+  const aligned = await call('arrange_layers',{project:'Demo.sss',...nativeScope,ids:['native-union'],operation:'center-x',revision:embedded.structuredContent.revision});
+  assert.ok(!aligned.isError,JSON.stringify(aligned));
+  const measured = await call('preflight_project',{project:'Demo.sss',devices:[nativeScope.device],slides:[nativeScope.slide],locales:['en-US'],details:true});
+  assert.ok(!measured.isError,JSON.stringify(measured));
+  const shapeBounds = measured.structuredContent.scenes[0].layers.find(l=>l.id==='native-union').bounds;
+  assert.ok(Math.abs(shapeBounds.x+shapeBounds.w/2-measured.structuredContent.scenes[0].designSize[0]/2)<.11);
   // The same executable proxies an open GUI document, then follows a switch with no reconnect.
   const appData = path.join(workspace, 'app-data');
   const projectA = path.join(fs.realpathSync(workspace), 'Demo.sss'), projectB = path.join(fs.realpathSync(workspace), 'Second.sss');
@@ -72,8 +100,10 @@ try {
   const activeClient = new Client({ name: 'packaged-active-verification', version: '1.0' });
   try {
     const connection = { command: path.join(bundle, 'Contents/MacOS/Screenshot Studio'), args: ['--screenshot-studio-mcp', '--active-app', '--app-data', appData] };
-    assert.equal((await testAgentConnection(connection)).tools, 12);
-    await activeClient.connect(new StdioClientTransport({ ...connection, stderr: 'pipe' }), { timeout: 30000 });
+    assert.equal((await testAgentConnection(connection)).tools, ACTIVE_TOOLS.length);
+    const activeTransport = new StdioClientTransport({ ...connection, stderr: 'pipe' });
+    await activeClient.connect(activeTransport, { timeout: 30000 });
+    console.log('Active-app MCP process:', verifyActiveMCPProcess(activeTransport.pid));
     const first = (await activeClient.callTool({ name: 'read_project', arguments: {} })).structuredContent;
     assert.equal(first.project, projectA); first.studio.slides[0].name = 'Active app edit';
     const saved = await activeClient.callTool({ name: 'save_document', arguments: { studio: first.studio, revision: first.revisions.studio, projectSession: first.projectSession } });
@@ -87,6 +117,7 @@ try {
     assert.equal((await activeClient.callTool({ name: 'catalog', arguments: {} })).structuredContent.project, null);
   } finally { await activeClient.close(); link.close(); services.forEach(service => service.close()); }
   console.log('Packaged active-project MCP passed: GUI proxy, default current document, live switching, renderer notifications and rejection of stale writes.');
+  console.log('Packaged native MCP passed: guide resources, boolean curves, shadows, vector inspection, portable font embedding and renderer-measured alignment without Node or Chrome.');
   console.log('Packaged MCP passed: stdio, bundled skill/dependencies, draft/final RGB rendering without Node or Chrome, missing-capture rejection and workspace confinement.');
 } catch (error) { throw new Error(`${error.message}\nServer stderr: ${errors}`, { cause: error }); }
 finally { await client.close(); fs.rmSync(workspace, { recursive: true, force: true }); }

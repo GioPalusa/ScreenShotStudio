@@ -11,7 +11,7 @@
     "package": "node tools/package.mjs",
     "test:render": "node tools/render-test.mjs",
     "mcp": "node tools/mcp/server.mjs",
-    "test:mcp": "node --test tools/mcp.test.mjs",
+    "test:mcp": "node --test tools/mcp.test.mjs tools/mcp-advanced.test.mjs tools/active-project-mcp.test.mjs",
     "release:zip": "node tools/release-zip.mjs"
   },
   "engines": {

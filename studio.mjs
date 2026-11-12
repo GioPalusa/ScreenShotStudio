@@ -99,6 +99,8 @@ async function runHeadlessExport(server, base) {
   }
   const params = new URLSearchParams({ headless: '1' });
   if (command === 'inspect') { params.set('inspect', '1'); if (flag('check-only')) params.set('checkOnly', '1'); }
+  if (flag('details')) params.set('details', '1');
+  if (option('preview-width') !== undefined) params.set('previewWidth', option('preview-width'));
   for (const key of ['locale', 'device', 'slide']) if (option(key)) params.set(key, option(key));
   if (flag('strict')) params.set('strict', '1');
   if (flag('allow-placeholders')) params.set('placeholders', '1');

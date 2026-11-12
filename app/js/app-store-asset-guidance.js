@@ -1,16 +1,27 @@
 import { EXPORT_TARGETS, exportTarget } from './export-targets.js';
+import { TEXT_REVIEW_POLICY } from './text-review.js';
 
 export const APP_STORE_ASSET_GUIDANCE = {
   source: 'https://developer.apple.com/app-store/asset-best-practices/',
   reviewSource: 'https://developer.apple.com/app-store/review/guidelines/#accurate-metadata',
   screenshotSpecs: 'https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/',
   creativeSpecs: 'https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications/',
-  checkedAt: '2026-10-18',
+  checkedAt: '2026-11-12',
+  productPageSource: 'https://developer.apple.com/app-store/product-page/',
+  previewSource: 'https://developer.apple.com/news/?id=ljpl7kyn',
+  optimization: {
+    textReview: TEXT_REVIEW_POLICY,
+    priority: ['Make the first image explain the app and its benefit.', 'Keep one dominant promise with optional supporting text.', 'Show readable app evidence for that promise.', 'Test text placement, alignment and orientation as separate hypotheses.'],
+    experiments: 'Keep a baseline and a named variant with its hypothesis and intended difference. A simultaneous redesign tests the package, not the effect of any one change. Use randomised Product Page Optimization for causal comparison; different CPP traffic sources confound raw comparisons.',
+    evidence: 'No universal best headline position, word count, font size or text-area percentage is established. Design targets are heuristics, not Apple rules or guaranteed conversion improvements.',
+    reference: 'screenshot-studio://guide/apple-assets',
+  },
   visualChecks: [
     'Screenshots show real app use; lead with the strongest benefits and a coherent sequence, rather than title art or calls to action alone.',
     'Header artwork expresses one clear idea. Search artwork makes the app’s purpose immediately clear. Keep both visually consistent with the app.',
     'Use short, legible overlays that complement the visuals. Localize for supported languages and review each rendered variant.',
-    'Keep essential text and focal artwork within Apple’s template safe areas across devices and orientations. Confirm placement in App Store Connect Preview; do not invent universal pixel margins.',
+    'Inspect textReview at small display sizes: text that fits the export may still be too small to read. Review baked-in capture text visually.',
+    'For creative assets, keep essential text and focal artwork within the official template safe areas for that placement. Screenshots need their own composition review. Confirm both in App Store Connect Preview; do not invent universal pixel margins.',
     'Keep pricing, discounts, URLs, copyright symbols, unsupported claims, Apple editorial recognitions and unrelated platform branding out of the assets.',
     'Use inclusive imagery appropriate for a 4+ audience. Review content rights and fictionalize personal account information.',
     'Accurately represent available features and identify featured content that requires an additional purchase.',

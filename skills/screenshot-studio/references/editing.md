@@ -33,7 +33,7 @@ Each slide's `layouts[deviceId]` can use `{ "template": "custom", "panorama": fa
 
 This example uses a 1320-pixel design width; adapt to the actual canvas. Layer order controls stacking. Device layers inherit `slide.capture` unless they specify their own `capture`; `captureSet` and `profile` select separate capture collections and hardware. Art uses filenames returned by `import_media`, not external URLs. Use imported images under their applicable rights. The iPhone Duo illustration is a stand-in.
 
-For more layout capabilities, inspect the repository's pure layout and edit modules (`app/js/layouts.js`, `layer-ops.js`, `project-ops.js`). Save plain document data; fields beginning with `_` belong to the renderer and are rejected. Make layout edits in the source project; exports are generated artifacts.
+For vectors, masks, booleans, appearance, gradients, shadows, measured alignment, Figma and fonts, read [advanced editing](advanced-editing.md), also served as `screenshot-studio://guide/advanced-editing`. Use `inspect_layers` for resolved native data and `preview_project(details=true)` for renderer measurements. Save plain document data; fields beginning with `_` belong to the renderer and are rejected. Make layout edits in the source project; exports are generated artifacts.
 
 ## Continuous series
 

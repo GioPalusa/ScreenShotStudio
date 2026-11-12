@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMCPServer } from './mcp/server.mjs';
-import { createActiveProjectTools } from '../host/active-project-tools.mjs';
+import { createActiveProjectTools, ACTIVE_TOOLS } from '../host/active-project-tools.mjs';
+import { SESSION_TOOLS } from '../app/js/agent-capabilities.js';
 import { startActiveAgentLink, callActiveAgent } from '../desktop/active-agent-link.mjs';
 import { createNewProject } from '../host/new-project.mjs';
 import { createStudioService } from '../host/service.mjs';
@@ -82,7 +86,8 @@ test('active MCP schemas default to the open project and require session identit
   const client = new Client({ name: 'active-test', version: '1' }), [a, b] = InMemoryTransport.createLinkedPair();
   t.after(() => client.close()); await server.connect(b); await client.connect(a);
   const list = (await client.listTools()).tools;
-  assert.equal(list.length, 12); assert.equal(list.some(t => t.name === 'create_project'), false);
+  assert.deepEqual(list.map(t => t.name).sort(), [...ACTIVE_TOOLS].sort()); assert.equal(list.some(t => t.name === 'create_project'), false);
+  for (const name of SESSION_TOOLS) assert.ok(list.find(t => t.name === name).inputSchema.required.includes('projectSession'), name);
   assert.ok(!list.find(t => t.name === 'read_project').inputSchema.required?.includes('project'));
   assert.ok(list.find(t => t.name === 'save_document').inputSchema.required.includes('projectSession'));
   for (const name of ['edit_layers', 'preview_project', 'preflight_project']) {
@@ -92,6 +97,43 @@ test('active MCP schemas default to the open project and require session identit
   const first = await client.callTool({ name: 'read_project', arguments: {} }); assert.equal(first.structuredContent.project, f.contexts[0].project);
   f.setCurrent(f.contexts[1]);
   const second = await client.callTool({ name: 'read_project', arguments: {} }); assert.equal(second.structuredContent.project, f.contexts[1].project);
+});
+
+test('Node-only active MCP forwards to the GUI and closes with its client', async t => {
+  const f = fixture(t), appData = path.join(f.root, 'app-data');
+  const link = await startActiveAgentLink({ appData, invoke: f.tools.invoke }); t.after(() => link.close());
+  const transport = new StdioClientTransport({ command: process.execPath, args: [path.resolve('tools/mcp/server.mjs'), '--active-app', '--app-data', appData], stderr: 'pipe' });
+  const client = new Client({ name: 'node-proxy-test', version: '1' }); t.after(() => client.close());
+  await client.connect(transport, { timeout: 10000 });
+  const pid = transport.pid;
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), [...ACTIVE_TOOLS].sort());
+  assert.equal((await client.callTool({ name: 'read_project', arguments: {} })).structuredContent.project, f.contexts[0].project);
+  f.setCurrent(f.contexts[1]);
+  assert.equal((await client.callTool({ name: 'read_project', arguments: {} })).structuredContent.project, f.contexts[1].project);
+  await client.close();
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+});
+
+test('closing MCP stdin exits cleanly even during a pending GUI request', { timeout: 10000 }, async t => {
+  const f = fixture(t), appData = path.join(f.root, 'app-data');
+  let began;
+  const started = new Promise(resolve => began = resolve);
+  const link = await startActiveAgentLink({ appData, invoke: () => { began(); return new Promise(() => {}); } });
+  t.after(() => link.close());
+  const child = spawn(process.execPath, [path.resolve('tools/mcp/server.mjs'), '--active-app', '--app-data', appData], { stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => child.kill('SIGKILL'));
+  child.stderr.resume();
+  const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+  const lines = createInterface({ input: child.stdout }); t.after(() => lines.close());
+  const initialized = new Promise(resolve => lines.once('line', line => resolve(JSON.parse(line))));
+  const send = message => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+  send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'eof-test', version: '1' } } });
+  assert.equal((await initialized).id, 1);
+  send({ method: 'notifications/initialized' });
+  send({ id: 2, method: 'tools/call', params: { name: 'catalog', arguments: {} } });
+  await started;
+  child.stdin.end();
+  assert.deepEqual(await exited, { code: 0, signal: null });
 });
 
 test('MCP store images follow the open project with session checks and editor notification', async t=>{

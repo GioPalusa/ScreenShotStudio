@@ -3,8 +3,12 @@ import { resolveLayers } from './layouts.js';
 import { editBlock, splitBlockForDevice, patchLayer, addLayer, removeLayer } from './layer-ops.js';
 import { sharedBlock, patchSharedLayer } from './shared-canvas.js';
 import { isStoreCanvas, orderedSlides, slideSupportsCanvas } from './slide-order.js';
+import { canvasForSlide } from './canvas-orientation.js';
+import { canvasMetrics } from './layouts.js';
+import { operateOnLayers } from './agent-layer-operations.js';
+import { LAYER_OPERATIONS } from './agent-capabilities.js';
 
-const plain = value => {
+export const plain = value => {
   if (!value || typeof value !== 'object') return;
   for (const [key, child] of Object.entries(value)) {
     if (key.startsWith('_')) throw new Error('Use plain layer data without private fields.');
@@ -13,41 +17,51 @@ const plain = value => {
 };
 
 export function editingInventory(project) {
+  const summary = l => ({ id: l.id, type: l.type, ...(l.name ? { name: l.name } : {}), editable: !l._sourceId,
+    ...(l.field ? { field: l.field } : {}), ...(l.shape ? { shape: l.shape } : {}), ...(l.group ? { group: l.group } : {}),
+    ...(l.maskMembership ? { mask: l.maskMembership.id } : {}), ...(l.locked ? { locked: true } : {}), ...(l.hidden ? { hidden: true } : {}) });
   return Object.entries(project.devices).map(([id, device]) => ({
     id, label: device.label, size: device.size, designSize: device.designSize ?? device.size,
     captureCollection: device.capture, shared: !isStoreCanvas(device),
-    sharedLayers: (project.sharedCanvas?.[id]?.layers ?? []).map(l => ({ id: l.id, type: l.type })),
-    screens: orderedSlides(project, project.sourceLocale ?? project.locales[0]?.id, id).map(slide => ({
-      id: slide.id, name: slide.name, capture: slide.capture,
-      layers: resolveLayers({ project, slide, deviceId: id, includeShared: false }).layers.map(l => ({ id: l.id, type: l.type, editable: !l._sourceId, ...(l.field ? { field: l.field } : {}) })),
-    })),
+    sharedLayers: (project.sharedCanvas?.[id]?.layers ?? []).map(summary),
+    screens: orderedSlides(project, project.sourceLocale ?? project.locales[0]?.id, id).map(slide => {
+      const canvas = canvasForSlide(project, slide, id), metrics = canvasMetrics(canvas);
+      return { id: slide.id, name: slide.name, capture: slide.capture, size: canvas.size, designSize: [metrics.W, metrics.H],
+        localeVariants: Object.keys(slide.localeLayouts ?? {}).filter(locale => slide.localeLayouts[locale]?.[id]),
+        ...(slide.localeLayouts?.[project.sourceLocale ?? project.locales[0]?.id]?.[id] ? { editLocale: project.sourceLocale ?? project.locales[0]?.id } : {}),
+        layers: resolveLayers({ project, slide, deviceId: id, localeId: project.sourceLocale ?? project.locales[0]?.id, includeShared: false }).layers.map(summary) };
+    }),
   }));
 }
 
 /** Return a modified clone: a bad batch cannot partially change the caller's document. */
-export function editLayers(studio, edits) {
+export function editLayers(studio, edits, { paper } = {}) {
   if (!Array.isArray(edits) || !edits.length || edits.length > 200) throw new Error('Supply 1–200 layer edits.');
   plain(edits);
   const project = structuredClone(studio);
   for (const edit of edits) {
     const device = project.devices[edit.device];
     if (!device) throw new Error(`Unknown canvas: ${edit.device}`);
-    if (!['add', 'patch', 'remove'].includes(edit.op)) throw new Error('Choose add, patch or remove.');
+    if (!LAYER_OPERATIONS.includes(edit.op)) throw new Error(`Choose ${LAYER_OPERATIONS.join(', ')}.`);
     if (edit.locale && !project.locales.some(l => l.id === edit.locale)) throw new Error(`Unknown locale: ${edit.locale}`);
     if (edit.patch && ['id', 'type'].some(key => key in edit.patch)) throw new Error('Keep layer identity and type; add a new layer to replace it.');
     let block, layers;
     if (edit.shared) {
       if (edit.slide || edit.locale || isStoreCanvas(device)) throw new Error('Shared edits use a screenshot canvas and row coordinates, without slide or locale.');
-      block = sharedBlock(project, edit.device, true); layers = block.layers ??= [];
+      block = sharedBlock(project, edit.device, true); layers = (block.layers ??= []).map(l => ({ ...l, _origin: 'slide' }));
     } else {
       const slide = project.slides.find(s => s.id === edit.slide);
       if (!slide || !slideSupportsCanvas(project, slide, edit.device)) throw new Error(`Choose a screen on canvas ${edit.device}.`);
+      const sourceLocale = project.sourceLocale ?? project.locales[0]?.id;
+      if (!edit.locale && slide.localeLayouts?.[sourceLocale]?.[edit.device]?.independent) throw new Error(`This screen has an independent ${sourceLocale} layout. Supply locale: ${sourceLocale} to edit its visible objects.`);
       // Materialize a class layout so a targeted iPad edit cannot affect another canvas.
       if (!edit.locale) splitBlockForDevice(project, slide, edit.device);
       block = editBlock(project, slide, edit.device, null, edit.locale);
       layers = resolveLayers({ project, slide, deviceId: edit.device, localeId: edit.locale, includeShared: false }).layers;
     }
-    if (edit.op === 'add') {
+    if (!['add', 'patch', 'remove'].includes(edit.op)) {
+      operateOnLayers({ block, layers, edit, ink: project.themes?.[project.slides.find(s => s.id === edit.slide)?.theme]?.ink ?? '#142039', paper });
+    } else if (edit.op === 'add') {
       if (!edit.layer?.id || !['text', 'device', 'art', 'shape', 'route'].includes(edit.layer.type)) throw new Error('Add a layer with an ID and a supported type.');
       if (layers.some(l => l.id === edit.layer.id) || block.overrides?.[edit.layer.id] !== undefined) throw new Error(`Layer ID already exists: ${edit.layer.id}`);
       addLayer(block, structuredClone(edit.layer), layers);

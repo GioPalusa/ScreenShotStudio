@@ -11,7 +11,7 @@ function exportProject(input) {
   queue = result.catch(() => {});
   return result;
 }
-async function renderExport({ source, destination, mode, locales, devices, slides, allowPlaceholders, checkOnly }) {
+async function renderExport({ source, destination, mode, locales, devices, slides, allowPlaceholders, checkOnly, details, previewWidth }) {
   const service = createStudioService({ appPath: appPath, projectPath: source, exportPath: destination, origin: ORIGIN, onExportLog: line => console.error(line) });
   activeService = service;
   let timer;
@@ -21,6 +21,8 @@ async function renderExport({ source, destination, mode, locales, devices, slide
   win.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${ORIGIN}/app/`)) event.preventDefault(); });
   const params = new URLSearchParams({ headless: '1' });
   if (mode === 'inspect') { params.set('inspect', '1'); if (checkOnly) params.set('checkOnly', '1'); }
+  if (details) params.set('details', '1');
+  if (previewWidth !== undefined) params.set('previewWidth', String(previewWidth));
   for (const [name, ids] of [['locale', locales], ['device', devices], ['slide', slides]]) if (ids) params.set(name, ids.join(','));
   if (mode === 'final') params.set('strict', '1');
   if (allowPlaceholders) params.set('placeholders', '1');
