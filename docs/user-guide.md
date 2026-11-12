@@ -50,7 +50,7 @@ Drag on the canvas to draw a shape. Hold **Shift** for a square, circle or line 
 
 In Details, **Corner radius**, each individual corner value, and **Blur** use the same expandable numeric control as outline width. Click the value for a slider and an exact px field; Escape or clicking outside closes it. Corner radii are limited by the shape’s dimensions. Changes can be undone.
 
-Every object type offers **Details → Effects → Add shadow**, including text, images, devices, shapes and paths. Set its colour, opacity, blur and X/Y offset. Numeric values expand into sliders and exact fields; negative offsets move the shadow left or up. **Remove shadow** keeps the settings for later restoration.
+Every object type offers **Details → Effects → Add shadow**, including text, images, devices, shapes and paths. Choose a preset (Subtle, Soft, Floating, Crisp, Dramatic or Glow), then adjust colour, opacity, distance, direction and blur/size. Drag the angle dial or use its arrow keys (Shift for 10°); 0° points right and 90° points down. X/Y offsets remain available in Advanced. Values stay synchronised; zero distance retains the chosen direction. Presets remain editable and are one Undo step. Numeric values expand into sliders and exact fields; negative offsets move the shadow left or up. **Remove shadow** keeps the settings for later restoration.
 
 Rectangles and closed polygon paths show small circular corner widgets inside their corners. Drag inward to increase the radius or outward to reduce it. With the upper **Select (V)** pointer, dragging a widget adjusts all corners. With the lower **Edit points (A)** pointer, it adjusts only that corner. Corner drags are one Undo step; Escape cancels a drag. Rectangles also expose separate corner values in Details. Open paths and smooth curved paths have no polygon corner widgets. Rounding preserves editable vector paths and paint coordinates.
 
@@ -59,6 +59,8 @@ Select a vector and choose **Details → Shape → Edit points**, double-click i
 **Fill** edits solid colours and linear/radial gradients, including each stop’s colour, position and opacity. **Edit gradient on canvas** exposes its direction handles; radial gradients also have a width handle. **Outline** edits width, colour and inside/centre/outside alignment. **Blur** has a slider and a precise pixel field. Multiple imported fills remain separate. SVG code is tucked away in **Advanced path data** and is unnecessary for visual editing.
 
 ## Right-click menus
+
+Right-click an empty canvas area for **Paste** or **Add → Text, Image… and Shapes → Rectangle, Ellipse / circle or Line**. New items are placed at the pointer and shapes use the drawing defaults. Vector pen starts the pen tool. Paste supports editable Studio objects, plain text, images, SVG and Figma content through the same pipeline as ⌘V.
 
 Right-click an object on the canvas or in Layers for **Arrange**, **Align**, **Transform**, **Appearance** and **Vector** submenus. Vector → Combine shapes contains Union, Subtract, Intersect and Exclude. Appearance offers copy/paste appearance and Add/Remove shadow. Grouping, rotation, flips, masking, duplication, visibility, locking and deletion are available where applicable. Right-clicking an object already in a multiple selection keeps that selection. Stacking moves selected objects together while retaining their relative order.
 
@@ -70,7 +72,7 @@ Choose **Copy appearance** and **Paste appearance** in Details, the context menu
 
 Shift-click objects to edit them together. Details offers common opacity, blur, fill, outline, rectangle corners, text typography and shadows where applicable. **Mixed** indicates different values. Each change is undoable; a slider drag is one Undo step.
 
-Dragging an object shows measured edge gaps and snaps to equal spacing between neighbouring objects. Hold **Option** while hovering another object to inspect distances. Hold **⌘/Ctrl** during a drag to disable snapping.
+Dragging an object shows measured edge gaps with opaque, high-contrast labels and 2 px measurement lines and snaps to equal spacing between neighbouring objects. Hold **Option** while hovering another object to inspect distances. Hold **⌘/Ctrl** during a drag to disable snapping.
 
 Select at least two objects and choose **Use as mask** or press **⌥⌘M**. The frontmost object masks the others. Both the mask and its contents remain editable objects. **Release mask** restores their previous grouping and visibility. The objects must belong to the same screen, or all be shared objects.
 
