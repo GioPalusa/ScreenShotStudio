@@ -64,9 +64,13 @@ try{
     const gradientSVG=parseSVG('<svg width="128" height="128" viewBox="0 0 64 64"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="10" y1="10" x2="50" y2="10"><stop stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs><path d="M10 10H50V50H10Z" fill="url(#g)"/></svg>');
     const gp=gradientSVG.layers.find(l=>l.shape==='path');check(gp.w===80&&gp.cx===60&&gp.paints[0].handles[0][0]===0&&gp.paints[0].handles[1][0]===1,'SVG viewBox and user-space gradients must retain geometry');
     const count=engine.project.slides.at(-1).localeLayouts['en-US'][device].layers.length;
+    const renderBeforePaste=engine.render.bind(engine);let delayPastedScene=true;engine.render=async (...args)=>{if(delayPastedScene)await new Promise(r=>setTimeout(r,500));return renderBeforePaste(...args);};
     document.dispatchEvent(new ClipboardEvent('paste',{clipboardData:(()=>{const d=new DataTransfer();d.setData('text/plain',svg);return d;})(),bubbles:true,cancelable:true}));
     await wait(()=>engine.project.slides.at(-1).localeLayouts['en-US'][device].layers.length>count);await flushSaves();
     check(engine.project.slides.at(-1).localeLayouts['en-US'][device].layers.some(l=>l.shape==='path'&&l.paths[0].d==='M0 0H128V128H0Z'),'Cmd+V adds editable SVG paths');
+    // A saved model is ready before its asynchronous canvas/selection render.
+    await wait(()=>document.querySelector('.details-heading b')?.textContent==='3 layers selected');
+    delayPastedScene=false;engine.render=renderBeforePaste;
     // CSS property paste opens an in-app review and modifies the selected native object.
     const data=new DataTransfer();data.setData('text/plain','opacity: 0.5;');document.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
     await wait(()=>button('Apply properties'));button('Apply properties').click();await flushSaves();
