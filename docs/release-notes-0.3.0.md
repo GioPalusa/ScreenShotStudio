@@ -6,6 +6,7 @@
 - **Work comfortably on the canvas.** Collapsible panels, contextual cursors, clearer distance labels and visual shadow presets with polar controls.
 - **Find your projects faster.** A Home gallery with project previews, in-app Figma import and portable project fonts, including missing-font review.
 - **Give your AI agent more control.** Expanded MCP tools cover native editing, layer hierarchy and named groups, with screenshot text review and font coverage checks.
+- **Updated runtime.** Electron 44.11.3 and dependency security fixes.
 
 ## Download
 
