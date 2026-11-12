@@ -23,3 +23,6 @@ project/
 *.pem
 *.key
 *.mobileprovision
+
+# Local generated deliveries, previews and browser profiles.
+/output/
