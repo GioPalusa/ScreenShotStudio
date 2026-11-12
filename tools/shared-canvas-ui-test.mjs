@@ -178,6 +178,33 @@ try {
     ed.addLayer('device'); await deviceRendered;
     check(document.querySelector('.rail-list [data-id="c"] .warning-mark')?.textContent==='⚠','Missing capture shows a warning triangle after rendering');
     check(!document.querySelector('.rail-list .dot'),'Editor warning badges use triangles');
+    all.click();await waitFor(()=>ed.scene?.allScreens);
+    ed.setTab('layers');
+    const sections=[...document.querySelectorAll('.layer-folder.screen > summary .layer-folder-name')];
+    check(sections.map(s=>s.textContent).join('|')==='1. Screen a|2. Screen b|3. Screen c','Layers are separated in artboard order');
+    check(document.querySelector('.layer-folder.shared > summary').textContent.includes('Across screens'),'Shared objects have a separate section');
+    const shapeIds=ed.scene.allLayers.filter(l=>l.type==='shape'&&l._sharedId).map(l=>l.id);
+    ed.selectLayers(shapeIds);ed.groupSelection();
+    await waitFor(()=>ed.scene.allLayers.filter(l=>shapeIds.includes(l.id)).every(l=>l.group));
+    const group=document.querySelector('.layer-folder.group');check(group&&group.querySelectorAll('.layer-row').length===2,'Manual group contains both layers');
+    group.open=false;await new Promise(r=>setTimeout(r,30));ed.rebuildInspector();
+    check(!document.querySelector('.layer-folder.group').open,'Collapsed groups survive inspector rebuilds');
+    document.querySelector('.layer-folder.group [aria-label="Rename group"]').click();
+    const groupName=document.querySelector('[aria-label="Group name"]');groupName.value='Phone artwork';groupName.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+    await waitFor(()=>ed.scene.allLayers.filter(l=>shapeIds.includes(l.id)).every(l=>l.groupName==='Phone artwork'));
+    check(document.querySelector('.layer-folder.group .layer-folder-name').textContent==='Phone artwork','Group names appear in the list');
+    undo();await waitFor(()=>ed.scene.allLayers.filter(l=>shapeIds.includes(l.id)).every(l=>l.groupName==='Group'));
+    redo();await waitFor(()=>ed.scene.allLayers.filter(l=>shapeIds.includes(l.id)).every(l=>l.groupName==='Phone artwork'));
+    ed.groupSelection(true);await waitFor(()=>!ed.scene.allLayers.some(l=>shapeIds.includes(l.id)&&l.group));
+    undo();await waitFor(()=>ed.scene.allLayers.filter(l=>shapeIds.includes(l.id)).every(l=>l.groupName==='Phone artwork'));
+    const overlay=document.querySelector('.overlay'),rect=overlay.getBoundingClientRect(),factor=rect.width/ed.scene.W;
+    const press=(target,x,y)=>target.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true,cancelable:true,clientX:rect.left+x*factor,clientY:rect.top+y*factor}));
+    // Shared objects can span a gap, but empty storyboard space must still clear selection.
+    press(overlay,412,400);check(ed.selectedId===null&&ed.selectedIds.size===0,'Clicking the gap clears selection');
+    ed.selectLayers(shapeIds);press(document.querySelector('.stage-canvas'),-20,40);
+    check(ed.selectedId===null&&ed.selectedIds.size===0,'Clicking the outer storyboard clears selection');
+    await flushSaves();
+    check(sharedBlock(engine.project,'phone').layers.filter(l=>l.type==='shape').every(l=>l.groupName==='Phone artwork'),'Named groups are saved as plain document data');
     const phoneSource=JSON.stringify(engine.project.sharedCanvas.phone);
     engine.project.devices.ipad={...engine.project.devices.phone,label:'iPad',size:[600,800],layout:'tablet'};
     state.ui.device='ipad';state.ui.screenshotDevice='ipad';state.ui.allScreens=false;editor.build();
@@ -189,7 +216,7 @@ try {
     check(JSON.stringify(engine.project.sharedCanvas.phone)===phoneSource,'iPad shared edits preserve the phone row');
     undo();await waitFor(()=>!engine.project.sharedCanvas?.ipad?.layers?.length);
     await flushSaves();await loadAll();check(state.ui.device==='ipad'&&state.ui.allScreens,'iPad shared mode survives reload');
-    result.textContent='PASS: All screens first, store spacing presets, fractional custom spacing, undo, visible gaps, shared image on both screens, edits from a single screen, isolated local overflow, document Details, default sharing in workspace, editable scope and persistent containment, copy/paste with independent text, undo/redo, unique IDs, shared duplication/deletion, text editing, persistence and warning triangles';
+    result.textContent='PASS: All screens first, store spacing presets, fractional custom spacing, undo, visible gaps, shared image on both screens, edits from a single screen, isolated local overflow, document Details, default sharing in workspace, editable scope and persistent containment, copy/paste with independent text, undo/redo, unique IDs, shared duplication/deletion, text editing, persistence, warning triangles, artboard sections, named collapsible groups, group Undo/Redo and deselection outside artboards';
   } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
   </script></body></html>`);
   const testPage = path.join(appPath, 'shared-ui-test.html'), html = fs.readFileSync(testPage, 'utf8');

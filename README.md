@@ -45,6 +45,8 @@ Work on an entire screenshot row in **Edit all screens**, or refine one screen a
 
 Arrange text, screenshots, shapes and artwork as layers. Move, resize, rotate and align objects on the canvas. Save reusable designs, duplicate screens, and undo changes. Device illustrations and imported frames are separate from the output canvas, so a design can adapt to different store formats. Installed frames are shared across all projects on your Mac; used artwork is retained in the document for portability.
 
+The **Layers** tab separates objects by artboard, with shared objects under **Across screens**. Select multiple layers and choose **＋ Group** or **⌘G**; use the pencil to name the group and its disclosure arrow to collapse it. **⇧⌘G** ungroups the selection. New Figma imports retain frame and group names as nested folders. Click the empty storyboard outside an artboard, including a gap between screens, to clear the selection.
+
 Select a text layer and choose **Text size → Fill frame** in Details to grow or shrink the text to its frame. Enter keeps a line break; resizing the frame updates the text size. **Max size** keeps the existing size limit, and **Auto text height** lets the frame follow the text again.
 
 ### Every language in one project

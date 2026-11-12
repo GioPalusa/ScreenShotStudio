@@ -27,6 +27,12 @@ export function uniqueId(taken, base) {
   return `${base}-${n}`;
 }
 
+/** Organisation uses regular patches so local, shared and template layers keep their owners. */
+export function groupLayerPatches(layers, { id, name = 'Group', ungroup = false } = {}) {
+  if (!ungroup && layers.length < 2) return [];
+  return layers.map(layer => ({ layer, patch: { group: ungroup ? undefined : id, groupName: ungroup ? undefined : name } }));
+}
+
 // ---------------------------------------------------------------------------
 // the block an edit goes to
 

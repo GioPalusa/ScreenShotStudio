@@ -328,7 +328,7 @@ test('layer drag handles reorder through the real edit operation and refuse lock
   const layers = [{ id: 'a', type: 'shape', zOrder: 0 }, { id: 'b', type: 'shape', zOrder: 1, locked: true }, { id: 'c', type: 'shape', zOrder: 2 }];
   const block = { template: 'custom', layers: structuredClone(layers) };
   let mutations = 0;
-  const ed = { scene: { allLayers: layers }, selectedId: null, selectedIds: new Set(), selectionLayers: () => [], peekBlock: () => block, layerById: id => layers.find(layer => layer.id === id), restack: fn => { mutations++; fn(block); } };
+  const ed = { scene: { allLayers: layers, slideId: 'test', slide: { id: 'test', name: 'Test screen' } }, selectedId: null, selectedIds: new Set(), selectionLayers: () => [], peekBlock: () => block, layerById: id => layers.find(layer => layer.id === id), restack: fn => { mutations++; fn(block); } };
   const panel = buildLayersPanel(ed).el;
   const all = node => [node, ...(node.children ?? []).flatMap(all)];
   const rows = all(panel).filter(node => node.className?.startsWith('layer-row'));
@@ -340,6 +340,7 @@ test('layer drag handles reorder through the real edit operation and refuse lock
   document.removeEventListener = () => {};
   const list = rows[0].children ? all(panel).find(node => node.className === 'layer-list') : null;
   list.contains = node => rows.includes(node);
+  list.querySelectorAll = () => rows;
   for (const row of rows) row.classList = { add() {}, remove() {} };
   rowA.isConnected = true;
   rowC.getBoundingClientRect = () => ({ top: 0 }); rowC.offsetHeight = 36;
