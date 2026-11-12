@@ -198,11 +198,11 @@ export function createStage(ed) {
       overlay.append(h('div', { class: `guide ${g.axis}`, style: g.axis === 'x' ? { left: `${g.at * f}px` } : { top: `${g.at * f}px` } }));
     }
     for(const g of distances){
-      const horizontal=g.axis==='x',line=h('div',{class:`distance-guide ${horizontal?'horizontal':'vertical'}${g.equal?' equal':''}`,style:{left:`${(horizontal?g.from:g.at)*f}px`,top:`${(horizontal?g.at:g.from)*f}px`,width:horizontal?`${(g.to-g.from)*f}px`:'1px',height:horizontal?'1px':`${(g.to-g.from)*f}px`}},h('span',null,`${Math.round(g.distance*10)/10} px`));overlay.append(line);
+      const horizontal=g.axis==='x',line=h('div',{class:`distance-guide ${horizontal?'horizontal':'vertical'}${g.equal?' equal':''}`,style:{left:`${(horizontal?g.from:g.at)*f}px`,top:`${(horizontal?g.at:g.from)*f}px`,width:horizontal?`${(g.to-g.from)*f}px`:'2px',height:horizontal?'2px':`${(g.to-g.from)*f}px`}},h('span',null,`${Math.round(g.distance*10)/10} px`));overlay.append(line);
     }
     if (readout && selected) {
       const b = selected._box;
-      overlay.append(h('div', { class: 'readout', style: { left: `${Math.min(Math.max(8, (b.x + b.w / 2) * f), ed.stageWidth - 8)}px`, top: `${Math.max(8, b.y * f - 34)}px` } }, readout));
+      overlay.append(h('div', { class: 'readout', style: { left: `${Math.min(Math.max(8, (b.x + b.w / 2) * f), ed.stageWidth - 8)}px`, top: `${distances.length?Math.max(8,Math.min((b.y+b.h)*f+12,s.H*f-26)):Math.max(8,b.y*f-34)}px` } }, readout));
     }
   }
 
@@ -356,10 +356,11 @@ export function createStage(ed) {
   overlay.addEventListener('contextmenu', e => {
     if (!scene()) return;
     const hit = hitTest(design(e));
-    if (hit) ed.layerMenu(e, hit);
+    if (hit) ed.layerMenu(e, hit);else ed.canvasMenu(e,design(e));
   });
 
   return {
+    canvasPoint:design,
     render,
     placeSelected,
     vectorEditor,drawing,

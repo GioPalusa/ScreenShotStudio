@@ -1,3 +1,4 @@
+import {drawingStyle,dragShape} from '../drawing-ops.js';
 import {canCombineShapes,booleanShape} from '../shape-boolean.js';
 import {restackSelection,appearancePatch,encodeAppearanceClipboard,decodeAppearanceClipboard,createMaskPatches,releaseMaskPatch} from '../layer-ops.js';
 import { sharedBlock, sharedGeometry, sharedLayerId, patchSharedLayer, offsetLayer, SCREEN_SPACING_PRESETS, sharedSpacing, setSharedSpacing } from '../shared-canvas.js';
@@ -334,6 +335,45 @@ export function createEditor(ctx) {
 
     },
 
+    canvasMenu(event,point){
+      if(!ed.scene)return;
+      const p={x:Math.max(0,Math.min(ed.scene.W,point.x)),y:Math.max(0,Math.min(ed.scene.H,point.y))};
+      ed.select(null);
+      const create=kind=>{
+        stageApi.drawing.choose('select');
+        if(kind==='text'){ed.addLayer('text',{x:p.x,capTop:p.y,w:Math.max(40,Math.min(300,ed.scene.W-p.x))});return;}
+        if(kind==='image'){void ed.addImage(null,{point:p});return;}
+        const tile=state.ui.allScreens?ed.scene.tiles[0]:null,w=Math.min(240,(tile?.W??ed.scene.W)*.3),height=Math.min(180,w*.75);
+        const geometry=dragShape(kind,{x:p.x-w/2,y:kind==='line'?p.y:p.y-height/2},{x:p.x+w/2,y:kind==='line'?p.y:p.y+height/2});
+        ed.addLayer('shape',{...drawingStyle(geometry,stageApi.drawing.defaults,{open:kind==='line'}),name:kind==='rect'?'Rectangle':kind==='ellipse'?'Ellipse':'Line'});
+      };
+      showContextMenu(event,[
+        {label:'Paste',shortcut:'⌘V',run:()=>void ed.pasteClipboard()},
+        {separator:true},
+        {label:'Add',children:[
+          {label:'Text',shortcut:'T',run:()=>create('text')},{label:'Image…',shortcut:'I',run:()=>create('image')},
+          {label:'Shapes',children:[{label:'Rectangle',shortcut:'R',run:()=>create('rect')},{label:'Ellipse / circle',shortcut:'O',run:()=>create('ellipse')},{label:'Line',shortcut:'L',run:()=>create('line')}]},
+          {separator:true},{label:'Vector pen',shortcut:'P',run:()=>stageApi.drawing.choose('pen')},
+        ]},
+      ],{label:'Canvas actions'});
+    },
+    async pasteClipboard(){
+      overlay.tabIndex=0;overlay.focus({preventScroll:true});
+      try{
+        if(window.studioDesktop?.paste){await window.studioDesktop.paste();return;}
+        const project=engine.project,route=JSON.stringify([state.ui.slideId,state.ui.device,state.ui.locale,state.ui.allScreens]),data=new DataTransfer();
+        if(navigator.clipboard?.read){
+          for(const item of await navigator.clipboard.read())for(const type of item.types){
+            const blob=await item.getType(type);
+            if(['text/plain','text/html','image/svg+xml'].includes(type))data.setData(type,await blob.text());
+            else if(type.startsWith('image/'))data.items.add(new File([blob],`clipboard.${type.split('/')[1]}`,{type}));
+          }
+        }else data.setData('text/plain',await navigator.clipboard.readText());
+        if(project!==engine.project||route!==JSON.stringify([state.ui.slideId,state.ui.device,state.ui.locale,state.ui.allScreens]))return;
+        if(!data.types.length){toast('The clipboard contains no supported content.');return;}
+        overlay.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+      }catch{toast('Clipboard access was unavailable. Press ⌘V to paste into the canvas.',{error:true});}
+    },
     async combineSelection(operation){
       const layers=paintOrder(ed.selectionLayers());if(!canCombineShapes(layers)){toast('Select at least two closed shapes.');return;}
       const owners=new Set(layers.map(l=>l._sharedId?'shared':l._sourceSlideId??currentSlide().id));if(owners.size>1){toast('Combine shapes belonging to the same screen.');return;}
@@ -507,7 +547,7 @@ export function createEditor(ctx) {
       state.ui.tab = 'details'; rememberUI();
       ed.refresh({ immediate: true, inspector: true });
     },
-    async addImage(files = null) {
+    async addImage(files = null, {point=null}={}) {
       if (!ed.scene) return;
       const started = { allScreens: state.ui.allScreens, locale: state.ui.locale, scope: ed.localeScope(), slideId: state.ui.slideId, deviceId: state.ui.device, template: ed.editTemplateId };
       const { W, H, cls } = ed.scene;
@@ -538,8 +578,8 @@ export function createEditor(ctx) {
         const w = Math.round(Math.min(tileWidth * (state.ui.allScreens ? 1.2 : .5), Math.max(160, p.width)));
         const layer = makeLayer('image', { cls, W, H, id: 'image', src: p.file, aspect: Math.round(aspect * 10000) / 10000, w });
         if (state.ui.allScreens) layer.allowCrop = true;
-        layer.cx += i * 60;
-        layer.cy += i * 60;
+        layer.cx = (point?.x??layer.cx)+i*60;
+        layer.cy = (point?.y??layer.cy)+i*60;
         const stored = addLayer(ed.block(), layer, state.ui.allScreens ? ed.block().layers : resolveLayers({ project: engine.project, slide: ed.drawSlide() ?? currentSlide(), deviceId: state.ui.device, localeId: state.ui.locale }).layers);
         ed.selectedIds.clear(); ed.selectedId = state.ui.allScreens ? sharedLayerId(stored.id) : stored.id; ed.selectedIds.add(ed.selectedId);
       });
@@ -649,6 +689,7 @@ export function createEditor(ctx) {
   stageCanvas.addEventListener('pointercancel', () => { pan = null; });
   const stageApi = createStage(ed);
   stageWorkspace.prepend(stageApi.drawing.toolbar);
+  stageCanvas.addEventListener('contextmenu',e=>{if(!e.defaultPrevented&&ed.scene)ed.canvasMenu(e,stageApi.canvasPoint(e));});
   stageCanvas.addEventListener('wheel', e => {
     if (!currentSlide() || !ed.stageWidth) return;
     e.preventDefault();
@@ -1171,9 +1212,14 @@ export function createEditor(ctx) {
     if(html?.includes('(figma)')){e.preventDefault();pasteFigmaClipboard(ed,html,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens);return;}
     if(pasteDesignText(ed,svg,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens)){e.preventDefault();return;}
     const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
-    if (!item) return;
+    if(item){e.preventDefault();ed.addImage([item.getAsFile()]);return;}
+    if(typeof payload!=='string'||!payload.trim()||!ed.scene)return;
     e.preventDefault();
-    ed.addImage([item.getAsFile()]);
+    const scene=ed.scene,W=state.ui.allScreens?scene.tiles[0].W:scene.W,w=Math.min(420,W*.7),layer=makeLayer('text',{cls:scene.cls,W,H:scene.H,id:'pasted-text',x:(scene.W-w)/2,w,capTop:scene.H*.3,size:Math.min(48,W*.06),color:scene.theme.ink,maxLines:0});
+    checkpoint(null,{copyLocales:[state.ui.locale]});
+    const result=pasteLayerClipboard({entries:[{layer,text:{[state.ui.locale]:{value:payload,needsReview:true}}}]},{block:ed.block(),resolved:scene.allLayers,copy:engine.data.copy,slideIds:[currentSlide().id],shared:Boolean(state.ui.allScreens)});
+    ed.selectedIds=new Set(result.layers.map(l=>state.ui.allScreens?sharedLayerId(l.id):l.id));ed.selectedId=[...ed.selectedIds].at(-1);
+    result.changedLocales.forEach(saveCopy);saveStudio();ed.refresh({immediate:true,inspector:true,rail:true});
   });
 
   // ---------------------------------------------------------------------------------------------

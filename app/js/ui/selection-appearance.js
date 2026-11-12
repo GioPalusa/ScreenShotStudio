@@ -1,3 +1,4 @@
+import {SHADOW_PRESETS,shadowPreset,shadowPolar,shadowFromPolar} from '../shadow-ops.js';
 import {paintOpacity} from '../shape-ops.js';
 import {canCombineShapes} from '../shape-boolean.js';
 import {h,selectInput} from './helpers.js';
@@ -26,7 +27,9 @@ export function selectionAppearance(ed){
  const shadows=initial.map(l=>l.shadow),allShadow=shadows.every(Boolean),anyShadow=shadows.some(Boolean);
  fields.push(h('div',{class:'row wrap'},h('span',{class:'label'},'Shadows'),h('button',{type:'button',class:'btn small','aria-label':allShadow?'Remove selected shadows':'Add shadow to selection',onClick:()=>{ed.setLayerPaints(layers().map(layer=>({layer,patch:allShadow?{savedShadow:layer.shadow,shadow:undefined}:{shadow:layer.shadow??layer.savedShadow??{color:'#000000',alpha:.3,blur:50,dx:0,dy:24}}})),null);}},allShadow?'Remove shadows':'Add shadows')));
  if(anyShadow){
+  const preset=selectInput({value:'custom',options:[['custom','Custom'],...SHADOW_PRESETS.map(p=>[p.id,p.name])],onChange:id=>{if(id!=='custom')ed.setLayerPaints(layers().map(layer=>({layer,patch:{shadow:shadowPreset(id)}})),null);}});preset.setAttribute('aria-label','Shadow preset');fields.push(h('label',{class:'field'},'Preset',preset));
   const defaults={color:'#000000',alpha:.3,blur:50,dx:0,dy:24},shadow=l=>({...defaults,...l.shadow,alpha:l.shadow?(l.shadow.alpha??paintOpacity(l.shadow.color)):.3});
+  fields.push(scalar('Shadow distance',initial,l=>shadowPolar(shadow(l)).distance,(l,distance)=>({shadow:shadowFromPolar(shadow(l),{distance})}),{max:2896,sliderMax:150}),scalar('Shadow angle',initial,l=>shadowPolar(shadow(l)).angle,(l,angle)=>({shadow:shadowFromPolar(shadow(l),{angle})}),{max:360,sliderMax:360,step:1,unit:'°'}));
   fields.push(colour('Shadow colour',initial,l=>shadow(l).color,(l,color)=>({shadow:{...shadow(l),color}}),null));
   for(const [label,key,options]of [['Shadow opacity','alpha',{max:100,sliderMax:100,step:1,unit:'%'}],['Shadow blur','blur',{max:2048,sliderMax:100}],['Shadow X offset','dx',{min:-2048,max:2048,sliderMin:-100,sliderMax:100}],['Shadow Y offset','dy',{min:-2048,max:2048,sliderMin:-100,sliderMax:100}]])fields.push(scalar(label,initial,l=>shadow(l)[key]*(key==='alpha'?100:1),(l,v)=>({shadow:{...shadow(l),[key]:v/(key==='alpha'?100:1)}}),options));
  }

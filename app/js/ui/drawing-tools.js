@@ -140,5 +140,5 @@ export function createDrawingTools(ed,{scale,point,redraw,hitTest,vectorEditor})
   if(nodes.length&&['Backspace','Delete'].includes(e.key)){consume(e);nodes.pop();gesture=null;redraw();return true;}
   return false;
  }
- update();return {toolbar,render,down,move,up,key,choose,double(){if(tool==='pen'){finish();return true;}return Date.now()-lastFinish<300;},get tool(){return tool;},get pending(){return Boolean(gesture||nodes.length);},get dragging(){return Boolean(gesture);},cancel(){clear();redraw();}};
+ update();return {toolbar,render,down,move,up,key,choose,double(){if(tool==='pen'){finish();return true;}return Date.now()-lastFinish<300;},get defaults(){return {...style};},get tool(){return tool;},get pending(){return Boolean(gesture||nodes.length);},get dragging(){return Boolean(gesture);},cancel(){clear();redraw();}};
 }

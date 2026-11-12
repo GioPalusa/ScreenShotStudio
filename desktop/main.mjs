@@ -48,6 +48,7 @@ const settingsFile = () => path.join(app.getPath('userData'), 'projects.json');
 const allowedExternal = url => ['https://www.palusa.se', 'https://developer.apple.com/', 'https://support.google.com/googleplay/', 'https://developer.android.com/', 'https://github.com/GioPalusa/ScreenShotStudio'].some(origin => origin.endsWith('/') ? url.startsWith(origin) : url === origin || url.startsWith(origin + '/'));
 const saveSettings = () => atomicWrite(settingsFile(), JSON.stringify(settings, null, 2));
 const trusted = event => event.sender === win?.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`);
+ipcMain.handle('studio:paste',event=>{if(!trusted(event))throw Error('Forbidden');win.webContents.focus();win.webContents.paste();return true;});
 let agentSetup, activeAgent, desktopExporter, figmaSettings;
 const getFigmaSettings=()=>figmaSettings??=createFigmaSettings({keychain:createFigmaKeychain({root:ROOT,userData:app.getPath('userData'),packaged:app.isPackaged})});
 ipcMain.handle('studio:figma-settings',async(event,operation,value)=>{if(!trusted(event))throw Error('Forbidden');if(operation==='expiry')return getFigmaSettings().setExpiry(value?.expiresAt);if(operation==='load')return getFigmaSettings().load();if(operation==='forget'){await getFigmaSettings().forget();return {stored:false};}throw Error('Invalid Figma connection action.');});
