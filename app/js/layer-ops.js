@@ -635,3 +635,18 @@ export function releaseMaskPatch(layer){
   const scopes=(layer.compositing??[]).filter(s=>s.id!==member.id);
   return {maskMembership:undefined,maskOnly:member.previous.maskOnly??undefined,group:member.previous.group??undefined,compositing:scopes.length?scopes:member.previous.hadCompositing?[]:undefined};
 }
+
+/** Move selected objects together, retaining their relative stacking order. */
+export function restackSelection(block,resolved,ids,direction,extreme=false){
+  const before=paintOrder(resolved),ordered=[...before],selected=new Set(ids.filter(id=>before.some(l=>l.id===id&&!l.locked)));
+  if(!selected.size)return [];
+  if(extreme){const moving=ordered.filter(l=>selected.has(l.id)),others=ordered.filter(l=>!selected.has(l.id));ordered.splice(0,ordered.length,...(direction>0?[...others,...moving]:[...moving,...others]));}
+  else for(let i=direction>0?ordered.length-2:1;direction>0?i>=0:i<ordered.length;direction>0?i--:i++){
+    if(!selected.has(ordered[i].id))continue;
+    let target=i+(direction>0?1:-1);while(ordered[target].hidden&&target+(direction>0?1:-1)>=0&&target+(direction>0?1:-1)<ordered.length)target+=direction>0?1:-1;
+    if(selected.has(ordered[target].id))continue;
+    const [layer]=ordered.splice(i,1);ordered.splice(target,0,layer);
+  }
+  if(ordered.every((l,i)=>l.id===before[i].id))return [];
+  const changed=[];ordered.forEach((layer,i)=>{if(layerZ(layer)!==i+1){patchLayer(block,layer,{zOrder:i+1});changed.push(layer.id);}});return changed;
+}

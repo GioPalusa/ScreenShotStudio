@@ -58,6 +58,12 @@ Select a vector and choose **Details → Shape → Edit points**, double-click i
 
 **Fill** edits solid colours and linear/radial gradients, including each stop’s colour, position and opacity. **Edit gradient on canvas** exposes its direction handles; radial gradients also have a width handle. **Outline** edits width, colour and inside/centre/outside alignment. **Blur** has a slider and a precise pixel field. Multiple imported fills remain separate. SVG code is tucked away in **Advanced path data** and is unnecessary for visual editing.
 
+## Right-click menus
+
+Right-click an object on the canvas or in Layers for **Arrange**, **Align**, **Transform**, **Appearance** and **Vector** submenus. Vector → Combine shapes contains Union, Subtract, Intersect and Exclude. Appearance offers copy/paste appearance and Add/Remove shadow. Grouping, rotation, flips, masking, duplication, visibility, locking and deletion are available where applicable. Right-clicking an object already in a multiple selection keeps that selection. Stacking moves selected objects together while retaining their relative order.
+
+Hover or click a submenu, or press **Right** to open it. **Up/Down**, **Home/End** and typing a command's first letters navigate; **Enter** runs it. **Left** or **Escape** closes the current submenu; Escape at the top level, Tab or clicking outside dismisses the menu. Submenus open to the left when needed to stay inside the window.
+
 ## Appearance, spacing and shape operations
 
 Choose **Copy appearance** and **Paste appearance** in Details, the context menu or the Mac Edit menu. **⌥⌘C** copies the active object's compatible fills, outline and effects; **⌥⌘V** applies them to the selection without replacing its geometry or content. Text-to-text transfer also copies typography. Image fills can be transferred within the same project.

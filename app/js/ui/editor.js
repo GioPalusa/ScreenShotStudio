@@ -1,5 +1,5 @@
 import {canCombineShapes,booleanShape} from '../shape-boolean.js';
-import {appearancePatch,encodeAppearanceClipboard,decodeAppearanceClipboard,createMaskPatches,releaseMaskPatch} from '../layer-ops.js';
+import {restackSelection,appearancePatch,encodeAppearanceClipboard,decodeAppearanceClipboard,createMaskPatches,releaseMaskPatch} from '../layer-ops.js';
 import { sharedBlock, sharedGeometry, sharedLayerId, patchSharedLayer, offsetLayer, SCREEN_SPACING_PRESETS, sharedSpacing, setSharedSpacing } from '../shared-canvas.js';
 import { canvasForSlide } from '../canvas-orientation.js';
 import { orientationPicker } from './canvas-orientation.js';
@@ -27,7 +27,7 @@ import { arrangeSelection } from '../selection.js';
 import { makeLayer, resolveLayers, canvasMetrics, paintOrder } from '../layouts.js';
 import {
   editBlock, peekBlock, setLayoutIndependent, slideForTemplateEdit, patchLayer, addLayer, removeLayer, geometryPatch, scaleLayerGeometry, devicesSharingBlock,
-  duplicateLayers, saveAsTemplate, detachTemplate, updateTemplateFromSlide, templateUsage, templateOf, uniqueId, slugify, layerLabel, stepLayer, moveLayerTo, stackIndex,
+  duplicateLayers, saveAsTemplate, detachTemplate, updateTemplateFromSlide, templateUsage, templateOf, uniqueId, slugify, layerLabel,
 } from '../layer-ops.js';
 import { readImageInfo, imageFilesOf } from '../assets.js';
 import { h, drawInto, toast, modal, confirmDialog, promptDialog, pixelRatio, selectInput } from './helpers.js';
@@ -280,25 +280,58 @@ export function createEditor(ctx) {
     layerMenu(event, layer) {
       if (!layer) return;
       if(!ed.selectedIds.has(layer.id))ed.select(layer.id, { individual: true });
-      const all = ed.scene.allLayers, index = stackIndex(all, layer.id), locked = Boolean(layer.locked);
-      const arrange = (direction, extreme = false) => ed.restack(block => extreme ? moveLayerTo(block, ed.scene.allLayers, layer.id, direction < 0 ? 0 : ed.scene.allLayers.length) : stepLayer(block, ed.scene.allLayers, layer.id, direction));
+      const all = ed.scene.allLayers, locked = Boolean(layer.locked);
+      const arrange = (direction, extreme = false) => ed.restack(block => restackSelection(block,block.layers,ed.selectionLayers().map(l=>l.id),direction,extreme));
+      const selection=ed.selectionLayers(),multiple=selection.length>1,masked=selection.some(l=>l.maskMembership),canEdit=!locked&&selection.length>0;
+      const ordered=paintOrder(all),ids=new Set(selection.map(l=>l.id)),canRaise=selection.some(l=>ordered.slice(ordered.findIndex(x=>x.id===l.id)+1).some(x=>!ids.has(x.id)&&!x.hidden)),canLower=selection.some(l=>ordered.slice(0,ordered.findIndex(x=>x.id===l.id)).some(x=>!ids.has(x.id)&&!x.hidden));
+      const batch=patch=>ed.setLayerPaints(selection.map(l=>({layer:l,patch:typeof patch==='function'?patch(l):patch})),null);
+      const rotate=angle=>batch(l=>{const value=angle===null?0:((l._box?.rot??l.rotate??0)+angle+360)%360;return l._decorationBase?{decorationBox:{...l._box,rot:value}}:{rotate:value};});
       showContextMenu(event, [
-        {label:ed.selectionLayers().some(l=>l.maskMembership)?'Release mask':'Use as mask',disabled:locked||!ed.selectionLayers().some(l=>l.maskMembership)&&ed.selectionLayers().length<2,run:()=>ed.maskSelection()},
-        { label: 'Copy appearance', run: () => ed.copyAppearance() },
-        { label: 'Paste appearance', disabled: locked, run: () => ed.pasteAppearance() },
-        { label: 'Rename', run: () => ed.renameLayer(layer.id) },
-        { label: 'Tag…', run: () => editLayerTag(ed, layer) },
-        { label: 'Bring forward', disabled: locked || index >= all.length - 1, run: () => arrange(1) },
-        { label: 'Send backward', disabled: locked || index <= 0, run: () => arrange(-1) },
-        { label: 'Bring to front', disabled: locked || index >= all.length - 1, run: () => arrange(1, true) },
-        { label: 'Send to back', disabled: locked || index <= 0, run: () => arrange(-1, true) },
-        { label: 'Rotate 90° clockwise', disabled: locked, run: () => ed.setLayer(ed.layerById(layer.id), { rotate: ((layer._box?.rot ?? layer.rotate ?? 0) + 90) % 360 }, { rebuild: true }) },
-        { label: 'Reset rotation', disabled: locked || !(layer._box?.rot ?? layer.rotate), run: () => ed.setLayer(ed.layerById(layer.id), { rotate: 0 }, { rebuild: true }) },
-        { label: 'Duplicate', disabled: locked, run: () => ed.duplicateSelection() },
-        { label: layer.hidden ? 'Show layer' : 'Hide layer', run: () => ed.setLayer(layer, { hidden: !layer.hidden }, { rebuild: true }) },
-        { label: locked ? 'Unlock layer' : 'Lock layer', run: () => ed.setLayer(layer, { locked: !locked }, { rebuild: true }) },
-        { label: 'Delete layer', danger: true, disabled: locked, run: () => ed.removeLayer(layer) },
+        {label:'Duplicate',shortcut:'⌘D',disabled:!canEdit,run:()=>ed.duplicateSelection()},
+        ...(!multiple?[{label:'Rename',shortcut:'Enter',run:()=>ed.renameLayer(layer.id)},{label:'Tag…',run:()=>editLayerTag(ed,layer)}]:[]),
+        {separator:true},
+        {label:'Arrange',disabled:!canEdit,children:[
+          {label:'Bring forward',shortcut:'⌘]',disabled:!canRaise,run:()=>arrange(1)},
+          {label:'Send backward',shortcut:'⌘[',disabled:!canLower,run:()=>arrange(-1)},
+          {label:'Bring to front',shortcut:'⇧⌘]',disabled:!canRaise,run:()=>arrange(1,true)},
+          {label:'Send to back',shortcut:'⇧⌘[',disabled:!canLower,run:()=>arrange(-1,true)},
+          {separator:true},
+          {label:'Group',shortcut:'⌘G',disabled:selection.length<2,run:()=>ed.groupSelection()},
+          {label:'Ungroup',shortcut:'⇧⌘G',disabled:!selection.some(l=>l.group),run:()=>ed.groupSelection(true)},
+        ]},
+        {label:multiple?'Align selection':'Align to canvas',disabled:!canEdit,children:[
+          ...[['left','Left'],['center-x','Centre horizontally'],['right','Right'],['top','Top'],['center-y','Centre vertically'],['bottom','Bottom']].map(([op,label])=>({label,run:()=>ed.arrange(op)})),
+          {separator:true},
+          {label:'Distribute horizontally',disabled:selection.length<3,run:()=>ed.arrange('distribute-x')},
+          {label:'Distribute vertically',disabled:selection.length<3,run:()=>ed.arrange('distribute-y')},
+        ]},
+        {label:'Transform',disabled:!canEdit,children:[
+          {label:'Rotate 90° clockwise',run:()=>rotate(90)},{label:'Rotate 90° counterclockwise',run:()=>rotate(-90)},
+          {label:'Reset rotation',disabled:!selection.some(l=>l._box?.rot??l.rotate),run:()=>rotate(null)},
+          {separator:true},
+          ...[['flipX','Flip horizontally'],['flipY','Flip vertically']].map(([key,label])=>({label,disabled:!selection.every(l=>l.type==='shape'||l.type==='art'&&!l.matrix),run:()=>batch(l=>({[key]:!l[key]}))})),
+        ]},
+        {label:'Appearance',disabled:!canEdit,children:[
+          {label:'Copy appearance',shortcut:'⌥⌘C',run:()=>ed.copyAppearance()},
+          {label:'Paste appearance',shortcut:'⌥⌘V',run:()=>ed.pasteAppearance()},
+          {separator:true},
+          {label:'Add shadow',disabled:selection.every(l=>l.shadow),run:()=>batch(l=>({shadow:l.shadow??l.savedShadow??{color:'#000000',alpha:.3,blur:50,dx:0,dy:24}}))},
+          {label:'Remove shadow',disabled:!selection.some(l=>l.shadow),run:()=>batch(l=>l.shadow?{shadow:undefined,savedShadow:l.shadow}:{})},
+        ]},
+        {label:'Vector',disabled:!canEdit||!masked&&selection.length<2&&(layer.type!=='shape'||layer.shape!=='path'),children:[
+          {label:'Edit points',disabled:multiple||layer.type!=='shape'||layer.shape!=='path',run:()=>ed.editVector(layer)},
+          {label:'Combine shapes',disabled:!canCombineShapes(selection),children:[
+            ...[['unite','Union'],['subtract','Subtract'],['intersect','Intersect'],['exclude','Exclude']].map(([op,label])=>({label,run:()=>ed.combineSelection(op)})),
+          ]},
+          {separator:true},
+          {label:masked?'Release mask':'Use as mask',shortcut:'⌥⌘M',disabled:!masked&&selection.length<2,run:()=>ed.maskSelection()},
+        ]},
+        {separator:true},
+        {label:multiple?'Hide selected layers':layer.hidden?'Show layer':'Hide layer',shortcut:'⇧⌘H',run:()=>multiple?batch({hidden:true}):ed.setLayer(layer,{hidden:!layer.hidden},{rebuild:true})},
+        {label:multiple?'Lock selected layers':locked?'Unlock layer':'Lock layer',shortcut:'⇧⌘L',run:()=>multiple?batch({locked:true}):ed.setLayer(layer,{locked:!locked},{rebuild:true})},
+        {label:multiple?'Delete selected layers':'Delete layer',shortcut:'⌫',danger:true,disabled:!canEdit,run:()=>ed.removeSelection()},
       ]);
+
     },
 
     async combineSelection(operation){
@@ -1234,7 +1267,7 @@ export function createEditor(ctx) {
     const create = creationShortcut(e);
     if (create) { e.preventDefault(); if (create === 'image') ed.addImage(); else if (['rect', 'ellipse'].includes(create)) ed.addLayer('shape', { shape: create }); else ed.addLayer(create); return true; }
     if (!mod && !e.altKey && (e.key === 'Enter' || e.key === 'F2') && layer) { e.preventDefault(); ed.renameLayer(layer.id); return true; }
-    if (mod && e.shiftKey && ['h', 'l'].includes(key) && layer) { e.preventDefault(); ed.setLayer(layer, key === 'h' ? { hidden: !layer.hidden } : { locked: !layer.locked }, { rebuild: true }); return true; }
+    if (mod && e.shiftKey && ['h', 'l'].includes(key) && layer) { e.preventDefault(); const patch=key==='h'?{hidden:!layer.hidden}:{locked:!layer.locked},selected=ed.selectionLayers(); if(selected.length>1)ed.setLayerPaints(selected.map(layer=>({layer,patch})),null);else ed.setLayer(layer,patch,{rebuild:true});return true; }
     if (!mod && !e.altKey && ['0', '+', '=', '-'].includes(e.key)) {
       e.preventDefault();
       setZoom(e.key === '0' ? 'fit' : ed.stageWidth / ed.device().size[0] * (e.key === '-' ? 1 / 1.15 : 1.15)); return true;
@@ -1243,12 +1276,12 @@ export function createEditor(ctx) {
     if (mod && (['[', ']', '{', '}'].includes(e.key) || ['BracketLeft', 'BracketRight'].includes(e.code)) && layer) {
       e.preventDefault();
       const forward = ['BracketRight'].includes(e.code) || [']', '}'].includes(e.key);
-      ed.restack((block) => e.shiftKey ? moveLayerTo(block, ed.scene.allLayers, layer.id, forward ? ed.scene.allLayers.length : 0) : stepLayer(block, ed.scene.allLayers, layer.id, forward ? 1 : -1));
+      ed.restack(block=>restackSelection(block,block.layers,ed.selectionLayers().map(l=>l.id),forward?1:-1,e.shiftKey));
       return true;
     }
     if (!mod && e.altKey && ['ArrowUp', 'ArrowDown'].includes(e.key) && layer) {
       e.preventDefault(); const forward = e.key === 'ArrowUp';
-      ed.restack(block => e.shiftKey ? moveLayerTo(block, ed.scene.allLayers, layer.id, forward ? ed.scene.allLayers.length : 0) : stepLayer(block, ed.scene.allLayers, layer.id, forward ? 1 : -1));
+      ed.restack(block=>restackSelection(block,block.layers,ed.selectionLayers().map(l=>l.id),forward?1:-1,e.shiftKey));
       return true;
     }
     if (mod || e.altKey || !layer) return false;

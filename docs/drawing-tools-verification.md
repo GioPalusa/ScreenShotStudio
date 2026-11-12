@@ -104,3 +104,11 @@ The font report retains every required family after file uploads. It identifies 
 The simplified font UI passed coverage tests again, including an assertion that font rows have no controls and the dialog has only one shared replacement selector. Native testing of an unrelated Mulish file retained both requested families as Still missing and reported that the uploaded file matched no requested face.
 
 Adobe reference refinement: the warning is a compact counted list with shared Replace fonts… / Cancel / Add fonts… actions below. Replacement controls are initially hidden and appear only on Replace fonts…. When uploaded files cover all remaining requirements, the banner and rows show resolution and Continue becomes available. No activation-service integration or per-font action is implied.
+
+## Hierarchical context menus
+
+Context menus support portalled submenu levels, separators, shortcuts, disabled commands, hover/click opening, arrow-key navigation, typeahead, branch-level Escape/Left, focus restoration and outside/Tab dismissal. Panels clamp to the viewport and flip left at the right edge. The object menu groups arrangement/grouping, alignment/distribution, rotation/flips, appearance/shadows and vector/mask commands; Combine shapes adds a third level. Selection-aware stack changes preserve relative order and match keyboard stacking shortcuts. Lock and visibility shortcuts apply to the selection as their menu actions do.
+
+The isolated context-menu UI regression passed pointer and keyboard navigation, three levels, edge flipping, disabled items, separators, dismissal, focus, shadows, multi-object rotation/stacking, editable Union, Undo and unlocking. Pure stack tests cover one-step and extreme moves, stable selection order, hidden neighbours, locked selections and no-op JSON preservation. Native Xcode Debug testing verified right-clicking a drawn rectangle, Transform submenu, Return rotating to 90°, Undo, removing/restoring a shadow, preservation of a two-object selection, Vector → Combine shapes third-level commands, and Left/Escape returning through levels without changing that selection.
+
+Validation: the full module/unit suite passed 386 tests; context-menu UI and existing shape/mask render regressions passed. The Xcode Debug build succeeded.
