@@ -20,7 +20,7 @@ export const on = (type, fn) => { bus.addEventListener(type, (e) => fn(e.detail)
 export const state = {
   exports: [],
   removedLocales: [],
-  ui: { view: 'editor', locale: 'en-US', device: 'iphone', slideId: null, tab: 'details', captureScope: 'all', setupTab: 'devices', showNeighbors: true, neighborOpacity: 70 },
+  ui: { view: 'editor', locale: 'en-US', device: 'iphone', slideId: null, tab: 'details', captureScope: 'all', setupTab: 'devices', showScreens: true, showDetails: true, showNeighbors: true, neighborOpacity: 70 },
   saving: 0,
   saveFailed: false,
   lastSaved: null,

@@ -357,6 +357,8 @@ function buildMenu() {
     { label: 'View', submenu: [
       { label: 'Appearance', submenu: ['system', 'light', 'dark'].map(value => ({ label: value === 'system' ? 'Follow System' : value[0].toUpperCase() + value.slice(1), type: 'radio', checked: (appearance?.get() ?? 'system') === value, click: () => { try { appearance.set(value); } catch (error) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save appearance', detail: error.message }); } } })) },
       { label: 'Home', click: () => action('welcome') },
+      { label: 'Toggle Screens Panel', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Alt+1', click: () => win.webContents.send('studio:command', 'panel:screens') },
+      { label: 'Toggle Details Panel', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Alt+2', click: () => win.webContents.send('studio:command', 'panel:details') },
       { label: 'Media Library…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Shift+M', click: () => win.webContents.send('studio:command', 'media') },
       { label: 'Keyboard Shortcuts…', enabled: Boolean(current), click: () => win.webContents.send('studio:command', 'shortcuts') },
     ] }, { role: 'windowMenu' },

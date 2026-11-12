@@ -131,6 +131,7 @@ export function createDrawingTools(ed,{scale,point,redraw,hitTest,vectorEditor})
  }
  function key(e){
   const mod=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
+  if(vectorEditor.active&&!mod&&!e.altKey&&k==='a')return false;
   if(!mod&&!e.altKey&&!e.repeat&&k==='x'){consume(e);if(e.shiftKey)swapPaints();else selectPaint(paintTarget==='fill'?'stroke':'fill');return true;}
   if(!mod&&!e.altKey&&!e.shiftKey&&e.key==='/'){consume(e);changePaint('none');return true;}
   if(nodes.length&&mod&&k==='z'){consume(e);nodes.pop();gesture=null;redraw();return true;}

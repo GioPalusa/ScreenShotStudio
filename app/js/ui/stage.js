@@ -182,6 +182,7 @@ export function createStage(ed) {
 
   function render() {
     overlay.replaceChildren();
+    ed.vectorToolbar.hidden = true;
     const s = scene();
     overlay.classList.remove('editing-vector');
     if (!s) return;

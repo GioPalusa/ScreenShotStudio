@@ -175,6 +175,11 @@ export function mountStudio(root) {
     if (command === 'guide') { openGetStarted(); return; }
     if (command === 'guide:mcp') { openGetStarted('mcp'); return; }
     if (document.querySelector('.modal-backdrop')) return;
+    if (command === 'panel:screens' || command === 'panel:details') {
+      if (state.ui.view !== 'editor') ctx.setView('editor');
+      views.editor.togglePanel(command.slice('panel:'.length));
+      return;
+    }
     if(command==='appearance:copy')void views.editor.copyAppearance();
     if(command==='appearance:paste')void views.editor.pasteAppearance();
     if (command === 'import:figma') openImportFigma(ctx);
@@ -191,6 +196,10 @@ export function mountStudio(root) {
     if (document.querySelector('.modal-backdrop, .context-menu')) return; // dialogs and menus own the keyboard
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') { e.preventDefault(); ctx.openExport(); return; }
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); ctx.openMedia(); return; }
+    if (state.ui.view === 'editor' && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey) {
+      const panel = ({ Digit1: 'screens', Digit2: 'details' })[e.code] ?? ({ '1': 'screens', '2': 'details' })[e.key];
+      if (panel) { e.preventDefault(); views.editor.togglePanel(panel); return; }
+    }
     if (!typing && e.key === '?') { e.preventDefault(); openShortcuts(); return; }
     // the editor gets first go at undo/redo, nudging, delete and the like (not while you are typing in a field)
     if (!typing && state.ui.view === 'editor' && views.editor.handleKey(e)) return;

@@ -66,7 +66,7 @@ export function createEditor(ctx) {
     h('span', { class: 'all-screens-heading' }, h('span', { class: 'all-screens-visual', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), screenCount),
     h('span', null, h('b', null, 'Edit all screens'), h('small', null, 'One shared canvas')));
   const railScroll = h('div', { class: 'rail-scroll' }, storeList, canvasPicker, allScreens, railList);
-  const rail = h('aside', { class: 'rail' }, railScroll);
+  const rail = h('aside', { id: 'editor-screens', class: 'rail', 'aria-label': 'Screens' }, railScroll);
   const titleEl = h('span', { class: 'title' });
   const metaEl = h('span');
   const chipsEl = h('span', { class: 'row' });
@@ -103,16 +103,47 @@ export function createEditor(ctx) {
   const opacityControl = h('label', { class: 'neighbor-opacity' }, neighborOpacity, opacityValue);
   const neighborControls = h('span', { class: 'neighbor-controls' }, neighborToggle, opacityControl);
   const orientationControl = h('span');
+  const screensToggle = h('button', { type: 'button', class: 'btn panel-toggle', 'aria-controls': 'editor-screens', onClick: () => togglePanel('screens') }, icon('sidebar.left'), 'Screens');
+  const detailsToggle = h('button', { type: 'button', class: 'btn panel-toggle', 'aria-controls': 'editor-details', onClick: () => togglePanel('details') }, icon('sidebar.right'), 'Details');
   const stageWorkspace=h('div',{class:'stage-workspace'},stageCanvas);
-  const stage = h('section', { class: 'stage' }, h('div', { class: 'stage-bar' }, titleEl, metaEl, h('span', { class: 'spacer' }), chipsEl, neighborControls, orientationControl, zoom, h('span', { class: 'row' }, undoBtn, redoBtn)), stageWorkspace);
-  const inspector = h('aside', { class: 'inspector' });
+  const vectorToolbar = h('div', { class: 'vector-toolbar-host', hidden: true });
+  const stage = h('section', { class: 'stage' }, h('div', { class: 'stage-bar' }, screensToggle, titleEl, metaEl, h('span', { class: 'spacer' }), chipsEl, neighborControls, orientationControl, zoom, h('span', { class: 'row' }, undoBtn, redoBtn), detailsToggle), stageWorkspace);
+  stage.insertBefore(vectorToolbar, stageWorkspace);
+  const inspector = h('aside', { id: 'editor-details', class: 'inspector', 'aria-label': 'Details' });
   const el = h('div', { class: 'editor' }, rail, stage, inspector);
+  const panels = {
+    screens: { key: 'showScreens', target: rail, button: screensToggle, label: 'screens panel', shortcut: '⌥⌘1' },
+    details: { key: 'showDetails', target: inspector, button: detailsToggle, label: 'details panel', shortcut: '⌥⌘2' },
+  };
+
+  function updatePanelVisibility() {
+    for (const [id, { key, target, button, label, shortcut }] of Object.entries(panels)) {
+      const visible = state.ui[key] !== false;
+      target.hidden = !visible;
+      el.classList.toggle(`${id}-hidden`, !visible);
+      button.setAttribute('aria-expanded', String(visible));
+      button.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} ${label}`);
+      button.title = `${visible ? 'Hide' : 'Show'} ${label}  ${shortcut}`;
+    }
+  }
+
+  function togglePanel(id) {
+    const panel = panels[id];
+    if (!panel) return;
+    if (panel.target.contains(document.activeElement)) panel.button.focus({ preventScroll: true });
+    state.ui[panel.key] = state.ui[panel.key] === false;
+    updatePanelVisibility();
+    rememberUI();
+    if (el.isConnected) drawStage();
+  }
+
+  updatePanelVisibility();
 
   // ---------------------------------------------------------------------------------------------
   // the editor object shared with the stage and the inspector tabs
 
   const ed = {
-    ctx, overlay, scene: null, stageWidth: 0, selectedId: null, selectedIds: new Set(), editTemplateId: null, panel: null, refreshTimer: null,
+    ctx, overlay, vectorToolbar, scene: null, stageWidth: 0, selectedId: null, selectedIds: new Set(), editTemplateId: null, panel: null, refreshTimer: null,
 
     allScreens: () => Boolean(state.ui.allScreens),
     screenScope: layer => screenScopeFor(layer, state.ui.allScreens),
@@ -1347,6 +1378,7 @@ export function createEditor(ctx) {
     el,
     ed,
     build() {
+      updatePanelVisibility();
       layerAliases.clear();
       ed.scene = null; ed.selectedIds.clear(); ed.selectedId = null;
       canvas._token = (canvas._token ?? 0) + 1;
@@ -1361,6 +1393,7 @@ export function createEditor(ctx) {
     refresh() { drawStage(); },
     onResize() { if (el.isConnected) drawStage(); },
     selectSlide,
+    togglePanel,
     newSeries,
     handleKey,
     copyAppearance:()=>ed.copyAppearance(),pasteAppearance:()=>ed.pasteAppearance(),

@@ -47,7 +47,44 @@ try {
     check(orderedSlides(engine.project,'sv')[0].id === 'second', 'All languages must apply the same order');
     document.querySelector('.cap .screen-name').click(); document.querySelector('.modal input').value = 'Overview name'; button('Rename').click();
     await waitFor(() => engine.project.slides.find(s => s.id === 'second').name === 'Overview name');
+    let nativeCommand;
+    window.studioDesktop={onCommand:fn=>{nativeCommand=fn;}};
     state.ui.view = 'editor'; state.ui.tab = 'layers'; mountStudio(document.querySelector('#root'));
+    await waitFor(() => document.querySelector('.neighbor.before').dataset.slideId);
+    const screensPanel=document.querySelector('.rail'),detailsPanel=document.querySelector('.inspector'),stage=document.querySelector('.stage');
+    const screensToggle=document.querySelector('[aria-controls="editor-screens"]'),detailsToggle=document.querySelector('[aria-controls="editor-details"]');
+    const panelDocument=JSON.stringify(engine.project),initialStage=stage.getBoundingClientRect(),screensWidth=screensPanel.getBoundingClientRect().width,detailsWidth=detailsPanel.getBoundingClientRect().width;
+    const near=(a,b,message)=>check(Math.abs(a-b)<1,message+': '+a+' vs '+b);
+    const panelState=(screens,details)=>{
+      check(screensPanel.hidden===!screens && detailsPanel.hidden===!details,'Each panel hides independently');
+      for(const [toggle,visible] of [[screensToggle,screens],[detailsToggle,details]]) {
+        check(toggle.getAttribute('aria-expanded')===String(visible),'Panel control exposes its current state');
+        check(toggle.getBoundingClientRect().width>0 && toggle.getBoundingClientRect().height>0,'Panel controls remain reachable');
+      }
+    };
+    panelState(true,true);
+    screensToggle.click();panelState(false,true);
+    if(innerWidth>900)near(stage.getBoundingClientRect().width,initialStage.width+screensWidth,'Hidden screens give their width to the canvas');
+    const focusedField=document.createElement('input');detailsPanel.append(focusedField);focusedField.focus();
+    nativeCommand('panel:details');panelState(false,false);
+    check(document.activeElement===detailsToggle,'Hiding a focused panel returns focus to its control');
+    if(innerWidth>900)near(stage.getBoundingClientRect().width,initialStage.width+screensWidth+detailsWidth,'Both hidden panels give their width to the canvas');
+    else {
+      near(stage.getBoundingClientRect().top,document.querySelector('.editor').getBoundingClientRect().top,'Hidden screens leave no empty row');
+      near(document.querySelector('.editor').getBoundingClientRect().height,stage.getBoundingClientRect().height,'Hidden details leave no empty row');
+    }
+    const savedPanels=JSON.parse(localStorage.getItem('mmd-studio-ui-v1'));
+    check(savedPanels.showScreens===false && savedPanels.showDetails===false,'Hidden panel choices are remembered');
+    const panelKey=(digit,key)=>{const event=new KeyboardEvent('keydown',{key,code:'Digit'+digit,metaKey:true,altKey:true,bubbles:true,cancelable:true});window.dispatchEvent(event);check(event.defaultPrevented,'Panel shortcut is handled');};
+    panelKey(1,'¡');panelState(true,false);
+    panelKey(2,'™');panelState(true,true);
+    focusedField.focus();panelKey(2,'2');panelState(true,false);
+    check(document.activeElement===detailsToggle,'Panel shortcut works while typing and restores visible focus');
+    nativeCommand('panel:details');panelState(true,true);focusedField.remove();
+    button('Overview').click();nativeCommand('panel:screens');panelState(false,true);
+    check(state.ui.view==='editor','Native panel command opens the editor from another view');
+    screensToggle.click();panelState(true,true);
+    check(JSON.stringify(engine.project)===panelDocument,'Panel controls never change document content');
     await waitFor(() => document.querySelector('.neighbor.before').dataset.slideId);
     const beforeNavigation = JSON.stringify(engine.project), device = state.ui.device, locale = state.ui.locale;
     const previous = document.querySelector('.neighbor.before');
@@ -113,7 +150,7 @@ try {
   service = createStudioService({ appPath, projectPath, exportPath: path.join(temp, 'export') });
   server = http.createServer((req, res) => service.handle(req, res, server.address().port));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `http://127.0.0.1:${server.address().port}/app/screen-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-screen-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-screen-ui-dom.html', output); error ? reject(error) : resolve(output); }));
+  const stdout = await new Promise((resolve, reject) => execFile(chrome, ['--headless', '--disable-gpu', '--no-sandbox', '--no-first-run', `--user-data-dir=${path.join(temp, 'chrome')}`, `--window-size=${process.env.SCREEN_TEST_WIDTH ?? 1440},900`, `http://127.0.0.1:${server.address().port}/app/screen-ui-test.html`], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 }, (error, output, stderr) => { fs.writeFileSync('/tmp/studio-screen-ui-chrome.log', stderr); fs.writeFileSync('/tmp/studio-screen-ui-dom.html', output); error ? reject(error) : resolve(output); }));
   const verdict = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1] ?? 'No test result'; assert.match(verdict, /^PASS:/, verdict);
   const saved = JSON.parse(fs.readFileSync(path.join(projectPath, 'studio.json'))); assert.equal(saved.slides.find(s => s.id === 'second').name, 'Editor name'); assert.equal(saved.slideOrders.sv[0], 'second');
   console.log(verdict);

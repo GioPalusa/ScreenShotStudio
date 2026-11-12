@@ -3,30 +3,60 @@ import {parseVectorPath,writeVectorPath,vectorAnchors,vectorSegments,segmentPoin
 import {shapePaints,editShapePaint} from '../shape-ops.js';
 const svgElement=(tag,attrs)=>{const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);return el;};
 export function createVectorEditor(ed,{scale,point,redraw}){
- let mode=null,drag=null;
+ let mode=null,drag=null,pointer=null;
+ const pointerBadge=h('span',{class:'vector-pointer-badge','aria-hidden':'true'});
+ function updatePointerBadge(){
+  let action='';
+  if(layer()&&ed.overlay.isConnected&&mode.paintIndex===null&&pointer&&!drag){
+   const hit=document.elementFromPoint(pointer.x,pointer.y);
+   const kind=ed.overlay.contains(hit)?hit?.closest('[data-vector-kind]')?.dataset.vectorKind:null;
+   if(kind==='anchor'&&(mode.option||mode.pointTool==='remove'))action='−';
+   if(kind==='segment'&&!mode.option&&(mode.shift||mode.pointTool==='add'))action='+';
+  }
+  if(!action){pointerBadge.remove();return;}
+  pointerBadge.textContent=action;
+  pointerBadge.style.left=`${Math.max(0,Math.min(innerWidth-24,pointer.x+18))}px`;
+  pointerBadge.style.top=`${Math.max(0,Math.min(innerHeight-24,pointer.y+18))}px`;
+  if(!pointerBadge.isConnected)document.body.append(pointerBadge);
+ }
+ window.addEventListener('pointermove',e=>{pointer={x:e.clientX,y:e.clientY};updatePointerBadge();},{capture:true,passive:true});
+ window.addEventListener('pointerout',e=>{if(!e.relatedTarget){pointer=null;updatePointerBadge();}},{passive:true});
+ window.addEventListener('scroll',()=>updatePointerBadge(),{capture:true,passive:true});
  const context=()=>`${ed.scene?.slideId}|${ed.scene?.deviceId}|${ed.scene?.localeId}`;
  const layer=()=>mode&&ed.selectedId===mode.id&&mode.context===context()?ed.layerById(mode.id):null;
  const consume=e=>{e.preventDefault();e.stopPropagation();};
  const focus=()=>{ed.overlay.tabIndex=0;ed.overlay.focus({preventScroll:true});};
- function exit(){mode=null;drag=null;redraw();ed.rebuildInspector();}
+ function exit(){mode=null;drag=null;redraw();ed.rebuildInspector();ed.refresh({immediate:true});}
  function enter(target,paintIndex=null,{bend=false}={}){
   if(mode?.id===target.id&&mode.paintIndex===paintIndex&&mode.bend===bend){exit();return;}
   if(target.locked||target._decorationBase){toast('Select an unlocked vector on its own screen to edit points.');return;}
   try{if(paintIndex===null)for(const p of target.paths??[])parseVectorPath(p.d);sceneToVector(target,[target.cx,target.cy]);}catch(error){toast(error.message,{error:true});return;}
-  mode={id:target.id,context:context(),paintIndex,bend,path:0,node:null,linked:true};drag=null;redraw();ed.rebuildInspector();focus();
+  mode={id:target.id,context:context(),paintIndex,bend,path:0,node:null,linked:true,pointTool:"select",option:false,shift:false};drag=null;redraw();ed.rebuildInspector();ed.refresh({immediate:true});focus();
  }
  const pathsPatch=(target,pathIndex,commands)=>{const paths=structuredClone(target.paths);paths[pathIndex].d=writeVectorPath(commands);return {...reframeVectorPatch(target,paths),cornerSourcePaths:undefined,cornerRadii:undefined};};
  function act(operation){const target=layer();if(!target||mode.paintIndex!==null||mode.node===null)return;const commands=parseVectorPath(target.paths[mode.path].d),updated=operation(commands,mode.node);if(writeVectorPath(commands)===writeVectorPath(updated))return;ed.startEdit();ed.applyVector(target,pathsPatch(target,mode.path,updated));ed.finishEdit();if(operation===smoothVectorAnchor)mode.linked=true;redraw();focus();}
  function remove(){act(deleteVectorAnchor);mode.node=null;redraw();}
+ function cursors({option=mode?.option,shift=mode?.shift}={}){
+  if(mode){mode.option=Boolean(option);mode.shift=Boolean(shift);}
+  ed.overlay.classList.toggle('remove-point-modifier',Boolean(mode?.paintIndex===null&&option));
+  ed.overlay.classList.toggle('add-point-modifier',Boolean(mode?.paintIndex===null&&shift&&!option));
+  ed.overlay.dataset.pointTool=mode?.paintIndex===null?mode.pointTool:'select';
+  updatePointerBadge();
+ }
+ window.addEventListener('keydown',e=>{if(layer()&&['Alt','Shift'].includes(e.key))cursors({option:e.key==='Alt'||e.altKey,shift:e.key==='Shift'||e.shiftKey});});
+ window.addEventListener('keyup',e=>{if(['Alt','Shift'].includes(e.key))cursors({option:e.key!=='Alt'&&e.altKey,shift:e.key!=='Shift'&&e.shiftKey});});
+ window.addEventListener('blur',()=>{pointer=null;cursors({option:false,shift:false});});
+ function choosePointTool(tool){mode.pointTool=tool;redraw();focus();}
  function toolbar(){
-  return h('div',{class:'vector-toolbar',role:'toolbar','aria-label':mode.paintIndex===null?'Vector points':'Gradient handles'},h('strong',null,mode.paintIndex===null?(mode.bend?'Bend path':'Edit points'):'Edit gradient'),...(mode.paintIndex===null?[h('button',{class:'btn small','aria-pressed':String(mode.bend),onClick:()=>{mode.bend=!mode.bend;redraw();}},'Bend segments'),h('button',{class:'btn small',disabled:mode.node===null,onClick:()=>act(cornerVectorAnchor)},'Corner'),h('button',{class:'btn small',disabled:mode.node===null,onClick:()=>act(smoothVectorAnchor)},'Smooth'),h('button',{class:'btn small',disabled:mode.node===null,onClick:remove},'Delete point'),h('label',{class:'vector-link'},h('input',{type:'checkbox',checked:mode.linked,'aria-label':'Link curve handles',onChange:e=>{mode.linked=e.target.checked;} }),h('span',null,'Link handles'))]:[]),h('button',{class:'btn small primary',onClick:exit},'Done'));
+  return h('div',{class:'vector-toolbar',role:'toolbar','aria-label':mode.paintIndex===null?'Vector points':'Gradient handles'},h('strong',null,mode.paintIndex===null?(mode.bend?'Bend path':'Edit points'):'Edit gradient'),...(mode.paintIndex===null?[...['select','add','remove'].map((tool,i)=>h('button',{class:'btn small','aria-pressed':String(mode.pointTool===tool),title:['Select points (A)','Add point (+)','Remove point (−)'][i],onClick:()=>choosePointTool(tool)},['Select points','+ Add point','− Remove point'][i])),h('button',{class:'btn small','aria-pressed':String(mode.bend),onClick:()=>{mode.bend=!mode.bend;redraw();}},'Bend segments'),h('button',{class:'btn small',disabled:mode.node===null,onClick:()=>act(cornerVectorAnchor)},'Corner'),h('button',{class:'btn small',disabled:mode.node===null,onClick:()=>act(smoothVectorAnchor)},'Smooth'),h('button',{class:'btn small',disabled:mode.node===null,onClick:remove},'Delete point'),h('label',{class:'vector-link'},h('input',{type:'checkbox',checked:mode.linked,'aria-label':'Link curve handles',onChange:e=>{mode.linked=e.target.checked;} }),h('span',null,'Link handles'))]:[]),h('button',{class:'btn small primary',onClick:exit},'Done'));
  }
  function button(position,label,data,selected,handle=false){
   const [x,y]=vectorToScene(layer(),position),f=scale();
   return h('button',{type:'button',class:`vector-node${handle?' curve-handle':''}${selected?' active':''}`,'aria-label':label,'aria-pressed':String(Boolean(selected)),title:label,dataset:data,style:{left:`${x*f}px`,top:`${y*f}px`}},h('span'));
  }
  function render(){
-  const target=layer();if(!target){mode=null;drag=null;return false;}
+  cursors();
+  const target=layer();if(!target){mode=null;drag=null;ed.vectorToolbar.replaceChildren();return false;}
   const f=scale(),svg=svgElement('svg',{class:'vector-lines',width:'100%',height:'100%',viewBox:`0 0 ${ed.scene.W} ${ed.scene.H}`,'aria-hidden':'true'});
   ed.overlay.append(svg);ed.overlay.classList.add('editing-vector');
   const line=(a,b)=>{const p=vectorToScene(target,a),q=vectorToScene(target,b);svg.append(svgElement('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1]}));};
@@ -45,7 +75,9 @@ export function createVectorEditor(ed,{scale,point,redraw}){
     for(const [i,node]of nodes.entries())ed.overlay.append(button(node.point,`Point ${i+1} · path ${pathIndex+1}`,{vectorKind:'anchor',pathIndex,command:node.index},pathIndex===mode.path&&mode.node===node.index));
    }
   }
-  ed.overlay.append(toolbar());return true;
+  const controls=toolbar();
+  if(mode.paintIndex===null)controls.append(h('span',{class:'vector-toolbar-hint'},'Shift-click segment: add (+) · ⌥ / Alt-click point: remove (−) · + / −: choose tool · Delete: remove selected'));
+  ed.vectorToolbar.replaceChildren(controls);ed.vectorToolbar.hidden=false;updatePointerBadge();return true;
  }
  function down(e){
   if(!layer()||e.button!==0)return false;
@@ -55,12 +87,12 @@ export function createVectorEditor(ed,{scale,point,redraw}){
   const target=layer(),data=control.dataset;
   if(data.vectorKind==='anchor'){mode.path=Number(data.pathIndex);mode.node=Number(data.command);const n=vectorAnchors(parseVectorPath(target.paths[mode.path].d)).find(n=>n.index===mode.node);if(n?.handles.length===2){const [a,b]=n.handles.map(h=>[h.point[0]-n.point[0],h.point[1]-n.point[1]]),length=Math.hypot(...a)*Math.hypot(...b);mode.linked=length<1e-8||Math.abs(a[0]*b[1]-a[1]*b[0])/length<.001&&a[0]*b[0]+a[1]*b[1]<=0;}}
   let t=.5;if(data.vectorKind==='segment'){mode.path=Number(data.pathIndex);mode.node=null;const segment=vectorSegments(parseVectorPath(target.paths[Number(data.pathIndex)].d)).find(s=>s.index===Number(data.command)),p=point(e);let best=Infinity;for(let k=4;k<=76;k++){const q=vectorToScene(target,segmentPoint(segment,k/80)),d=Math.hypot(q[0]-p.x,q[1]-p.y);if(d<best){best=d;t=k/80;}}}
-  drag={t,breakLinked:e.altKey,target:structuredClone(target),kind:data.vectorKind,path:Number(data.pathIndex),command:Number(data.command),offset:Number(data.offset),handle:Number(data.handleIndex),start:point(e),pointerId:e.pointerId,active:false};
+  drag={t,pointAction:mode.pointTool,editPoint:e.altKey,addPoint:e.shiftKey&&!e.altKey,breakLinked:e.altKey,target:structuredClone(target),kind:data.vectorKind,path:Number(data.pathIndex),command:Number(data.command),offset:Number(data.offset),handle:Number(data.handleIndex),start:point(e),pointerId:e.pointerId,active:false};
   ed.overlay.setPointerCapture(e.pointerId);redraw();return true;
  }
  function move(e){
-  if(!layer())return false;if(!drag)return true;consume(e);
-  const p=point(e);if(!drag.active){if(Math.hypot(p.x-drag.start.x,p.y-drag.start.y)*scale()<3)return true;ed.startEdit();drag.active=true;}
+  if(!layer())return false;cursors({option:e.altKey,shift:e.shiftKey});if(!drag)return true;consume(e);
+  const p=point(e);if(drag.pointAction!=="select"){if(Math.hypot(p.x-drag.start.x,p.y-drag.start.y)*scale()>=3)drag.moved=true;return true;}if(!drag.active){if(Math.hypot(p.x-drag.start.x,p.y-drag.start.y)*scale()<3)return true;ed.startEdit();drag.active=true;}
   if(e.altKey)drag.breakLinked=true;
   const source=drag.target;let local=sceneToVector(source,[p.x,p.y]);
   if(drag.kind==='gradient'){
@@ -76,15 +108,32 @@ export function createVectorEditor(ed,{scale,point,redraw}){
   }
   return true;
  }
- function up(e){if(!layer())return false;if(!drag)return true;consume(e);const active=drag.active;if(drag.breakLinked)mode.linked=false;drag=null;try{ed.overlay.releasePointerCapture(e.pointerId);}catch{}if(active){if(e.type==='pointercancel')ed.cancelEdit();else{ed.finishEdit();ed.refresh({immediate:true,inspector:true});}}redraw();return true;}
+ function insert(target,pathIndex,commands,command,t){
+  const updated=splitVectorSegment(commands,command,t);
+  if(writeVectorPath(updated)===writeVectorPath(commands))return;
+  ed.startEdit();mode.path=pathIndex;mode.node=command;ed.applyVector(target,pathsPatch(target,pathIndex,updated));ed.finishEdit();redraw();focus();
+ }
+ function up(e){
+  if(!layer())return false;if(!drag)return true;consume(e);
+  const finished=drag;drag=null;
+  try{ed.overlay.releasePointerCapture(e.pointerId);}catch{}
+  if(finished.active){if(finished.breakLinked)mode.linked=false;if(e.type==='pointercancel')ed.cancelEdit();else{ed.finishEdit();ed.refresh({immediate:true,inspector:true});}}
+  else if(e.type!=='pointercancel'&&!finished.moved&&mode.paintIndex===null){
+   const option=finished.editPoint||e.altKey;
+   if(finished.kind==='anchor'&&(option||finished.pointAction==='remove'))remove();
+   else if(finished.kind==='segment'&&(!option&&(finished.addPoint||e.shiftKey||finished.pointAction==='add')))insert(layer(),finished.path,parseVectorPath(finished.target.paths[finished.path].d),finished.command,finished.t);
+  }
+  redraw();return true;
+ }
  function double(e){
   const target=layer();if(!target||mode.paintIndex!==null)return false;if(e.target.closest('button'))return true;
   const p=point(e);let best=null;
   for(const [pathIndex,path]of target.paths.entries()){const commands=parseVectorPath(path.d);for(const segment of vectorSegments(commands)){for(let k=1;k<80;k++){const t=k/80,q=vectorToScene(target,segmentPoint(segment,t)),distance=Math.hypot(q[0]-p.x,q[1]-p.y);if(!best||distance<best.distance)best={pathIndex,commands,segment,t,distance};}}}
-  if(best&&best.distance*scale()<14){consume(e);ed.startEdit();const updated=splitVectorSegment(best.commands,best.segment.index,best.t);mode.path=best.pathIndex;mode.node=best.segment.index;ed.applyVector(target,pathsPatch(target,mode.path,updated));ed.finishEdit();redraw();}return true;
+  if(best&&best.distance*scale()<14){consume(e);insert(target,best.pathIndex,best.commands,best.segment.index,best.t);}return true;
  }
  function key(e){
   if(!layer())return false;if(e.metaKey||e.ctrlKey)return false;
+  if(mode.paintIndex===null&&!drag&&['+','=','-','a','A'].includes(e.key)){consume(e);choosePointTool(e.key==='-'?'remove':['a','A'].includes(e.key)?'select':'add');return true;}
   if(e.key==='Escape'&&!drag){consume(e);exit();return true;}
   if(mode.paintIndex!==null){if(['Delete','Backspace', 'ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){consume(e);return true;}return false;}
   if(['Delete','Backspace'].includes(e.key)){consume(e);remove();return true;}

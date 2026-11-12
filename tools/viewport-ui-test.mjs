@@ -67,6 +67,18 @@ try {
     await new Promise(r=>setTimeout(r,200));near(bounds().width,fit.width,'Pending gesture must not override Fit');
     key('+');near(bounds().width,fit.width*1.15,'Keyboard zoom starts from actual fit size');
     wheel(overlay,{deltaX:-30.25,deltaY:22.5});
+    // Folding either panel must keep the current zoom, pan and selection intact.
+    editor.ed.select('device');
+    const relativePosition=()=>{const c=bounds(),p=pane.getBoundingClientRect();return {x:c.left+c.width/2-p.left-p.width/2,y:c.top+c.height/2-p.top-p.height/2};};
+    const manualWidth=bounds().width,manualPosition=relativePosition();
+    for(const panel of ['screens','details','screens','details']) {
+      editor.togglePanel(panel);
+      const position=relativePosition();
+      near(bounds().width,manualWidth,'Panel toggle preserves manual zoom');
+      near(position.x,manualPosition.x,'Panel toggle preserves horizontal pan');
+      near(position.y,manualPosition.y,'Panel toggle preserves vertical pan');
+      check(editor.ed.selectedId==='device','Panel toggle preserves layer selection');
+    }
     check(JSON.stringify(engine.project)===snapshot && !canUndo(),'Viewport gestures must not edit document or add undo steps');
     // Hit testing and dragging must still use design coordinates after both zoom and pan.
     await waitFor(()=>editor.ed.scene);

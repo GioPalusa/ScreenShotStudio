@@ -8,7 +8,7 @@ import { preflightScene } from '../app/js/preflight.js';
 import { applyStarterDesign, savePalette } from '../app/js/design-library.js';
 
 class Element extends EventTarget {
-  constructor(tag) { super(); this.tag = tag; this.nodeType = 1; this.children = []; this.dataset = {}; this.style = {}; }
+  constructor(tag) { super(); this.tag = tag; this.nodeType = 1; this.children = []; this.dataset = {}; this.style = { setProperty(name, value) { this[name] = value; } }; }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.append(child); return child; }
   replaceChildren(...children) { this.children = children; }
@@ -399,17 +399,23 @@ test('manual Check and a reviewed import persist and undo as separate complete a
   store.undo(); assert.equal(store.getCopy('sv','a','extra'),'Erbjudande'); assert.equal(store.getCopy('sv','a','headline'),'Granskad text');
 });
 
-test('neighbor visibility and opacity persist as UI preferences without saving project data', async () => {
+test('panel visibility and neighbor preferences persist without saving project data', async () => {
   const values = new Map();
   const previous = globalThis.localStorage;
   globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
   try {
     const first = await import(`${storeURL.href}?neighbors=${++instance}`);
+    assert.equal(first.state.ui.showScreens, true);
+    assert.equal(first.state.ui.showDetails, true);
+    first.state.ui.showScreens = false;
+    first.state.ui.showDetails = false;
     first.state.ui.showNeighbors = false;
     first.state.ui.neighborOpacity = 35;
     first.rememberUI();
     const reopened = await import(`${storeURL.href}?neighbors=${++instance}`);
     reopened.restoreUI();
+    assert.equal(reopened.state.ui.showScreens, false);
+    assert.equal(reopened.state.ui.showDetails, false);
     assert.equal(reopened.state.ui.showNeighbors, false);
     assert.equal(reopened.state.ui.neighborOpacity, 35);
     assert.equal(reopened.state.saving, 0);
