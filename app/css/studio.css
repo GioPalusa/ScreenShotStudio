@@ -1132,7 +1132,6 @@ a { color: var(--link); }
 .topbar > .product-mark img { width: 24px; height: 24px; }
 .topbar .view-nav button { padding-inline: 8px; gap: 6px; }
 .topbar .select-wrap select { width: 180px; }
-.topbar .guide-button { padding-inline: 10px; gap: 5px; font-size: 12px; }
 
 /* Store artwork leads; shared editing belongs to the phone row beneath it. */
 .rail-scroll { flex: 1; min-height: 0; overflow: auto; }

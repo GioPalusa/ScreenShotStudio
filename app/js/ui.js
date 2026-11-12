@@ -1,7 +1,6 @@
 import { openImportFigma } from './ui/import-figma.js';
 import { openImportDesigns } from './ui/import-designs.js';
 import { openProjectFonts } from './ui/import-fonts.js';
-import { icon } from './ui/icons.js';
 import { productMark } from './ui/brand.js';
 import { orderedSlides } from './project-ops.js';
 import { screenCanvasId } from './slide-order.js';
@@ -115,7 +114,6 @@ export function mountStudio(root) {
         select,
         h('button', { class: 'btn icon', title: 'Next language  ]', 'aria-label': 'Next language', onClick: () => step(1) }, '›')),
       h('button', { class: 'btn', title: 'Media library · ⇧⌘M', onClick: () => ctx.openMedia() }, 'Media'),
-      h('button', { class: 'btn guide-button', title: 'Guides, MCP connection and skills', onClick: openGetStarted }, icon('book'), 'Guide & MCP'),
       h('div', { class: 'spacer' }),
       h('div', { class: 'row topbar-actions' }, saveStatus,
         h('button', { class: 'btn primary', title: 'Export screenshots  ⌘E', onClick: ctx.openExport }, 'Export…')),
