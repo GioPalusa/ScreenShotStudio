@@ -33,6 +33,19 @@ try {
     document.querySelector('#root').style.height='100vh';document.querySelector('#root').append(editor.el);editor.build();editor.activate();
     const canvas=document.querySelector('.preview canvas'),pane=document.querySelector('.stage-canvas'),overlay=document.querySelector('.overlay');
     await waitFor(()=>editor.ed.scene && canvas.width>1);
+    check(getComputedStyle(pane).cursor.includes('data:image/svg+xml'),'Canvas uses the cursor family');
+    check(!getComputedStyle(document.querySelector('.inspector')).cursor.includes('data:image/svg+xml'),'Inspector keeps system cursor');
+    for(const [tool,name] of [['Rectangle','rectangle'],['Ellipse / circle','ellipse'],['Line','line'],['Pen / vector','pen'],['Select','select']]) {
+      const button=document.querySelector('[aria-label="'+tool+' tool"]');button.click();
+      check(overlay.dataset.canvasTool===name&&getComputedStyle(overlay).cursor.includes('data:image/svg+xml'),'Drawing tool has its canvas cursor: '+name);
+      check(!getComputedStyle(button).cursor.includes('data:image/svg+xml'),'Tool button keeps system cursor');
+    }
+    pane.setPointerCapture=()=>{};
+    pane.dispatchEvent(new PointerEvent('pointerdown',{button:1,pointerId:2,clientX:300,clientY:300,bubbles:true,cancelable:true}));
+    check(getComputedStyle(pane).cursor.endsWith(', grabbing'),'Middle-button pan uses closed-hand cursor');
+    pane.dispatchEvent(new PointerEvent('pointerup',{button:1,pointerId:2,bubbles:true}));
+    check(!getComputedStyle(pane).cursor.endsWith(', grabbing'),'Ending pan restores the tool cursor');
+
     const near=(a,b,m,t=.12)=>check(Math.abs(a-b)<t,m+': '+a+' vs '+b);
     const wheel=(node,options={})=>{const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,...options});node.dispatchEvent(event);return event;};
     const key=value=>editor.handleKey(new KeyboardEvent('keydown',{key:value,cancelable:true}));

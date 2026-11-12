@@ -1,3 +1,4 @@
+import { installCanvasCursors } from '../canvas-cursors.js';
 import {drawingStyle,dragShape} from '../drawing-ops.js';
 import {canCombineShapes,booleanShape} from '../shape-boolean.js';
 import {restackSelection,appearancePatch,encodeAppearanceClipboard,decodeAppearanceClipboard,createMaskPatches,releaseMaskPatch} from '../layer-ops.js';
@@ -87,6 +88,7 @@ export function createEditor(ctx) {
   const after = h('button', { type: 'button', class: 'neighbor after', onClick: openNeighbor }, afterCanvas);
   const strip = h('div', { class: 'stage-strip' }, before, preview, after);
   const stageCanvas = h('div', { class: 'stage-canvas', title: 'Pinch to zoom · Scroll with two fingers to pan · 0 to fit' }, strip);
+  installCanvasCursors(stageCanvas);
   const zoom = selectInput({ options: [['fit', 'Fit'], ['0.25', '25%'], ['0.5', '50%'], ['1', '100%'], ['2', '200%']], value: 'fit', title: 'Canvas zoom', onChange: () => setZoom(zoom.value) });
   const customZoom = h('option', { value: 'custom', hidden: true });
   zoom.append(customZoom);
@@ -713,11 +715,12 @@ export function createEditor(ctx) {
   stageCanvas.addEventListener('pointerdown', e => {
     if (e.button !== 1 || stageApi.dragging) return;
     e.preventDefault(); stageCanvas.setPointerCapture(e.pointerId);
+    stageCanvas.classList.add('panning');
     pan = { x: e.clientX, y: e.clientY, left: viewportX, top: viewportY };
   });
   stageCanvas.addEventListener('pointermove', e => { if (pan) { viewportX = pan.left + e.clientX - pan.x; viewportY = pan.top + e.clientY - pan.y; positionViewport(); } });
-  stageCanvas.addEventListener('pointerup', () => { pan = null; });
-  stageCanvas.addEventListener('pointercancel', () => { pan = null; });
+  stageCanvas.addEventListener('pointerup', () => { pan = null; stageCanvas.classList.remove('panning'); });
+  stageCanvas.addEventListener('pointercancel', () => { pan = null; stageCanvas.classList.remove('panning'); });
   const stageApi = createStage(ed);
   stageWorkspace.prepend(stageApi.drawing.toolbar);
   stageCanvas.addEventListener('contextmenu',e=>{if(!e.defaultPrevented&&ed.scene)ed.canvasMenu(e,stageApi.canvasPoint(e));});

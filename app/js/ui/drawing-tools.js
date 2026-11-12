@@ -26,7 +26,7 @@ export function createDrawingTools(ed,{scale,point,redraw,hitTest,vectorEditor})
  const consume=e=>{e.preventDefault();e.stopPropagation();};
  const focus=()=>{ed.overlay.tabIndex=0;ed.overlay.focus({preventScroll:true});};
  const ink=()=>ed.scene?.theme.ink??'#142039';
- function update(){const active=vectorEditor.isBending(ed.selectedId)?'bend':vectorEditor.isEditing(ed.selectedId)?'points':tool;for(const [id,b]of buttons)b.setAttribute('aria-pressed',String(active===id));ed.overlay.style.cursor=['rect','ellipse','line','pen'].includes(tool)?'crosshair':'default';}
+ function update(){const active=vectorEditor.isBending(ed.selectedId)?'bend':vectorEditor.isEditing(ed.selectedId)?'points':tool;for(const [id,b]of buttons)b.setAttribute('aria-pressed',String(active===id));ed.overlay.dataset.canvasTool=tool==='pen'&&nodes.length>=3&&hover&&Math.hypot(hover.x-nodes[0].point[0],hover.y-nodes[0].point[1])*scale()<10?'pen-close':({rect:'rectangle',points:'point',bend:'bend'})[tool]??tool;}
  function clear(){gesture=null;nodes=[];hover=null;context=contextKey();}
  function choose(id){
   clear();if(vectorEditor.active)vectorEditor.exit();

@@ -4,24 +4,20 @@ import {shapePaints,editShapePaint} from '../shape-ops.js';
 const svgElement=(tag,attrs)=>{const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);return el;};
 export function createVectorEditor(ed,{scale,point,redraw}){
  let mode=null,drag=null,pointer=null;
- const pointerBadge=h('span',{class:'vector-pointer-badge','aria-hidden':'true'});
- function updatePointerBadge(){
-  let action='';
-  if(layer()&&ed.overlay.isConnected&&mode.paintIndex===null&&pointer&&!drag){
+ function updateVectorCursor(){
+  let cursor='point';
+  if(layer()&&ed.overlay.isConnected&&mode.paintIndex===null&&pointer){
    const hit=document.elementFromPoint(pointer.x,pointer.y);
-   const kind=ed.overlay.contains(hit)?hit?.closest('[data-vector-kind]')?.dataset.vectorKind:null;
-   if(kind==='anchor'&&(mode.option||mode.pointTool==='remove'))action='−';
-   if(kind==='segment'&&!mode.option&&(mode.shift||mode.pointTool==='add'))action='+';
-  }
-  if(!action){pointerBadge.remove();return;}
-  pointerBadge.textContent=action;
-  pointerBadge.style.left=`${Math.max(0,Math.min(innerWidth-24,pointer.x+18))}px`;
-  pointerBadge.style.top=`${Math.max(0,Math.min(innerHeight-24,pointer.y+18))}px`;
-  if(!pointerBadge.isConnected)document.body.append(pointerBadge);
+   const kind=drag?.kind??(ed.overlay.contains(hit)?hit?.closest('[data-vector-kind]')?.dataset.vectorKind:null);
+   if(kind==='handle')cursor='handle';
+   if(kind==='anchor')cursor=mode.option||mode.pointTool==='remove'?'remove-point':'point';
+   if(kind==='segment')cursor=!mode.option&&(mode.shift||mode.pointTool==='add')?'add-point':'bend';
+  }else if(layer()&&mode.paintIndex!==null)cursor='gradient';
+  ed.overlay.dataset.vectorCursor=cursor;
  }
- window.addEventListener('pointermove',e=>{pointer={x:e.clientX,y:e.clientY};updatePointerBadge();},{capture:true,passive:true});
- window.addEventListener('pointerout',e=>{if(!e.relatedTarget){pointer=null;updatePointerBadge();}},{passive:true});
- window.addEventListener('scroll',()=>updatePointerBadge(),{capture:true,passive:true});
+ window.addEventListener('pointermove',e=>{pointer={x:e.clientX,y:e.clientY};updateVectorCursor();},{capture:true,passive:true});
+ window.addEventListener('pointerout',e=>{if(!e.relatedTarget){pointer=null;updateVectorCursor();}},{passive:true});
+ window.addEventListener('scroll',()=>updateVectorCursor(),{capture:true,passive:true});
  const context=()=>`${ed.scene?.slideId}|${ed.scene?.deviceId}|${ed.scene?.localeId}`;
  const layer=()=>mode&&ed.selectedId===mode.id&&mode.context===context()?ed.layerById(mode.id):null;
  const consume=e=>{e.preventDefault();e.stopPropagation();};
@@ -41,7 +37,7 @@ export function createVectorEditor(ed,{scale,point,redraw}){
   ed.overlay.classList.toggle('remove-point-modifier',Boolean(mode?.paintIndex===null&&option));
   ed.overlay.classList.toggle('add-point-modifier',Boolean(mode?.paintIndex===null&&shift&&!option));
   ed.overlay.dataset.pointTool=mode?.paintIndex===null?mode.pointTool:'select';
-  updatePointerBadge();
+  updateVectorCursor();
  }
  window.addEventListener('keydown',e=>{if(layer()&&['Alt','Shift'].includes(e.key))cursors({option:e.key==='Alt'||e.altKey,shift:e.key==='Shift'||e.shiftKey});});
  window.addEventListener('keyup',e=>{if(['Alt','Shift'].includes(e.key))cursors({option:e.key!=='Alt'&&e.altKey,shift:e.key!=='Shift'&&e.shiftKey});});
@@ -77,7 +73,7 @@ export function createVectorEditor(ed,{scale,point,redraw}){
   }
   const controls=toolbar();
   if(mode.paintIndex===null)controls.append(h('span',{class:'vector-toolbar-hint'},'Shift-click segment: add (+) · ⌥ / Alt-click point: remove (−) · + / −: choose tool · Delete: remove selected'));
-  ed.vectorToolbar.replaceChildren(controls);ed.vectorToolbar.hidden=false;updatePointerBadge();return true;
+  ed.vectorToolbar.replaceChildren(controls);ed.vectorToolbar.hidden=false;updateVectorCursor();return true;
  }
  function down(e){
   if(!layer()||e.button!==0)return false;

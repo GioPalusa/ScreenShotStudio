@@ -1,3 +1,4 @@
+import { canvasCursor } from '../canvas-cursors.js';
 import {createCornerEditor} from './corner-editor.js';
 import {createDrawingTools} from './drawing-tools.js';
 import { createVectorEditor } from './vector-editor.js';
@@ -174,7 +175,7 @@ export function createStage(ed) {
     if (ed.selectionLayers().length > 1 && layer.type !== 'selection') return box;
     for (const name of handlesFor(layer)) {
       const [fx, fy] = HANDLES[name];
-      box.append(h('i', { class: 'handle', dataset: { handle: name }, style: { left: `${fx * 100}%`, top: `${fy * 100}%`, cursor: CURSORS[name] } }));
+      box.append(h('i', { class: 'handle', dataset: { handle: name }, style: { left: `${fx * 100}%`, top: `${fy * 100}%`, cursor: canvasCursor('resize-'+CURSORS[name].split('-')[0]) } }));
     }
     if (canRotate(layer)) box.append(h('i', { class: 'handle rotate', dataset: { handle: 'rotate' }, title: 'Rotate (hold Shift for 15° steps)' }));
     return box;
@@ -260,7 +261,7 @@ export function createStage(ed) {
     if (!drag) {
       const hit = e.buttons ? null : hitTest(design(e));
       const id = hit?.id ?? null;
-      overlay.style.cursor = e.target.dataset?.handle ? e.target.style.cursor || 'crosshair' : id ? (id === ed.selectedId ? 'move' : 'pointer') : 'default';
+      overlay.dataset.canvasHover = id === ed.selectedId && id ? 'move' : 'select';
       const previous=JSON.stringify(distances),selected=ed.layerById(ed.selectedId);distances=e.altKey&&selected?._box&&hit&&hit.id!==selected.id?distanceGuides(selectionBounds([selected]),[selectionBounds([hit])]):[];
       if (id !== hoverId||previous!==JSON.stringify(distances)) { hoverId = id; render(); }
       return;
