@@ -1,3 +1,4 @@
+import {shapePaints} from './shape-ops.js';
 // Editing operations on layouts, as plain functions over the project data.
 //
 // No DOM and no saving in here: the editor calls these, then saves and redraws. Everything mutates the
@@ -587,4 +588,50 @@ export function fitStoreScreenshot(block, layers, layer, { W, H, size }) {
   block.panorama = false;
   patchLayer(block, layer, { frame: { type: 'plain', screen: [...size], radius: 0 }, radius: 0,
     cx: W / 2, top: 0, w: W, rotate: 0, opacity: 1, shadow: false, fit: 'fill', below: undefined, gap: undefined });
+}
+
+/** Portable appearance only: geometry, content, captures and layer identity stay out. */
+export function copyAppearance(layer,ink='#142039') {
+  const appearance={opacity:layer.opacity??1,shadow:clone(layer.shadow)??null,blur:layer.blur??0,blend:layer.blend??'NORMAL',innerShadows:clone(layer.innerShadows)??[]};
+  if(layer.type==='shape'){
+    const scale=layer.shape==='path'?layer.w/(layer.pathSize?.[0]??layer.w):1;
+    appearance.paint={fill:layer.fill??'#ffffff',paints:shapePaints(layer),gradient:null,stroke:layer.stroke?{...clone(layer.stroke),width:layer.stroke.width*scale}:null,radius:layer.radius??0,radii:clone(layer.radii)??null};
+  }else if(layer.type==='text'){
+    appearance.paint={fill:layer.color??ink,paints:layer.textPaint?[clone(layer.textPaint)]:null,gradient:null};
+    appearance.text=Object.fromEntries(['fontFamily','weight','size','lineHeight','align'].map(k=>[k,clone(layer[k])??null]));
+  }
+  return appearance;
+}
+export function appearancePatch(layer,appearance) {
+  const patch={};
+  for(const key of ['opacity','shadow','blur','blend','innerShadows'])if(key in appearance)patch[key]=clone(appearance[key])??undefined;
+  const p=appearance.paint;
+  if(p&&layer.type==='shape'){
+    patch.fill=p.fill;patch.paints=clone(p.paints)??undefined;patch.gradient=clone(p.gradient)??undefined;
+    const scale=layer.shape==='path'?layer.w/(layer.pathSize?.[0]??layer.w):1;
+    if('stroke'in p)patch.stroke=p.stroke?{...clone(p.stroke),width:p.stroke.width/scale}:undefined;
+    if(layer.shape==='rect'&&'radius'in p){const max=Math.min(layer.w,layer.h)/2;patch.radius=Math.max(0,Math.min(max,p.radius));patch.radii=p.radii?.map(r=>Math.max(0,Math.min(max,r)));}
+    patch.savedFillPaints=undefined;patch.savedOutline=undefined;
+  }else if(p&&layer.type==='text'){
+    patch.color=p.fill;patch.textPaint=p.paints?.[0]?.type!=='solid'?clone(p.paints?.[0]):undefined;if(p.paints?.[0]?.type==='solid')patch.color=p.paints[0].color;
+  }
+  if(appearance.text&&layer.type==='text')for(const key of ['fontFamily','weight','size','lineHeight','align'])if(key in appearance.text)patch[key]=appearance.text[key]??undefined;
+  return patch;
+}
+export function encodeAppearanceClipboard(layer,{projectId,ink}={}){return JSON.stringify({format:'screenshot-studio-appearance',version:1,projectId,appearance:copyAppearance(layer,ink)});}
+export function decodeAppearanceClipboard(text){
+  if(typeof text!=='string'||text.length>1024*1024)return null;
+  try{const value=JSON.parse(text);if(value.format!=='screenshot-studio-appearance'||value.version!==1||!value.appearance||typeof value.appearance!=='object'||Array.isArray(value.appearance))return null;return value;}catch{return null;}
+}
+
+/** Editable mask: keep the mask and content as ordinary vector/image/text layers. */
+export function createMaskPatches(layers,mask,{id,sourceId=mask.id,slideId=null}={}){
+  if(layers.length<2||!layers.some(l=>l.id===mask.id)||layers.some(l=>l.maskMembership))throw Error('Choose at least two unmasked objects. The front object becomes the mask.');
+  const scope={id,maskId:sourceId,blend:'NORMAL',...(slideId?{maskSlideId:slideId}:{})};
+  return layers.map(layer=>({layer,patch:{group:id,maskOnly:layer.id===mask.id?true:layer.maskOnly,maskMembership:{id,maskId:sourceId,previous:{group:layer.group??null,maskOnly:layer.maskOnly??null,hadCompositing:Boolean(layer.compositing)}},...(layer.id===mask.id?{}:{compositing:[...(clone(layer.compositing)??[]),scope]})}}));
+}
+export function releaseMaskPatch(layer){
+  const member=layer.maskMembership;if(!member)return {};
+  const scopes=(layer.compositing??[]).filter(s=>s.id!==member.id);
+  return {maskMembership:undefined,maskOnly:member.previous.maskOnly??undefined,group:member.previous.group??undefined,compositing:scopes.length?scopes:member.previous.hadCompositing?[]:undefined};
 }

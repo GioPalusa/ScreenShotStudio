@@ -175,6 +175,8 @@ export function mountStudio(root) {
     if (command === 'guide') { openGetStarted(); return; }
     if (command === 'guide:mcp') { openGetStarted('mcp'); return; }
     if (document.querySelector('.modal-backdrop')) return;
+    if(command==='appearance:copy')void views.editor.copyAppearance();
+    if(command==='appearance:paste')void views.editor.pasteAppearance();
     if (command === 'import:figma') openImportFigma(ctx);
     if (command === 'import:designs') openImportDesigns(ctx);
     if (command === 'import:fonts') void openProjectFonts().catch(error => toast(error.message, { error: true }));

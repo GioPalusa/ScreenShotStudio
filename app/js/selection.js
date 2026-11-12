@@ -48,3 +48,38 @@ export function arrangeSelection(layers, operation, canvas) {
     return { layer, box };
   });
 }
+
+/** Nearest edge distances along each axis, in canvas pixels. */
+export function distanceGuides(box,others){
+ const result=[];
+ for(const axis of ['x','y']){
+  const cross=axis==='x'?'y':'x',size=axis==='x'?'w':'h',span=axis==='x'?'h':'w';
+  const band=others.filter(b=>Math.min(box[cross]+box[span],b[cross]+b[span])>=Math.max(box[cross],b[cross]));
+  for(const direction of [-1,1]){
+   const matches=band.map(b=>({b,gap:direction<0?box[axis]-b[axis]-b[size]:b[axis]-box[axis]-box[size]})).filter(v=>v.gap>=0).sort((a,b)=>a.gap-b.gap);
+   if(!matches.length)continue;const {b,gap}=matches[0],at=(Math.max(box[cross],b[cross])+Math.min(box[cross]+box[span],b[cross]+b[span]))/2,from=direction<0?b[axis]+b[size]:box[axis]+box[size],to=from+gap;
+   result.push({axis,from,to,at,distance:gap,equal:false});
+  }
+ }
+ for(const axis of ['x','y']){const pair=result.filter(g=>g.axis===axis);if(pair.length===2&&Math.abs(pair[0].distance-pair[1].distance)<.1)pair.forEach(g=>g.equal=true);}
+ return result;
+}
+/** Equal-gap snapping between neighbours or beside an existing pair. */
+export function snapEqualSpacing(box,others,threshold=7){
+ const next={...box},references=[];
+ for(const axis of ['x','y']){
+  const cross=axis==='x'?'y':'x',size=axis==='x'?'w':'h',span=axis==='x'?'h':'w',band=others.filter(b=>Math.min(next[cross]+next[span],b[cross]+b[span])>Math.max(next[cross],b[cross])).sort((a,b)=>a[axis]-b[axis]);
+  const candidates=[];
+  for(let i=0;i<band.length-1;i++){
+   const a=band[i],b=band[i+1],gap=b[axis]-a[axis]-a[size];if(gap<0)continue;
+   const middle=(a[axis]+a[size]+b[axis]-next[size])/2;
+   if(middle>=a[axis]+a[size]&&middle+next[size]<=b[axis])candidates.push({position:middle});
+   candidates.push({position:b[axis]+b[size]+gap,ref:{axis,from:a[axis]+a[size],to:b[axis],at:(Math.max(a[cross],b[cross])+Math.min(a[cross]+a[span],b[cross]+b[span]))/2,distance:gap,equal:true}});
+   candidates.push({position:a[axis]-gap-next[size],ref:{axis,from:a[axis]+a[size],to:b[axis],at:(Math.max(a[cross],b[cross])+Math.min(a[cross]+a[span],b[cross]+b[span]))/2,distance:gap,equal:true}});
+  }
+  const match=candidates.filter(c=>Math.abs(c.position-next[axis])<=threshold&&threshold>0).sort((a,b)=>Math.abs(a.position-next[axis])-Math.abs(b.position-next[axis]))[0];
+  if(match){next[axis]=match.position;if(match.ref)references.push(match.ref);}
+ }
+ const guides=distanceGuides(next,others);for(const ref of references){for(const guide of guides)if(guide.axis===ref.axis&&Math.abs(guide.distance-ref.distance)<.1)guide.equal=true;guides.push(ref);}
+ return {box:next,guides};
+}

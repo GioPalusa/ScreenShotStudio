@@ -105,7 +105,7 @@ export function paintLayerTree(ctx,scene,layers,paint,applyShadow) {
         if(scope.clip){const clip=scope.clip,p=new Path2D();c.transform(...clip.matrix);p.roundRect(0,0,clip.w,clip.h,clip.radius??0);c.fill(p);}else c.fillRect(0,0,scene.W,scene.H);
       }
       for(const child of node.children)visit(g,child);
-      if(scope.maskId){const mask=byId.get(scope.maskId);if(mask){const mc=canvas(),m=mc.getContext('2d');try{m.scale(mc.width/scene.W,mc.height/scene.H);paint(m,mask);g.globalCompositeOperation='destination-in';g.drawImage(mc,0,0,scene.W,scene.H);if(coverage){const c=coverage.getContext('2d');c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='destination-in';c.drawImage(mc,0,0);}}finally{mc.width=mc.height=1;}}}
+      if(scope.maskId){const mask=(scope.maskSlideId?layers.find(l=>l._sourceSlideId===scope.maskSlideId&&(l._sourceLayerId??l.id)===scope.maskId):null)??byId.get(scope.maskId);if(mask){const mc=canvas(),m=mc.getContext('2d');try{m.scale(mc.width/scene.W,mc.height/scene.H);paint(m,mask);g.globalCompositeOperation='destination-in';g.drawImage(mc,0,0,scene.W,scene.H);if(coverage){const c=coverage.getContext('2d');c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='destination-in';c.drawImage(mc,0,0);}}finally{mc.width=mc.height=1;}}}
       context.save();context.globalAlpha=scope.opacity??1;
       if(backdrop){context.globalCompositeOperation='destination-out';context.drawImage(coverage,0,0,scene.W,scene.H);context.globalCompositeOperation='lighter';}
       else context.globalCompositeOperation=blend(scope.blend);applyShadow(context,scope.shadow);

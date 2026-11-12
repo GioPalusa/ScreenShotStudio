@@ -1,13 +1,13 @@
 import {h} from './helpers.js';
 // One compact field, with an optional top-layer slider and exact input.
-export function expandableNumberControl({value=0,label='Value',title=label,sliderLabel=`${label} slider`,min=0,max=200,step=.5,sliderMin=min,sliderMax=40,unit='px',onChange}){
+export function expandableNumberControl({value=0,label='Value',title=label,sliderLabel=`${label} slider`,min=0,max=200,step=.5,sliderMin=min,sliderMax=40,unit='px',mixed=false,onChange}){
  let closing=false;
  const rangeMin=v=>Math.max(min,Math.min(max,sliderMin,v));
  const rangeMax=v=>Math.min(max,Math.max(min,sliderMax,v));
  const read=el=>el.value===''||!Number.isFinite(Number(el.value))?null:Math.max(min,Math.min(max,Number(el.value)));
- const input=h('input',{type:'number',class:'input num',min,max,step,value,'aria-label':label,'aria-haspopup':'dialog','aria-expanded':'false'});
+ const input=h('input',{type:'number',class:'input num',min,max,step,value:mixed?'':value,placeholder:mixed?'Mixed':undefined,'aria-label':label,'aria-haspopup':'dialog','aria-expanded':'false'});
  const range=h('input',{type:'range',min:rangeMin(value),max:rangeMax(value),step,value,'aria-label':sliderLabel});
- const exact=h('input',{type:'number',class:'input num',min,max,step,value,'aria-label':`${label} exact value`});
+ const exact=h('input',{type:'number',class:'input num',min,max,step,value:mixed?'':value,placeholder:mixed?'Mixed':undefined,'aria-label':`${label} exact value`});
  const popup=h('div',{class:'expandable-number-popup',popover:'auto','aria-label':`${label} controls`},h('span',{class:'expandable-number-title'},title),h('div',{class:'expandable-number-row'},range,exact,h('span',{class:'hint'},unit)));
  const el=h('div',{class:'expandable-number-control'},input,popup);
  function sync(v,disabled=false){

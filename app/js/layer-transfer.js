@@ -1,5 +1,5 @@
 // Portable object snapshots and ownership changes. No DOM, clipboard or filesystem access.
-import { addLayer, removeLayer, geometryPatch, uniqueId, slugify } from './layer-ops.js';
+import { addLayer, removeLayer, geometryPatch, uniqueId, slugify, releaseMaskPatch } from './layer-ops.js';
 import { offsetLayer } from './shared-canvas.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -131,6 +131,9 @@ export function pasteLayerClipboard(data, { block, resolved, copy, slideIds, sha
     }
     layers.push(addLayer(block, layer, [...resolved, ...layers]));
   }
-  for(const layer of layers)if(layer.compositing)layer.compositing=layer.compositing.filter(s=>!s.maskId||originalIds.has(s.maskId)).map(s=>s.maskId?{...s,maskId:originalIds.get(s.maskId)}:s);
+  for(const layer of layers){
+    if(layer.compositing)layer.compositing=layer.compositing.filter(s=>!s.maskId||originalIds.has(s.maskId)).map(s=>s.maskId?{...s,maskId:originalIds.get(s.maskId),...(s.maskSlideId?{maskSlideId:slideIds[0]}:{})}:s);
+    if(layer.maskMembership){const member=layer.maskMembership;if(!scopeMap.has(member.id)||!originalIds.has(member.maskId))Object.assign(layer,releaseMaskPatch(layer));else layer.maskMembership={...member,id:scopeMap.get(member.id),maskId:originalIds.get(member.maskId),previous:{...member.previous,group:groups.get(member.previous.group)??null}};}
+  }
   return { layers, changedLocales: [...changedLocales] };
 }

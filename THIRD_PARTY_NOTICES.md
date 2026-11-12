@@ -9,3 +9,5 @@ Apple Design Resources, imported device bezels, user screenshots and locally ins
 The interface uses original SVG icons rather than redistributed Apple system-symbol PNGs.
 
 The compact drawing toolbar uses Lucide icons (ISC license), copyright Lucide Icons and Contributors. Icon assets and their license are bundled in `app/icons/lucide/`. Text and image actions use the existing original SVG interface icons. Source: https://github.com/lucide-icons/lucide.
+
+- **Paper.js 0.17.0** — MIT; editable Bézier boolean operations. Its browser core and license are bundled in `app/vendor/`. Source: https://paperjs.org/

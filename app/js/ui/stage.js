@@ -13,7 +13,7 @@ import { createVectorEditor } from './vector-editor.js';
 //   ed.applyBox(layer, box, o)   writes the geometry of a layer and repaints synchronously
 //   ed.finishEdit()              save, redraw everything, refresh the inspector numbers
 
-import { selectionBounds, transformSelection } from '../selection.js';
+import { selectionBounds, transformSelection, distanceGuides, snapEqualSpacing } from '../selection.js';
 import { paintOrder } from '../layouts.js';
 import { layerLabel } from '../layer-ops.js';
 import { h } from './helpers.js';
@@ -108,7 +108,7 @@ export function createStage(ed) {
   const overlay = ed.overlay;
   let hoverId = null;
   let drag = null;
-  let guides = [];
+  let guides = [], distances=[];
   let readout = '';
 
   const scene = () => ed.scene;
@@ -197,6 +197,9 @@ export function createStage(ed) {
     for (const g of guides) {
       overlay.append(h('div', { class: `guide ${g.axis}`, style: g.axis === 'x' ? { left: `${g.at * f}px` } : { top: `${g.at * f}px` } }));
     }
+    for(const g of distances){
+      const horizontal=g.axis==='x',line=h('div',{class:`distance-guide ${horizontal?'horizontal':'vertical'}${g.equal?' equal':''}`,style:{left:`${(horizontal?g.from:g.at)*f}px`,top:`${(horizontal?g.at:g.from)*f}px`,width:horizontal?`${(g.to-g.from)*f}px`:'1px',height:horizontal?'1px':`${(g.to-g.from)*f}px`}},h('span',null,`${Math.round(g.distance*10)/10} px`));overlay.append(line);
+    }
     if (readout && selected) {
       const b = selected._box;
       overlay.append(h('div', { class: 'readout', style: { left: `${Math.min(Math.max(8, (b.x + b.w / 2) * f), ed.stageWidth - 8)}px`, top: `${Math.max(8, b.y * f - 34)}px` } }, readout));
@@ -257,7 +260,8 @@ export function createStage(ed) {
       const hit = e.buttons ? null : hitTest(design(e));
       const id = hit?.id ?? null;
       overlay.style.cursor = e.target.dataset?.handle ? e.target.style.cursor || 'crosshair' : id ? (id === ed.selectedId ? 'move' : 'pointer') : 'default';
-      if (id !== hoverId) { hoverId = id; render(); }
+      const previous=JSON.stringify(distances),selected=ed.layerById(ed.selectedId);distances=e.altKey&&selected?._box&&hit&&hit.id!==selected.id?distanceGuides(selectionBounds([selected]),[selectionBounds([hit])]):[];
+      if (id !== hoverId||previous!==JSON.stringify(distances)) { hoverId = id; render(); }
       return;
     }
     if (!drag.active) {
@@ -287,6 +291,8 @@ export function createStage(ed) {
         if (sx) { box.x += sx.delta; guides.push({ axis: 'x', at: sx.line }); }
         if (sy) { box.y += sy.delta; guides.push({ axis: 'y', at: sy.line }); }
       }
+      const others=scene().layers.filter(l=>l.id!==drag.id&&!ed.selectedIds.has(l.id)&&l._box&&!l.hidden&&!l.maskOnly).map(l=>selectionBounds([l]));
+      const visible=selectionBounds([{_box:box}]),spacing=snapEqualSpacing(visible,others,threshold);box.x+=spacing.box.x-visible.x;box.y+=spacing.box.y-visible.y;distances=spacing.guides;
       readout = `x ${Math.round(box.x)}  y ${Math.round(box.y)}`;
     } else if (drag.kind === 'resize') {
       let q = p;
@@ -331,7 +337,7 @@ export function createStage(ed) {
     const wasActive = drag.active;
     drag = null;
     guides = [];
-    readout = '';
+    readout = '';distances=[];
     if (wasActive) ed.finishEdit();
     render();
   }
@@ -340,7 +346,7 @@ export function createStage(ed) {
   overlay.addEventListener('pointermove', onPointerMove);
   overlay.addEventListener('pointerup', onPointerUp);
   overlay.addEventListener('pointercancel', onPointerUp);
-  overlay.addEventListener('pointerleave', () => { if (!drag && hoverId) { hoverId = null; render(); } });
+  overlay.addEventListener('pointerleave', () => { if (!drag && (hoverId||distances.length)) { hoverId = null;distances=[]; render(); } });
   overlay.addEventListener('dblclick', (e) => {
     if(drawing.double())return;
     if(vectorEditor.double(e))return;
@@ -368,6 +374,6 @@ export function createStage(ed) {
       ed.finishEdit({ quick: true });
       return true;
     },
-    cancelDrag() { corners.cancelDrag();vectorEditor.cancelDrag();drag = null; guides = []; readout = ''; render(); },
+    cancelDrag() { corners.cancelDrag();vectorEditor.cancelDrag();drag = null; guides = [];distances=[]; readout = ''; render(); },
   };
 }

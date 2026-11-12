@@ -1192,3 +1192,12 @@ a { color: var(--link); }
 .expandable-number-row input[type=range] { flex:1; min-width:60px; width:100%; accent-color:var(--accent); }
 .expandable-number-row .num { flex:0 0 66px; min-width:0; width:66px; padding:5px; text-align:right; }
 .drawing-paint-width .expandable-number-popup .input { width:66px; padding:5px; font-size:13px; }
+
+.distance-guide { position:absolute; pointer-events:none; z-index:4; background:var(--selection); color:var(--selection); }
+.distance-guide.equal { background:var(--accent); color:var(--accent); }
+.distance-guide.horizontal::before,.distance-guide.horizontal::after { content:''; position:absolute; height:7px; width:1px; background:currentColor; top:-3px; }
+.distance-guide.horizontal::before { left:0; }.distance-guide.horizontal::after { right:0; }
+.distance-guide.vertical::before,.distance-guide.vertical::after { content:''; position:absolute; width:7px; height:1px; background:currentColor; left:-3px; }
+.distance-guide.vertical::before { top:0; }.distance-guide.vertical::after { bottom:0; }
+.distance-guide span { position:absolute; white-space:nowrap; font-size:10px; padding:2px 4px; background:var(--panel); border-radius:3px; }
+.distance-guide.horizontal span { left:50%; bottom:4px; transform:translateX(-50%); }.distance-guide.vertical span { left:4px; top:50%; transform:translateY(-50%); }

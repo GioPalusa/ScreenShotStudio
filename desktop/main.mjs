@@ -351,7 +351,7 @@ function buildMenu() {
       { label: 'Show Project in Finder', enabled: Boolean(current), click: () => action('reveal') },
       { type: 'separator' }, { label: 'Export…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+E', click: () => action('export') },
       { label: 'Upload to App Store Connect…', click: () => win.webContents.send('studio:command', 'upload') }, { role: 'close' },
-    ] }, { role: 'editMenu' },
+    ] }, { role: 'editMenu', submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'},{type:'separator'},{label:'Copy Appearance',accelerator:'CmdOrCtrl+Alt+C',click:()=>win.webContents.send('studio:command','appearance:copy')},{label:'Paste Appearance',accelerator:'CmdOrCtrl+Alt+V',click:()=>win.webContents.send('studio:command','appearance:paste')}] },
     { label: 'Help', submenu: [{ label: 'Get Started Guide', click: () => win.webContents.send('studio:command', 'guide') }, { label: 'MCP and Skills Guide', click: () => win.webContents.send('studio:command', 'guide:mcp') }, { label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
     { label: 'View', submenu: [
       { label: 'Appearance', submenu: ['system', 'light', 'dark'].map(value => ({ label: value === 'system' ? 'Follow System' : value[0].toUpperCase() + value.slice(1), type: 'radio', checked: (appearance?.get() ?? 'system') === value, click: () => { try { appearance.set(value); } catch (error) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save appearance', detail: error.message }); } } })) },

@@ -1,3 +1,4 @@
+import {selectionAppearance,appearanceActions} from './selection-appearance.js';
 import {shadowFields} from './shadow-panel.js';
 import { shapeFields as visualShapeFields } from './shape-panel.js';
 import { layerTag } from '../layer-tags.js';
@@ -62,7 +63,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
       .map(([op, symbol, label]) => iconButton(symbol, `${label}${op.startsWith('distribute') ? ' · select at least three layers' : selection.length > 1 ? ' · within selection' : ' · on canvas'}`, () => ed.arrange(op), { disabled: selection.length < (op.startsWith('distribute') ? 3 : 1) })));
   if (selection.length > 1) panel.append(inspectorGroup('selection', `${selection.length} layers selected`, [alignment(),
     h('div', { class: 'row' }, iconButton('rectangle.3.group', 'Group selected layers · ⌘G', () => ed.groupSelection()),
-      iconButton('square.dashed', 'Ungroup selected layers · ⇧⌘G', () => ed.groupSelection(true), { disabled: !selection.some(layer => layer.group) }))]));
+      iconButton('square.dashed', 'Ungroup selected layers · ⇧⌘G', () => ed.groupSelection(true), { disabled: !selection.some(layer => layer.group) })),selectionAppearance(ed)]));
 
   const removed = removedLayerIds(ed.peekBlock());
   if (!detailsOnly && removed.length) {
@@ -179,7 +180,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
     if (layer.type === 'shape') box.append(inspectorGroup('style', 'Shape', shapeFields(layer)));
     if (layer.type === 'text') box.append(inspectorGroup('style', 'Typography', textFields(layer)));
     if (position && detailsOnly) box.append(position);
-    box.append(inspectorGroup('appearance', 'Appearance', appearance(layer)));
+    box.append(inspectorGroup('appearance', 'Appearance', [appearanceActions(ed),appearance(layer)]));
     box.append(inspectorGroup('export', 'Export checks', h('div', { class: 'field' },
       [['allowCrop', 'Cropping outside the canvas is intentional'], ['allowUpscale', 'Image enlargement is intentional'], ...(layer.type === 'device' ? [['languageNeutral', 'Shared screenshot is language-neutral']] : [])].map(([key, label]) => h('label', { class: 'row check' }, h('input', { type: 'checkbox', checked: Boolean(layer[key]), onChange: e => ed.setLayer(layer, { [key]: e.target.checked || undefined }) }), label))), { open: false }));
     box.append(actions(layer));

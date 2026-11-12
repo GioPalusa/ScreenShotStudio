@@ -1,3 +1,5 @@
+import {canCombineShapes,booleanShape} from '../shape-boolean.js';
+import {appearancePatch,encodeAppearanceClipboard,decodeAppearanceClipboard,createMaskPatches,releaseMaskPatch} from '../layer-ops.js';
 import { sharedBlock, sharedGeometry, sharedLayerId, patchSharedLayer, offsetLayer, SCREEN_SPACING_PRESETS, sharedSpacing, setSharedSpacing } from '../shared-canvas.js';
 import { canvasForSlide } from '../canvas-orientation.js';
 import { orientationPicker } from './canvas-orientation.js';
@@ -49,6 +51,7 @@ import { createInspectorMemory } from './inspector-state.js';
 const TABS = [['details', 'Details'], ['layers', 'Layers'], ['design', 'Design']];
 const BUILDERS = { details: buildDetailsPanel, layers: buildLayersPanel, design: buildDesignPanel };
 
+let appearanceClipboard='';
 export function createEditor(ctx) {
   const layerAliases = new Map();
   let lastPaste = '', pasteCount = 0;
@@ -213,6 +216,7 @@ export function createEditor(ctx) {
       changedLocales.forEach(locale => saveCopy(locale)); saveStudio(); ed.refresh({ immediate: true, inspector: true, rail: true });
     },
     writePatch(layer, patch, {preserveScope=false}={}) {
+      if(layer.maskMembership)preserveScope=true;
       const alias = layerAliases.get(layer.id);
       const source = alias && sharedBlock(engine.project, state.ui.device).layers?.find(l => sharedLayerId(l.id) === alias);
       layer = source ? { ...layer, id: alias, _sharedId: source.id, _offsetX: state.ui.allScreens ? 0 : layer._offsetX } : ed.layerById(layer.id) ?? layer;
@@ -275,10 +279,13 @@ export function createEditor(ctx) {
     },
     layerMenu(event, layer) {
       if (!layer) return;
-      ed.select(layer.id, { individual: true });
+      if(!ed.selectedIds.has(layer.id))ed.select(layer.id, { individual: true });
       const all = ed.scene.allLayers, index = stackIndex(all, layer.id), locked = Boolean(layer.locked);
       const arrange = (direction, extreme = false) => ed.restack(block => extreme ? moveLayerTo(block, ed.scene.allLayers, layer.id, direction < 0 ? 0 : ed.scene.allLayers.length) : stepLayer(block, ed.scene.allLayers, layer.id, direction));
       showContextMenu(event, [
+        {label:ed.selectionLayers().some(l=>l.maskMembership)?'Release mask':'Use as mask',disabled:locked||!ed.selectionLayers().some(l=>l.maskMembership)&&ed.selectionLayers().length<2,run:()=>ed.maskSelection()},
+        { label: 'Copy appearance', run: () => ed.copyAppearance() },
+        { label: 'Paste appearance', disabled: locked, run: () => ed.pasteAppearance() },
         { label: 'Rename', run: () => ed.renameLayer(layer.id) },
         { label: 'Tag…', run: () => editLayerTag(ed, layer) },
         { label: 'Bring forward', disabled: locked || index >= all.length - 1, run: () => arrange(1) },
@@ -294,6 +301,49 @@ export function createEditor(ctx) {
       ]);
     },
 
+    async combineSelection(operation){
+      const layers=paintOrder(ed.selectionLayers());if(!canCombineShapes(layers)){toast('Select at least two closed shapes.');return;}
+      const owners=new Set(layers.map(l=>l._sharedId?'shared':l._sourceSlideId??currentSlide().id));if(owners.size>1){toast('Combine shapes belonging to the same screen.');return;}
+      if(!layers.every(l=>JSON.stringify(l.compositing)===JSON.stringify(layers[0].compositing))){toast('Combine shapes within the same clipping group.');return;}
+      const project=engine.project,selection=layers.map(l=>l.id).join('|'),snapshot=JSON.stringify(layers.map(l=>ed.snapshot(l)));
+      try{
+        const {default:paper}=await import('../../vendor/paper-core.js');
+        const current=paintOrder(ed.selectionLayers());if(project!==engine.project||selection!==current.map(l=>l.id).join('|')||snapshot!==JSON.stringify(current.map(l=>ed.snapshot(l))))return;
+        const result=booleanShape(layers,operation,paper),base=layers[0],source=ed.sourceFor(base),local=offsetLayer(result,-(base._offsetX??0));
+        checkpoint();for(const layer of layers)ed.deleteLayer(layer);
+        local.id=uniqueId(ed.scene.allLayers.map(l=>l.id),operation);local.zOrder=layers.at(-1).zOrder;
+        const stored=addLayer(source.block,local,ed.scene.allLayers),id=base._sharedId?sharedLayerId(stored.id):base._sourceSlideId?`screen:${source.slide.id}:${stored.id}`:stored.id;
+        ed.selectedIds=new Set([id]);ed.selectedId=id;saveStudio();ed.refresh({immediate:true,inspector:true,rail:true});
+      }catch(error){toast(error.message,{error:true});}
+    },
+    maskSelection(){
+      const layers=ed.selectionLayers();if(!layers.length)return;
+      if(layers.some(l=>l.maskMembership)){const ids=new Set(layers.map(l=>l.maskMembership?.id).filter(Boolean));ed.setLayerPaints(ed.scene.layers.filter(l=>ids.has(l.maskMembership?.id)).map(layer=>({layer,patch:releaseMaskPatch(layer)})),null);return;}
+      const owners=new Set(layers.map(l=>l._sharedId?'shared':l._sourceSlideId??currentSlide().id));if(owners.size>1){toast('Select objects on the same screen, or select shared objects together.');return;}
+      const mask=paintOrder(layers).at(-1),source=ed.sourceFor(mask);
+      try{ed.setLayerPaints(createMaskPatches(layers,mask,{id:`mask-${crypto.randomUUID()}`,sourceId:source.layer.id,slideId:mask._sharedId?null:source.slide.id}),null);}catch(error){toast(error.message);}
+    },
+    async copyAppearance(){
+      const layer=ed.layerById(ed.selectedId);if(!layer)return;
+      appearanceClipboard=encodeAppearanceClipboard(layer,{projectId:state.projectId,ink:ed.scene.theme.ink});
+      try{await navigator.clipboard.writeText(appearanceClipboard);}catch{}
+      toast('Appearance copied');
+    },
+    async pasteAppearance(){
+      const project=engine.project,ids=[...ed.selectedIds].sort().join('|');let text;
+      try{text=await navigator.clipboard.readText();}catch{text=appearanceClipboard;}
+      const payload=decodeAppearanceClipboard(text)||decodeAppearanceClipboard(appearanceClipboard);
+      if(!payload){toast('Copy an object’s appearance first.');return;}
+      if(project!==engine.project||ids!==[...ed.selectedIds].sort().join('|'))return;
+      if(payload.projectId!==state.projectId&&payload.appearance.paint?.paints?.some(p=>p.type==='image')){toast('Image fills can only be pasted within their project.');return;}
+      const edits=ed.selectionLayers().map(layer=>({layer,patch:appearancePatch(layer,payload.appearance)}));ed.setLayerPaints(edits,null);
+    },
+    editSelectedAppearance(patch,{key='appearance',types=null}={}){
+      const layers=ed.selectionLayers().filter(l=>!types||types.includes(l.type));if(!layers.length)return;
+      checkpoint(`selection:${layers.map(l=>l.id).join(',')}:${key}`);
+      for(const layer of layers)ed.writePatch(layer,typeof patch==='function'?patch(layer):patch);
+      saveStudio();ed.refresh({immediate:true,inspector:false,rail:true});
+    },
     groupSelection(ungroup = false) {
       const layers = ed.selectionLayers();
       if (!layers.length) return;
@@ -1169,6 +1219,8 @@ export function createEditor(ctx) {
     if (!el.isConnected) return false;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+    if(mod&&e.altKey&&(key==='m'||e.code==='KeyM')){e.preventDefault();ed.maskSelection();return true;}
+    if(mod&&e.altKey&&(key==='c'||e.code==='KeyC'||key==='v'||e.code==='KeyV')){e.preventDefault();if(key==='c'||e.code==='KeyC')void ed.copyAppearance();else void ed.pasteAppearance();return true;}
     if(e.key==='Escape'&&stageApi.objectDragging){e.preventDefault();stageApi.cancelDrag();doUndo();return true;}
     if(stageApi.drawing.key(e))return true;
     if (mod && key === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return true; }
@@ -1232,6 +1284,7 @@ export function createEditor(ctx) {
     selectSlide,
     newSeries,
     handleKey,
+    copyAppearance:()=>ed.copyAppearance(),pasteAppearance:()=>ed.pasteAppearance(),
     undo: doUndo,
     redo: doRedo,
     editTemplate(id, slideId = null) {
