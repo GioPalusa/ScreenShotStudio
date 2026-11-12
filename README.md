@@ -86,6 +86,14 @@ Open **Help → MCP and Skills Guide** for connection instructions, skill instal
 
 See the [user guide](docs/user-guide.md) for the full workflow.
 
+### Home
+
+The app starts on Home with a visual gallery of recent projects. Real screen previews help you recognise your designs; the sidebar provides search, new/open actions and guides. Sort projects by last opened, last edited or name. Click the app logo to return here, reopen a project, or create a new one. Opening a `.sss` file directly opens that document.
+
+### Figma import
+
+Choose **Import from Figma…** on Home to create a project from a full file or selected views. Import into an existing project through **File → Import → From Figma…** (also in Overview and Media). The connection, preview and import stay inside the app. The Mac app remembers a working Figma key in macOS Keychain, with 1/7/30/90-day or custom expiry metadata and replacement when expired. Text, shapes and vector paths remain editable. Google Fonts and their licenses travel inside the project; other font families can be supplied as original `.ttf` or `.otf` files. **File → Import → Font files…** collects fonts for an existing document. Ordinary Figma copy/paste preserves native text and vectors without a key; Home creates a project from the copied selection. The editor also accepts SVG, PNG, selection links and CSS properties from the clipboard. See [installation and editing limits](docs/imports-and-translation.md#figma-views).
+
 ### Run from source
 
 Requires Node.js 22.12+ and npm. The desktop app is currently developed and packaged on macOS.

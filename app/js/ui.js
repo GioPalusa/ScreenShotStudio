@@ -1,3 +1,6 @@
+import { openImportFigma } from './ui/import-figma.js';
+import { openImportDesigns } from './ui/import-designs.js';
+import { openProjectFonts } from './ui/import-fonts.js';
 import { icon } from './ui/icons.js';
 import { productMark } from './ui/brand.js';
 import { orderedSlides } from './project-ops.js';
@@ -104,7 +107,7 @@ export function mountStudio(root) {
       ctx.setLocale(locales[(i + delta + locales.length) % locales.length].id);
     };
     topbar.replaceChildren(
-      productMark(),
+      h('button', { class: 'home-button', 'aria-label': 'Home · Screenshot Studio', title: 'Home · recent projects', onClick: async () => { try { await window.studioDesktop?.action('welcome'); } catch(error) { toast(error.message, { error: true }); } } }, productMark()),
       h('nav', { class: 'view-nav', 'aria-label': 'View' }, VIEWS.map(([id, label]) =>
         h('button', { 'aria-pressed': String(id === state.ui.view), onClick: () => ctx.setView(id) }, viewIcon(id), label))),
       h('div', { class: 'select-wrap' },
@@ -172,6 +175,9 @@ export function mountStudio(root) {
     if (command === 'guide') { openGetStarted(); return; }
     if (command === 'guide:mcp') { openGetStarted('mcp'); return; }
     if (document.querySelector('.modal-backdrop')) return;
+    if (command === 'import:figma') openImportFigma(ctx);
+    if (command === 'import:designs') openImportDesigns(ctx);
+    if (command === 'import:fonts') void openProjectFonts().catch(error => toast(error.message, { error: true }));
     if (command === 'media') ctx.openMedia();
     if (command === 'shortcuts') openShortcuts();
     if (command === 'upload') ctx.setView('upload');

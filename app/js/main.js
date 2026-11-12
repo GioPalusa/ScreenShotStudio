@@ -44,7 +44,7 @@ async function boot() {
   restoreUI();
   await loadAll();
   if (params.get('new') === '1') {
-    Object.assign(state.ui, { view: 'editor', tab: 'screenshot', slideId: engine.project.slides[0]?.id, device: Object.keys(engine.project.devices)[0], locale: engine.project.locales[0]?.id, captureScope: 'all' });
+    Object.assign(state.ui, { view: 'editor', allScreens: false, tab: 'screenshot', slideId: engine.project.slides[0]?.id, device: Object.keys(engine.project.devices)[0], locale: engine.project.locales[0]?.id, captureScope: 'all' });
     rememberUI();
     history.replaceState(null, '', location.pathname);
   }

@@ -1,3 +1,8 @@
+import { createFigmaKeychain, createFigmaSettings } from './figma-settings.mjs';
+import { importFigma } from '../host/figma.mjs';
+import { createRecentPreviews } from '../host/recent-previews.mjs';
+import { importMenu } from './import-menu.mjs';
+import { recentProjectSummaries } from '../host/recent-projects.mjs';
 import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, session, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,6 +16,7 @@ import { atomicWrite, copyProject, assertInside } from '../host/files.mjs';
 import { isProjectFile, projectName, projectFilename } from '../app/js/project-file.js';
 import { startupProject } from '../app/js/onboarding.js';
 import { createNewProject } from '../host/new-project.mjs';
+import { createFigmaProject } from '../host/figma-project.mjs';
 import { importFrameDiskImage } from '../host/disk-image-frames.mjs';
 import { createActiveProjectTools } from '../host/active-project-tools.mjs';
 import { startActiveAgentLink } from './active-agent-link.mjs';
@@ -42,7 +48,12 @@ const settingsFile = () => path.join(app.getPath('userData'), 'projects.json');
 const allowedExternal = url => ['https://www.palusa.se', 'https://developer.apple.com/', 'https://support.google.com/googleplay/', 'https://developer.android.com/', 'https://github.com/GioPalusa/ScreenShotStudio'].some(origin => origin.endsWith('/') ? url.startsWith(origin) : url === origin || url.startsWith(origin + '/'));
 const saveSettings = () => atomicWrite(settingsFile(), JSON.stringify(settings, null, 2));
 const trusted = event => event.sender === win?.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`);
-let agentSetup, activeAgent, desktopExporter;
+let agentSetup, activeAgent, desktopExporter, figmaSettings;
+const getFigmaSettings=()=>figmaSettings??=createFigmaSettings({keychain:createFigmaKeychain({root:ROOT,userData:app.getPath('userData'),packaged:app.isPackaged})});
+ipcMain.handle('studio:figma-settings',async(event,operation,value)=>{if(!trusted(event))throw Error('Forbidden');if(operation==='expiry')return getFigmaSettings().setExpiry(value?.expiresAt);if(operation==='load')return getFigmaSettings().load();if(operation==='forget'){await getFigmaSettings().forget();return {stored:false};}throw Error('Invalid Figma connection action.');});
+const figmaRequests=new Map();
+ipcMain.handle('studio:figma-cancel',(event,id)=>{if(!trusted(event))throw Error('Forbidden');figmaRequests.get(id)?.abort();});
+ipcMain.handle('studio:figma-import',async(event,input)=>{if(!trusted(event))throw Error('Forbidden');const controller=new AbortController(),id=String(input.requestId??'').slice(0,100);figmaRequests.set(id,controller);try{return {ok:true,result:await getFigmaSettings().request(input,value=>importFigma(value,{signal:controller.signal}))};}catch(error){return {ok:false,error:error.message,status:error.status??502,code:error.code};}finally{figmaRequests.delete(id);}});
 let projectSession = crypto.randomUUID();
 let agentInstalling = false;
 const getAgentSetup = () => agentSetup ??= createAgentSetup({ root: ROOT, home: app.getPath('home'), codexHome: process.env.CODEX_HOME || path.join(app.getPath('home'), '.codex'), executable: app.getPath('exe'), packaged: app.isPackaged, appData: app.getPath('userData') });
@@ -210,7 +221,7 @@ async function action(name, options = null) {
       const result = await dialog.showOpenDialog(win, { title: 'Open Screenshot Studio project', properties: ['openDirectory', 'treatPackageAsDirectory'] });
       if (!result.canceled) await openProject(result.filePaths[0]);
     } else if (name === 'new' || name === 'welcome') {
-      if (!options) { await flush(); service?.close(); service = null; current = null; projectSession = crypto.randomUUID(); buildMenu(); await win.loadURL(`${ORIGIN}/app/welcome.html`); win.setTitle('Welcome — Screenshot Studio'); return; }
+      if (!options) { await flush(); service?.close(); service = null; current = null; projectSession = crypto.randomUUID(); buildMenu(); await win.loadURL(`${ORIGIN}/app/welcome.html${name === 'new' ? '?new=1' : ''}`); win.setTitle('Home — Screenshot Studio'); return; }
       if (typeof options.name !== 'string' || !options.name.trim() || options.name.length > 80 || /[\\/]/.test(options.name)) throw new Error('Give your project a name without slashes.');
       const dest = await chooseDestination('Create project', options.name.trim(), { allowReplace: true }); if (!dest) return;
       const replace = fs.existsSync(dest);
@@ -258,6 +269,19 @@ async function action(name, options = null) {
   finally { busy = false; }
 }
 ipcMain.handle('studio:create-project', (event, value) => { if (!trusted(event)) throw new Error('Forbidden'); return action('new', value); });
+ipcMain.handle('studio:create-figma-project', async (event, value) => {
+  if (!trusted(event) || current) throw new Error('Start this import from Home.');
+  if (busy) return { error: 'Finish the current project action first.' };
+  busy = true;
+  try {
+    if (typeof value?.name !== 'string' || !value.name.trim() || value.name.length > 80 || /[\\/]/.test(value.name)) throw new Error('Give your project a name without slashes.');
+    const destination = await chooseDestination('Create project from Figma', value.name.trim());
+    if (!destination) return { canceled: true };
+    await flush(); createFigmaProject(destination, value); await openProject(destination, { created: true });
+    return { created: true };
+  } catch (error) { return { error: error.message }; }
+  finally { busy = false; }
+});
 ipcMain.handle('studio:action', (event, name) => { if (!trusted(event)) throw new Error('Forbidden'); return action(name); });
 
 ipcMain.handle('studio:choose-export-folder', async event => {
@@ -308,7 +332,7 @@ function showAbout() {
 }
 ipcMain.handle('studio:recent-projects', event => {
   if (!trusted(event)) throw new Error('Forbidden');
-  return settings.recent.filter(p => typeof p === 'string' && fs.existsSync(path.join(p, 'studio.json'))).map(p => ({ path: p, name: projectName(path.basename(p)) }));
+  return recentProjectSummaries(settings.recent);
 });
 function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -319,6 +343,7 @@ function buildMenu() {
       { label: 'New Project…', accelerator: 'CmdOrCtrl+N', click: () => action('new') },
       { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => action('open') },
       { label: 'Open Recent', submenu: settings.recent.map(p => ({ label: path.basename(p), click: () => action(`recent:${p}`) })) },
+      importMenu({ enabled: Boolean(current), send: command => win.webContents.send('studio:command', command) }),
       { type: 'separator' }, { label: 'Save', enabled: Boolean(current), accelerator: 'CmdOrCtrl+S', click: () => action('save') },
       { label: 'Save As…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Shift+S', click: () => action('save-as') },
       { label: 'Save Version', enabled: Boolean(current), click: () => action('snapshot') }, { label: 'Restore Version…', enabled: Boolean(current), click: () => action('restore') },
@@ -330,7 +355,7 @@ function buildMenu() {
     { label: 'Help', submenu: [{ label: 'Get Started Guide', click: () => win.webContents.send('studio:command', 'guide') }, { label: 'MCP and Skills Guide', click: () => win.webContents.send('studio:command', 'guide:mcp') }, { label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
     { label: 'View', submenu: [
       { label: 'Appearance', submenu: ['system', 'light', 'dark'].map(value => ({ label: value === 'system' ? 'Follow System' : value[0].toUpperCase() + value.slice(1), type: 'radio', checked: (appearance?.get() ?? 'system') === value, click: () => { try { appearance.set(value); } catch (error) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save appearance', detail: error.message }); } } })) },
-      { label: 'Welcome Screen', click: () => action('welcome') },
+      { label: 'Home', click: () => action('welcome') },
       { label: 'Media Library…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+Shift+M', click: () => win.webContents.send('studio:command', 'media') },
       { label: 'Keyboard Shortcuts…', enabled: Boolean(current), click: () => win.webContents.send('studio:command', 'shortcuts') },
     ] }, { role: 'windowMenu' },
@@ -349,10 +374,14 @@ else {
       const previous = settings.appearance; settings.appearance = value;
       try { saveSettings(); } catch (error) { settings.appearance = previous; throw error; }
     }, windows: () => [win, aboutWindow], onChange: buildMenu });
-    const welcomeService = createStudioService({ createThumbnail: exportThumbnail, appPath: path.join(ROOT, 'app'), projectPath: path.join(ROOT, 'starter'), exportPath: path.join(ROOT, 'starter', 'export'), origin: ORIGIN });
+    const welcomeService = createStudioService({ createThumbnail: exportThumbnail, appPath: path.join(ROOT, 'app'), projectPath: path.join(ROOT, 'starter'), exportPath: path.join(ROOT, 'starter', 'export'), origin: ORIGIN, allowFontWrites: false });
+    const recentPreviews = createRecentPreviews({ appPath: path.join(ROOT, 'app'), frameLibraryPath: path.join(app.getPath('userData'), 'frames'), recentPaths: () => settings.recent, origin: ORIGIN });
+    app.once('will-quit', () => recentPreviews.close());
     protocol.handle('studio', req => {
       if (req.initiatorOrigin && req.initiatorOrigin !== ORIGIN) return new Response('Forbidden', { status: 403 });
+      if (new URL(req.url).pathname.startsWith('/recent/')) return recentPreviews.request(req);
       if (service) return service.request(req);
+      if (req.method === 'POST' && ['/api/import/figma','/api/import/fonts','/api/import/figma-clipboard'].includes(new URL(req.url).pathname)) return welcomeService.request(req);
       if (req.method === 'GET' && new URL(req.url).pathname.startsWith('/app/')) return welcomeService.request(req);
       return new Response('Open or create a project first.', { status: 403 });
     });
@@ -382,14 +411,14 @@ else {
     app.once('will-quit', () => { activeAgent?.close(); desktopExporter?.close(); });
     const arg = process.argv.find(isProjectFile);
     const explicit = pendingOpen ?? arg;
-    const initial = startupProject({ explicit, recent: settings.recent }, folder => fs.statSync(path.join(folder, 'studio.json')).isFile());
+    const initial = startupProject({ explicit }, folder => fs.statSync(path.join(folder, 'studio.json')).isFile());
     pendingOpen = null;
     let openError;
     if (initial) {
       try { await openProject(initial); }
       catch (error) { openError = error; service?.close(); service = null; current = null; }
     }
-    if (!current) { buildMenu(); await win.loadURL(`${ORIGIN}/app/welcome.html`); win.setTitle('Welcome — Screenshot Studio'); }
+    if (!current) { buildMenu(); await win.loadURL(`${ORIGIN}/app/welcome.html`); win.setTitle('Home — Screenshot Studio'); }
     let signed = false;
     if (app.isPackaged && process.platform === 'darwin') {
       try {

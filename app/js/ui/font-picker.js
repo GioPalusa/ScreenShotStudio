@@ -1,15 +1,17 @@
-import { api } from '../store.js';
+import { api, engine } from '../store.js';
 import { h } from './helpers.js';
 
 export function fontPicker({ value, inherited, onChange }) {
-  const select = h('select', { class: 'input', 'aria-label': 'Font', title: `Choose an installed font. Type a name in the open menu to jump to it. Project default: ${inherited}`, disabled: true,
+  const select = h('select', { class: 'input', 'aria-label': 'Font', title: `Choose a project or installed font. Type a name in the open menu to jump to it. Project default: ${inherited}`, disabled: true,
     onChange: () => onChange(select.value || undefined) }, h('option', { value: value ?? '' }, value || 'Loading fonts…'));
   const status = h('div', { class: 'hint warn', role: 'status', hidden: true });
   async function load() {
     try {
       const { families, unavailable } = await api('/api/fonts');
-      select.replaceChildren(h('option', { value: '' }, 'Project default'), ...families.map(family => h('option', { value: family }, family)));
-      if (value && !families.includes(value)) select.append(h('option', { value }, `${value} (not installed)`));
+      const embedded = new Set((engine.project.fonts?.files ?? []).map(font => font.family));
+      const available = [...new Set([...families, ...embedded])].sort((a,b) => a.localeCompare(b));
+      select.replaceChildren(h('option', { value: '' }, 'Project default'), ...available.map(family => h('option', { value: family }, `${family}${embedded.has(family) ? ' · project' : ''}`)));
+      if (value && !available.includes(value)) select.append(h('option', { value }, `${value} (not installed)`));
       select.value = value ?? ''; select.disabled = false;
       if (unavailable) { status.textContent = unavailable; status.hidden = false; }
     } catch (error) {

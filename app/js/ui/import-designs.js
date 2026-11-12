@@ -1,11 +1,38 @@
 import { engine, state, api, uploadAsset, uploadCapture, toPNG, importExternalDesigns, flushSaves } from '../store.js';
 import { readImageInfo } from '../assets.js';
 import { planExternalImport, importPath, applyExternalImport } from '../external-import.js';
+import { openImportFigma } from './import-figma.js';
+import { parseFigmaImport } from '../figma-import.js';
 import { h, modal, selectInput, toast } from './helpers.js';
 
 const M = 1024 * 1024;
 async function decodeFiles(input) {
   let files = [...input].map(file => ({ file, path: importPath(file.webkitRelativePath || file.name) }));
+  if (files.some(f => /\.figma-studio\.json$/i.test(f.path))) {
+    if (files.length !== 1) throw new Error('Choose one Figma export at a time.');
+    if (files[0].file.size > 64 * M) throw new Error('Choose a Figma export smaller than 64 MB.');
+    const frames = parseFigmaImport(await files[0].file.text());
+    for (const frame of frames) {
+      const canvas = document.createElement('canvas'); canvas.width = frame.width; canvas.height = frame.height;
+      const ctx = canvas.getContext('2d');
+      for (const layer of frame.layers) {
+        const bytes = Uint8Array.from(atob(layer.png), c => c.charCodeAt(0)); delete layer.png;
+        const header = new DataView(bytes.buffer);
+        if (bytes.length < 33 || header.getUint32(12) !== 0x49484452 || header.getUint32(16) !== frame.width || header.getUint32(20) !== frame.height) throw new Error('A Figma layer does not match its view dimensions.');
+        layer.file = new File([bytes], layer.path.split('/').at(-1), { type: 'image/png' });
+        const bitmap = await createImageBitmap(layer.file);
+        try {
+          if (bitmap.width !== frame.width || bitmap.height !== frame.height) throw new Error('A Figma layer does not match its view dimensions.');
+          ctx.drawImage(bitmap, 0, 0);
+        } finally { bitmap.close(); }
+      }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Could not create the Figma preview.');
+      frame.file = new File([blob], 'view.png', { type: 'image/png' }); frame.kind = 'figma-view';
+      canvas.width = canvas.height = 1;
+    }
+    return frames;
+  }
   if (files.some(f => /\.zip$/i.test(f.path)) && files.length !== 1) throw new Error('Choose one ZIP at a time, or select individual images.');
   if (files.length === 1 && /\.zip$/i.test(files[0].path)) {
     const archive = await api('/api/import/archive', { method: 'POST', body: files[0].file });
@@ -36,10 +63,11 @@ export function openImportDesigns(ctx) {
   canvas.setAttribute('aria-label', 'Import canvas');
   const language = selectInput({ value: state.ui.locale, options: project.locales.map(l => [l.id, l.name]), onChange: value => { if (plan) { for (const row of plan.rows) row.locale = value; showRows(); } } });
   language.setAttribute('aria-label', 'Import language');
-  const filesInput = h('input', { type: 'file', accept: '.png,.jpg,.jpeg,.zip', multiple: true, hidden: true, 'aria-label': 'Import design files' });
+  const filesInput = h('input', { type: 'file', accept: '.png,.jpg,.jpeg,.zip,.json', multiple: true, hidden: true, 'aria-label': 'Import design files' });
   const folderInput = h('input', { type: 'file', webkitdirectory: true, multiple: true, hidden: true, 'aria-label': 'Import design folder' });
-  const choose = h('button', { class: 'btn primary', onClick: () => filesInput.click() }, 'Choose images or ZIP…');
+  const choose = h('button', { class: 'btn primary', onClick: () => filesInput.click() }, 'Choose design files…');
   const folder = h('button', { class: 'btn', onClick: () => folderInput.click() }, 'Choose folder…');
+  const figma = h('button', { class: 'btn', onClick: () => openImportFigma(ctx, { onImported: () => dialog.close() }) }, 'Import from Figma…');
   const clearURLs = () => { for (const url of urls) URL.revokeObjectURL(url); urls = []; };
   async function load(files) {
     if (!files.length || busy || !active()) return;
@@ -55,7 +83,7 @@ export function openImportDesigns(ctx) {
   filesInput.addEventListener('change', () => { void load(filesInput.files); filesInput.value = ''; });
   folderInput.addEventListener('change', () => { void load(folderInput.files); folderInput.value = ''; });
   function update() { const count = plan?.rows.filter(r => r.selected).length ?? 0; apply.disabled = busy || !count; apply.textContent = `Import ${count} screenshot${count === 1 ? '' : 's'}`; }
-  function setDisabled(value) { for (const input of [choose, folder, canvas, language, ...preview.querySelectorAll('input,select')]) input.disabled = value; apply.disabled = value; }
+  function setDisabled(value) { for (const input of [choose, folder, figma, canvas, language, ...preview.querySelectorAll('input,select')]) input.disabled = value; apply.disabled = value; }
   function showRows() {
     clearURLs(); preview.replaceChildren();
     for (const row of plan.rows) {
@@ -63,7 +91,7 @@ export function openImportDesigns(ctx) {
       const check = h('input', { type: 'checkbox', checked: row.selected, 'aria-label': `Import ${row.path}`, onChange: () => { row.selected = check.checked; update(); } });
       const locale = selectInput({ value: row.locale, options: project.locales.map(l => [l.id, l.name]), onChange: value => { row.locale = value; } }); locale.setAttribute('aria-label', `Language for ${row.path}`);
       preview.append(h('article', { class: 'import-design-row' }, check, h('img', { src: url, alt: row.name }), h('div', null,
-        h('b', null, row.name), h('div', { class: 'hint' }, `${row.file.width} × ${row.file.height} · ${row.kind === 'frameit' ? 'Editable device + text' : 'Image layer'}`),
+        h('b', null, row.name), h('div', { class: 'hint' }, `${row.file.width} × ${row.file.height} · ${row.kind === 'figma' ? `${row.layers.length} Figma image layer${row.layers.length === 1 ? '' : 's'}` : row.kind === 'frameit' ? 'Editable device + text' : 'Image layer'}`),
         row.title || row.keyword ? h('div', { class: 'import-design-copy' }, [row.keyword, row.title].filter(Boolean).join('\n')) : null,
         h('small', { class: 'hint' }, row.path)), locale));
     }
@@ -73,14 +101,14 @@ export function openImportDesigns(ctx) {
     if (busy || !active()) return;
     const rows = plan.rows.filter(r => r.selected), assets = {}, captures = {}, set = `import-${crypto.randomUUID().slice(0, 8)}`;
     // Validate destinations and the complete edit before uploading any media.
-    try { applyExternalImport(project, engine.data.copy, rows, { canvasId: canvas.value || null, assets: Object.fromEntries(rows.flatMap(r => [r.file, r.background].filter(Boolean)).map(f => [f.path, 'preview.png'])), captures: Object.fromEntries(rows.map((r, i) => [r.path, { set, name: `screen-${i + 1}` }])) }); }
+    try { applyExternalImport(project, engine.data.copy, rows, { canvasId: canvas.value || null, assets: Object.fromEntries(rows.flatMap(r => [...(r.layers ?? [r.file]), r.background].filter(Boolean)).map(f => [f.path, 'preview.png'])), captures: Object.fromEntries(rows.map((r, i) => [r.path, { set, name: `screen-${i + 1}` }])) }); }
     catch (error) { status.textContent = error.message; return; }
     busy = true; setDisabled(true);
     try {
       for (const [index, row] of rows.entries()) {
         if (!active()) return;
         status.textContent = `Importing ${index + 1} of ${rows.length}…`;
-        for (const entry of [row.kind === 'image' ? row.file : null, row.background].filter(Boolean)) {
+        for (const entry of [...(row.kind === 'figma' ? row.layers : []), row.kind === 'image' ? row.file : null, row.background].filter(Boolean)) {
           if (!assets[entry.path]) assets[entry.path] = (await uploadAsset(entry.file)).file;
           if (!active()) return;
         }
@@ -101,6 +129,7 @@ export function openImportDesigns(ctx) {
   } }, 'Import 0 screenshots');
   const body = h('div', { class: 'import-designs' },
     h('p', null, 'Continue a design from another screenshot tool.'),
+    h('div', { class: 'notice' }, h('b', null, 'Figma views'), h('p', null, 'Paste a Figma link, choose views and preview native text, shapes and vector paths inside Studio.'), figma),
     h('div', { class: 'notice' }, h('b', null, 'PNG / JPEG exports'), h('p', null, 'Import exports from AppScreens, AppMockUp or other tools as image layers. Their existing text and devices stay inside the image; add new text, images or devices above it.')),
     h('div', { class: 'notice' }, h('b', null, 'fastlane Framefile'), h('p', null, 'Choose a folder or ZIP containing Framefile.json, source screenshots, backgrounds and optional title.strings / keyword.strings. Text and devices become editable.')),
     h('div', { class: 'row wrap' }, choose, folder, filesInput, folderInput),
