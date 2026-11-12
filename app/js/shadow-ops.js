@@ -5,6 +5,9 @@ export const SHADOW_PRESETS = [
  {id:'floating',name:'Floating',shadow:{color:'#000000',alpha:.3,blur:50,dx:0,dy:24}},
  {id:'crisp',name:'Crisp',shadow:{color:'#000000',alpha:.3,blur:0,dx:6,dy:6}},
  {id:'dramatic',name:'Dramatic',shadow:{color:'#000000',alpha:.45,blur:64,dx:16,dy:32}},
+ {id:'lifted',name:'Lifted',shadow:{color:'#000000',alpha:.25,blur:20,dx:0,dy:8}},
+ {id:'left',name:'Left',shadow:{color:'#000000',alpha:.3,blur:24,dx:-12,dy:8}},
+ {id:'long',name:'Long',shadow:{color:'#000000',alpha:.3,blur:8,dx:24,dy:24}},
  {id:'glow',name:'Glow',shadow:{color:'#ffffff',alpha:.65,blur:36,dx:0,dy:0,angle:90}},
 ];
 export const shadowAngle = value => ((value % 360) + 360) % 360;
