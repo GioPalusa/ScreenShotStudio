@@ -1153,11 +1153,11 @@ export function createEditor(ctx) {
     inspectorKey = JSON.stringify([state.projectId, state.ui.slideId, state.ui.device, state.ui.locale, current, ed.editTemplateId, current === 'layers' || current === 'details' ? [...ed.selectedIds].sort() : null]);
     const panel = state.ui.allScreens && current === 'design' ? sharedDesignPanel() : BUILDERS[current](ed);
     ed.panel = panel;
-    inspector.replaceChildren(
+    inspector.replaceChildren(...[
       h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, label]) => h('button', { class: 'tab', role: 'tab', 'aria-selected': String(id === current), onClick: () => ed.setTab(id) }, label))),
-      layoutScopeControls(),
+      current==='details' && ed.layerById(ed.selectedId) ? null : layoutScopeControls(),
       panel.el,
-    );
+    ].filter(Boolean));
     if (ed.scene) panel.afterRender?.(ed.scene);
     inspectorMemory.restore(inspectorKey, panel.el);
   }

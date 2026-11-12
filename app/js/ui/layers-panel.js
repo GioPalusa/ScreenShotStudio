@@ -173,14 +173,14 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
 
     // a hidden layer is not drawn, so it has no measured box: it can be styled but not placed until it is shown again
     const position = layer._box ? inspectorGroup('position', 'Position', [selection.length <= 1 ? alignment() : null, geometry(layer)]) : null;
-    if (position && !detailsOnly) box.append(position);
+    if (position) box.append(position);
+    box.append(inspectorGroup('appearance', 'Effects', appearance(layer)));
     if (!position) box.append(h('div', { class: 'hint warn' }, layer.hidden ? 'Hidden: switch it back on (the dot in the list) to move and resize it on the preview.' : 'This layer is not on the canvas.'));
     if (!detailsOnly && layer.type === 'device') box.append(inspectorGroup('style', 'Device', deviceFields(layer)));
     if (layer.type === 'art') box.append(inspectorGroup('style', 'Image', imageFields(layer)));
     if (layer.type === 'shape') box.append(inspectorGroup('style', 'Shape', shapeFields(layer)));
     if (layer.type === 'text') box.append(inspectorGroup('style', 'Typography', textFields(layer)));
-    if (position && detailsOnly) box.append(position);
-    box.append(inspectorGroup('appearance', 'Appearance', [appearanceActions(ed),appearance(layer)]));
+    box.append(inspectorGroup('object-actions', 'Object actions', appearanceActions(ed), {open:false}));
     box.append(inspectorGroup('export', 'Export checks', h('div', { class: 'field' },
       [['allowCrop', 'Cropping outside the canvas is intentional'], ['allowUpscale', 'Image enlargement is intentional'], ...(layer.type === 'device' ? [['languageNeutral', 'Shared screenshot is language-neutral']] : [])].map(([key, label]) => h('label', { class: 'row check' }, h('input', { type: 'checkbox', checked: Boolean(layer[key]), onChange: e => ed.setLayer(layer, { [key]: e.target.checked || undefined }) }), label))), { open: false }));
     box.append(actions(layer));

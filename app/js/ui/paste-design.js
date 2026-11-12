@@ -1,3 +1,4 @@
+import { resolveDesignFonts } from './import-fonts.js';
 import { engine,state,checkpoint,saveCopy,saveStudio,uploadAsset } from '../store.js';
 import { pasteLayerClipboard } from '../layer-transfer.js';
 import { sharedLayerId } from '../shared-canvas.js';
@@ -10,6 +11,8 @@ export async function pasteSVGDesign(ed,text,active=()=>true){
   try{
     if(!ed.scene)throw new Error('Wait for the canvas preview before pasting SVG.');
     const project=engine.project,design=parseSVG(text),assets={};
+    if(design.layers.some(l=>l.type==='text'))toast('Checking fonts for pasted text…');
+    const typography=await resolveDesignFonts(design.layers,()=>active()&&project===engine.project);if(!typography)return;design.layers=typography.layers;
     for(const [ref,image] of Object.entries(design.embeddedImages??{})){
       const file=new File([Uint8Array.from(atob(image.data),c=>c.charCodeAt(0))],`${ref}.${image.mime==='image/jpeg'?'jpg':image.mime==='image/webp'?'webp':'png'}`,{type:image.mime}),bitmap=await createImageBitmap(file);
       try{if(bitmap.width>16384||bitmap.height>16384||bitmap.width*bitmap.height>40000000)throw new Error('An SVG image exceeds the image size limit.');}finally{bitmap.close();}
@@ -18,6 +21,7 @@ export async function pasteSVGDesign(ed,text,active=()=>true){
     const entries=scaleFigmaLayers(design,design.width,design.height,assets).map(layer=>({layer,text:layer.type==='text'?{[state.ui.locale]:{value:design.texts[layer.field],needsReview:true}}:{}}));
     if(!active()||project!==engine.project)return;
     checkpoint(null,{copyLocales:[state.ui.locale]});
+    if(typography.fonts.length){engine.project.fonts??={};engine.project.fonts.files=mergeProjectFonts(engine.project.fonts.files,typography.fonts);}
     const result=pasteLayerClipboard({entries},{block:ed.block(),resolved:ed.scene.allLayers,copy:engine.data.copy,slideIds:[ed.slide().id],shared:ed.allScreens(),dx:(ed.scene.W-design.width)/2,dy:(ed.scene.H-design.height)/2});
     ed.selectedIds=new Set(result.layers.map(l=>ed.allScreens()?sharedLayerId(l.id):l.id));ed.selectedId=[...ed.selectedIds].at(-1);
     result.changedLocales.forEach(saveCopy);saveStudio();ed.refresh({immediate:true,inspector:true,rail:true});

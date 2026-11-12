@@ -61,6 +61,8 @@ export function openImportFigma(ctx,{url:initialURL='',onImported,newProject=fal
         files[ref]=file;previewAssets[ref]=`data:${image.mime};base64,${image.data}`;
       }
       await fontControls.resolve(data.designs.flatMap(d=>d.layers));if(!active())return;
+      if(!(await fontControls.reviewMissing())||!active())return;
+      data.designs=data.designs.map(design=>({...design,layers:fontControls.replaceLayers(design.layers)}));
       rows=data.designs.map(design=>({kind:'figma-editable',path:design.id,group:design.id,name:design.name,file:{width:design.width,height:design.height},locale:language.value,design}));
       for(const row of rows){
         const result=applyExternalImport(project,copy,[row],{canvasId:canvas.value||null,assets:previewAssets,fonts:fontControls.previewFonts});
