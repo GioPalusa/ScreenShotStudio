@@ -49,3 +49,12 @@ Sources: [Electron autoUpdater](https://www.electronjs.org/docs/latest/api/auto-
 - App-connected MCP tools and agent setup; document icons for both project extensions.
 - Improved text-fit diagnostics, excluded local user workspaces from app bundles, and updated Electron to 44.7.0.
 - Apple silicon (arm64), macOS 13 or later.
+
+## 0.3.0 (12) — 12 November 2026
+
+- **Bring designs into the editor.** Import Figma files or paste Figma content as editable layers. Paste Illustrator artwork with editable text, with improved SVG and WebP support.
+- **Draw and refine vectors.** New drawing and Bézier tools, live corners, editable boolean operations, masks and clipping, plus shared fill, stroke and effect controls.
+- **Organize complex designs.** Layers are grouped by artboard with named, collapsible groups. Selection-aware context menus and a focused Details panel make individual objects easier to find and edit.
+- **Work comfortably on the canvas.** Collapsible panels, contextual cursors, clearer distance labels and visual shadow presets with polar controls.
+- **Find your projects faster.** A Home gallery with project previews, in-app Figma import and portable project fonts, including missing-font review.
+- **Give your AI agent more control.** Expanded MCP tools cover native editing, layer hierarchy and named groups, with screenshot text review and font coverage checks.
