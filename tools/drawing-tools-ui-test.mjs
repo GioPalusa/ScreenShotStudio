@@ -6,7 +6,7 @@ const data=starterProject({});data.project.devices.iphone.size=[600,600];data.pr
 let service,server;
 try{
  fs.cpSync(path.join(root,'app'),appPath,{recursive:true});createProjectPackage(projectPath,()=>data);
- 
+
  fs.writeFileSync(path.join(appPath,'vector-test.html'),'<!doctype html><link rel="stylesheet" href="/app/css/studio.css"><div id="root"></div><pre id="result">PENDING</pre><script type="module" src="/app/vector-test.js"></script>');
  fs.writeFileSync(path.join(appPath,'vector-test.js'),`
  const out=document.querySelector('#result'),check=(v,m)=>{if(!v)throw Error(m)},q=s=>document.querySelector(s),button=text=>[...document.querySelectorAll('button')].reverse().find(b=>b.textContent.trim()===text),tick=()=>new Promise(r=>setTimeout(r,100));

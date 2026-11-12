@@ -99,7 +99,7 @@ try {
   const weight = [...document.querySelectorAll('.details-panel select')].find(s => [...s.options].some(o => o.text === 'Bold'));
   check(hover(weight) === 'Weight', 'Weight tooltip must use its own row label: ' + weight.title);
   const font = document.querySelector('[aria-label="Font"]'), fontTitle = font.title;
-  check(hover(font) === fontTitle && fontTitle.startsWith('Choose an installed font.'), 'Explicit font help must win');
+  check(hover(font) === fontTitle && fontTitle.startsWith('Choose a project or installed font.'), 'Explicit font help must win');
   const fixture = document.createElement('div');
   fixture.innerHTML = '<div class="field"><label>Font<select><option>Arial</option><option>Helvetica</option></select></label><div class="row"><span class="label">Mode</span><select><option>One</option><option>Two</option></select></div><div class="row"><select aria-label="Device"><option>Phone</option></select></div></div><div class="field"><label for="qa-format">Format</label><select id="qa-format"><option>PNG</option><option>JPEG</option></select><div class="hint">Choose a file format.</div></div><div title="Parent help"><select><option>Value</option></select></div><div class="field"><label>Unrelated<select><option>Secret option</option></select></label><input></div>';
   document.body.append(fixture);

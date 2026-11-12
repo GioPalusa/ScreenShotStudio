@@ -135,6 +135,21 @@ try {
     const scene=engine.scene(imported.id,newId,'sv-SE'),canvas=document.createElement('canvas');await engine.render(canvas,scene,{scale:1});const pixel=canvas.getContext('2d').getImageData(50,100,1,1).data;
     check(pixel[0]===255 && pixel[1]===0 && pixel[2]===0,'Imported image renders correct pixels');
     undo();check(JSON.stringify(engine.project.slides)===originalSlides && !engine.project.devices[newId],'Undo removes import and new canvases');redo();await flushSaves();
+    // Figma frames preserve alpha stacking through preview, upload, render, save and undo.
+    const figmaBefore=JSON.stringify(engine.project), overlay=document.createElement('canvas');overlay.width=100;overlay.height=200;
+    overlay.getContext('2d').fillStyle='#0000ff';overlay.getContext('2d').fillRect(0,0,50,200);
+    const redBase64=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.readAsDataURL(red);});
+    const figmaData={format:'screenshot-studio-figma',version:1,frames:[{name:'Figma home',width:100,height:200,layers:[{name:'Background',png:redBase64},{name:'Foreground',png:overlay.toDataURL().split(',')[1]}]}]};
+    openImportDesigns(ctx);input=document.querySelector('[aria-label="Import design files"]');dt=new DataTransfer();dt.items.add(new File([JSON.stringify(figmaData)],'views.figma-studio.json',{type:'application/json'}));input.files=dt.files;input.dispatchEvent(new Event('change'));
+    await waitFor(()=>document.querySelectorAll('.import-design-row').length===1 && !button('Import 1 screenshot').disabled);
+    check(document.querySelector('.import-design-row').textContent.includes('2 Figma image layers'),'Figma layer count visible before import');
+    button('Import 1 screenshot').click();await waitFor(()=>!document.querySelector('.import-designs'));await flushSaves();
+    const fs=engine.project.slides.at(-1),fd=Object.keys(fs.localeLayouts['sv-SE'])[0],fl=fs.localeLayouts['sv-SE'][fd].layers;
+    check(fl.length===2 && fl[1].name==='Foreground','Figma order and names retained');
+    const fc=document.createElement('canvas');await engine.render(fc,engine.scene(fs.id,fd,'sv-SE'),{scale:1});
+    const fp=(x)=>[...fc.getContext('2d').getImageData(x,100,1,1).data];
+    check(fp(25).join(',')==='0,0,255,255' && fp(75).join(',')==='255,0,0,255','Figma transparent layers composite pixel-exactly');
+    undo();check(JSON.stringify(engine.project)===figmaBefore,'Figma import undoes as one edit');await flushSaves();
     // A folder containing a Framefile and a localized title creates a device plus editable copy.
     openImportDesigns(ctx);input=document.querySelector('[aria-label="Import design folder"]');dt=new DataTransfer();
     const add=(name,data,relative,type='text/plain')=>{const f=new File([data],name,{type});Object.defineProperty(f,'webkitRelativePath',{value:relative});dt.items.add(f);};
