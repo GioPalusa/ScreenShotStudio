@@ -42,7 +42,7 @@ export async function inspectProject({ locales, devices, slides, checkOnly = fal
                 scope: layer._sharedId ? { device, shared: true } : { device, slide: slide.id, ...(slide.localeLayouts?.[locale]?.[device] ? { locale } : {}) },
                 bounds: layer._box ? { ...layer._box } : null,
                 ...(layer._sharedId ? { rowOffset: -(layer._offsetX ?? 0) } : {}),
-                ...(layer.group ? { group: layer.group } : {}),
+                ...(layer.group ? { group: layer.group, groupName: layer.groupName ?? 'Group' } : {}),
                 ...(layer.type === 'text' ? { text: { ...scene.texts[layer.id], value: frozen.copyFor(locale, layer.copySlideId ?? slide.id, layer.field)?.value ?? '', fontFamily: layer.fontFamily ?? scene.fonts.family, empty: Boolean(layer._empty) } } : {}),
                 ...(layer.type === 'device' ? { capture: { name: layer.capture, missing: Boolean(capture?.missing || !layer.capture), localized: Boolean(capture?.localized), ...(capture?.image ? { size: [capture.image.naturalWidth, capture.image.naturalHeight] } : {}), screenSize: layer._screenSize } } : {}) };
             }) });

@@ -1,5 +1,5 @@
 import { paintOrder, layerZ } from './layouts.js';
-import { patchLayer, removeLayer, addLayer, uniqueId, copyAppearance, appearancePatch, createMaskPatches, releaseMaskPatch, restackSelection } from './layer-ops.js';
+import { patchLayer, removeLayer, addLayer, uniqueId, copyAppearance, appearancePatch, createMaskPatches, releaseMaskPatch, restackSelection, groupLayerPatches } from './layer-ops.js';
 import { shadowPreset, shadowFromPolar } from './shadow-ops.js';
 import { cornerControls, cornerRadiusPatch } from './corner-ops.js';
 import { shapePaints, editShapePaint, changePaintType, editGradientStop, turnGradient } from './shape-ops.js';
@@ -38,17 +38,28 @@ export function operateOnLayers({ block, layers, edit, ink, paper }) {
     if (members.some(l => l.locked || l._sourceId)) throw new Error('Unlock and resolve every member before changing this group or mask.');
     return members;
   };
+  const groupName = name => {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 200) throw new Error('Supply a group name of 1–200 characters.');
+    return name.trim();
+  };
   switch (edit.op) {
     case 'group': {
       if (selected.length < 2 || selected.some(l => l.maskMembership)) throw new Error('Group at least two unmasked layers.');
       const group = edit.group ?? uniqueId(layers.map(l => l.group).filter(Boolean), 'group');
       if (layers.some(l => l.group === group && !ids.includes(l.id))) throw new Error('This group ID belongs to other objects. Choose a new group ID.');
-      for (const layer of selected) apply(layer, { group });
+      const name = groupName(edit.name ?? selected.find(l => l.group === group)?.groupName ?? 'Group');
+      for (const { layer, patch } of groupLayerPatches(selected, { id: group, name })) apply(layer, patch);
+      break;
+    }
+    case 'rename_group': {
+      if (selected.some(l => !l.group) || new Set(selected.map(l => l.group)).size !== 1) throw new Error('Choose members of one existing group to rename.');
+      const name = groupName(edit.name);
+      for (const layer of allMembers('group')) apply(layer, { groupName: name });
       break;
     }
     case 'ungroup':
       if (selected.some(l => l.maskMembership)) throw new Error('Release the mask before ungrouping.');
-      for (const layer of allMembers('group')) apply(layer, { group: undefined });
+      for (const { layer, patch } of groupLayerPatches(allMembers('group'), { ungroup: true })) apply(layer, patch);
       break;
     case 'reorder':
       restackSelection(block, layers, ids, ['forward', 'front'].includes(choice(edit.direction, ['forward', 'backward', 'front', 'back'])) ? 1 : -1, ['front', 'back'].includes(edit.direction));

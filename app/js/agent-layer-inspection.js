@@ -6,6 +6,7 @@ import { cornerControls } from './corner-ops.js';
 import { shapePaints } from './shape-ops.js';
 import { shadowPolar } from './shadow-ops.js';
 import { parseVectorPath, vectorAnchors, vectorSegments } from './vector-path.js';
+import { layerHierarchy } from './layer-tree.js';
 
 const data = value => Array.isArray(value) ? value.map(data) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([k]) => !k.startsWith('_')).map(([k, v]) => [k, data(v)])) : value;
 
@@ -48,6 +49,6 @@ export function inspectLayers(bundle, { device, slide: slideId, locale, shared =
     coordinateSpace: shared ? 'shared row design pixels' : 'screen design pixels', size: canvas.size,
     designSize: shared ? [row.W, row.H] : [metrics.W, metrics.H], outputScale: metrics.k,
     row: { gap: row.gap, tiles: row.tiles.map(t => ({ slide: t.slide.id, x: t.x, width: t.W, height: t.H })) },
-    layers: inspected, groups, masks,
+    layers: inspected, groups, hierarchy: layerHierarchy(layers, shared ? null : slide), masks,
     next: 'Use edit_layers with this revision and scope. For measured bounds and text fit use preview_project(details=true); data here is resolved layout data before text/font/image measurement.' };
 }

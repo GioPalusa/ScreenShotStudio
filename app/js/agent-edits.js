@@ -7,6 +7,7 @@ import { canvasForSlide } from './canvas-orientation.js';
 import { canvasMetrics } from './layouts.js';
 import { operateOnLayers } from './agent-layer-operations.js';
 import { LAYER_OPERATIONS } from './agent-capabilities.js';
+import { layerHierarchy } from './layer-tree.js';
 
 export const plain = value => {
   if (!value || typeof value !== 'object') return;
@@ -18,18 +19,20 @@ export const plain = value => {
 
 export function editingInventory(project) {
   const summary = l => ({ id: l.id, type: l.type, ...(l.name ? { name: l.name } : {}), editable: !l._sourceId,
-    ...(l.field ? { field: l.field } : {}), ...(l.shape ? { shape: l.shape } : {}), ...(l.group ? { group: l.group } : {}),
+    ...(l.field ? { field: l.field } : {}), ...(l.shape ? { shape: l.shape } : {}), ...(l.group ? { group: l.group, groupName: l.groupName ?? 'Group' } : {}),
     ...(l.maskMembership ? { mask: l.maskMembership.id } : {}), ...(l.locked ? { locked: true } : {}), ...(l.hidden ? { hidden: true } : {}) });
   return Object.entries(project.devices).map(([id, device]) => ({
     id, label: device.label, size: device.size, designSize: device.designSize ?? device.size,
     captureCollection: device.capture, shared: !isStoreCanvas(device),
     sharedLayers: (project.sharedCanvas?.[id]?.layers ?? []).map(summary),
+    sharedHierarchy: layerHierarchy(project.sharedCanvas?.[id]?.layers ?? []),
     screens: orderedSlides(project, project.sourceLocale ?? project.locales[0]?.id, id).map(slide => {
       const canvas = canvasForSlide(project, slide, id), metrics = canvasMetrics(canvas);
+      const layers = resolveLayers({ project, slide, deviceId: id, localeId: project.sourceLocale ?? project.locales[0]?.id, includeShared: false }).layers;
       return { id: slide.id, name: slide.name, capture: slide.capture, size: canvas.size, designSize: [metrics.W, metrics.H],
         localeVariants: Object.keys(slide.localeLayouts ?? {}).filter(locale => slide.localeLayouts[locale]?.[id]),
         ...(slide.localeLayouts?.[project.sourceLocale ?? project.locales[0]?.id]?.[id] ? { editLocale: project.sourceLocale ?? project.locales[0]?.id } : {}),
-        layers: resolveLayers({ project, slide, deviceId: id, localeId: project.sourceLocale ?? project.locales[0]?.id, includeShared: false }).layers.map(summary) };
+        layers: layers.map(summary), hierarchy: layerHierarchy(layers, slide) };
     }),
   }));
 }

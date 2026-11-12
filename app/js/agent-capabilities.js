@@ -2,13 +2,14 @@ import { SHADOW_PRESETS } from './shadow-ops.js';
 import { SCREEN_SPACING_PRESETS } from './shared-canvas.js';
 
 // Shared discovery for standalone MCP, the active app and the in-app guide.
-export const LAYER_OPERATIONS = ['add', 'patch', 'remove', 'group', 'ungroup', 'reorder', 'appearance', 'paint', 'shadow', 'corners', 'vector', 'mask', 'unmask', 'boolean'];
+export const LAYER_OPERATIONS = ['add', 'patch', 'remove', 'group', 'rename_group', 'ungroup', 'reorder', 'appearance', 'paint', 'shadow', 'corners', 'vector', 'mask', 'unmask', 'boolean'];
 export const PROJECT_OPERATIONS = ['add_canvas', 'resize_canvas', 'remove_canvas', 'orient_canvas', 'rename_slide', 'reorder_slide', 'independent_layout', 'shared_spacing', 'save_template', 'apply_template', 'detach_template'];
 export const MUTATING_TOOLS = ['edit_layers', 'arrange_layers', 'edit_project', 'add_store_images', 'save_document', 'save_copy', 'apply_design', 'import_media', 'import_fonts', 'prepare_design_import'];
 export const SESSION_TOOLS = [...MUTATING_TOOLS, 'inspect_layers', 'font_catalog', 'export_project', 'preview_project', 'preflight_project'];
 export const EDITING_CAPABILITIES = {
   version: 1,
   layerOperations: LAYER_OPERATIONS,
+  groups: 'inspect_layers.hierarchy and read_project.editing expose artboard sections, named groups and nested imported Figma folders. group takes ids plus an optional name; rename_group takes member ids and name and renames the entire group; ungroup releases all members. Operations stay within one screen/locale or shared row. Imported compositing folders preserve visual effects and are not removed by ungroup.',
   projectOperations: PROJECT_OPERATIONS,
   arrangement: 'arrange_layers aligns or distributes local layers using actual renderer measurements and revision checks, including translated text and framed devices.',
   inspection: 'inspect_layers resolves native objects and text fallback. preview_project and preflight_project always return textReview: actual font sizes/lines/shrink, simulated sizes at 160/240/320 px, conservative contrast and presentation-specific guidance. previewWidth=160/240/320 renders diagnostic-size tiles. details=true also returns complete measured bounds and capture resolution. Readability advisories do not block export.',

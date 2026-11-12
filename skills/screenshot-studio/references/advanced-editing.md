@@ -11,7 +11,8 @@ Call `catalog` and `read_project` first. Reuse the current `projectSession` in a
 | `op` | Fields and behavior |
 | --- | --- |
 | `add`, `patch`, `remove` | `layer`, or `id` plus `patch`, or `id`; text, device, art, shape and route remain native. |
-| `group` | `ids`, optional new `group` name. Keeps geometry. |
+| `group` | `ids`, optional new `group` ID and visible `name` (1–200 characters). Keeps geometry. |
+| `rename_group` | Any member `ids` from one group plus `name`; renames every member, rejecting locked members. |
 | `ungroup` | `ids`; releases all members of the selected groups. Release masks first. |
 | `reorder` | `ids`, `direction`: `forward`, `backward`, `front`, `back`. Retains selection order. |
 | `appearance` | `ids`, `source` layer ID in the same scope, or `appearance`. Copies appearance without geometry, text content or capture identity. |
@@ -24,6 +25,8 @@ Call `catalog` and `read_project` first. Reuse the current `projectSession` in a
 | `boolean` | `ids`, `operation`: `unite`, `subtract`, `intersect`, `exclude`, optional new `resultId`. Replaces selected closed shapes with an editable path. Subtract removes front shapes from the backmost. |
 
 Shadow presets come from `catalog.editing.shadows.presets`, including `subtle`, `soft`, `floating`, `crisp`, `dramatic`, `lifted`, `left`, `long` and `glow`. Angles increase clockwise from the right: 0° right, 90° down, 180° left, 270° up. Distances and blur use design pixels; alpha uses 0–1. Changing only angle/distance preserves the current colour, opacity and blur. Removing a shadow retains its settings for restoration.
+
+For group organisation, read `inspect_layers.hierarchy`: artboard/shared sections contain named groups, nested imported Figma folders and leaf IDs usable in `edit_layers`. `read_project.editing` includes the same structure in each screen's `hierarchy` and each canvas's `sharedHierarchy`. The legacy `groups` map still returns group IDs and members. `ungroup` clears manual membership and names; imported Figma folders retain their compositing effects and clipping. After a change, inspect again to verify the complete membership and visible name before previewing.
 
 ```json
 {

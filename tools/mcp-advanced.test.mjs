@@ -99,6 +99,45 @@ test('groups, mask release and stacking use native editable members, including a
   doc = await f.read(); assert.doesNotMatch(JSON.stringify(doc.studio.sharedCanvas), /_origin/);
 });
 
+test('named groups round-trip through MCP discovery, hierarchy, rename and complete ungroup with revision guards', async t => {
+  const f = await fixture(t), initial = await f.read(), beforeIPad = initial.editing.find(d => d.id === 'ipad');
+  const { layerEdits } = await import('./mcp/edit-schemas.mjs');
+  const operations = layerEdits.parse([{ op: 'group', device: 'iphone', slide: 'first-slide', ids: ['a', 'b'], group: 'cards', name: 'Phone cards' }]);
+  await f.api.edit_layers({ project: f.project, revision: initial.revisions.studio, edits: operations });
+  let inspected = await f.inspect();
+  assert.deepEqual(inspected.groups.cards, ['a', 'b']);
+  let folder = inspected.hierarchy[0].children.find(n => n.kind === 'group');
+  assert.equal(folder.name, 'Phone cards'); assert.deepEqual(folder.layerIds, ['b', 'a']);
+  let current = await f.read();
+  assert.ok((await f.api.catalog()).editing.layerOperations.includes('rename_group'));
+  assert.equal(current.editing[0].screens[0].layers.find(l => l.id === 'a').groupName, 'Phone cards');
+  assert.equal(current.editing[0].screens[0].hierarchy[0].children.find(n => n.kind === 'group').name, 'Phone cards');
+  await f.edit(layerEdits.parse([{ op: 'rename_group', device: 'iphone', slide: 'first-slide', ids: ['a'], name: 'Renamed cards' }]));
+  inspected = await f.inspect(); assert.ok(inspected.layers.filter(l => ['a', 'b'].includes(l.id)).every(l => l.data.groupName === 'Renamed cards'));
+  const afterRename = f.disk();
+  await assert.rejects(f.api.edit_layers({ project: f.project, revision: initial.revisions.studio, edits: operations }), /changed|revision|conflict/i);
+  assert.equal(f.disk(), afterRename);
+  await f.edit([{ op: 'patch', id: 'b', patch: { locked: true } }]);
+  const locked = f.disk();
+  await assert.rejects(f.edit([{ op: 'patch', id: 'c', patch: { opacity: .3 } }, { op: 'rename_group', ids: ['a'], name: 'Rejected' }]), /Unlock/);
+  assert.equal(f.disk(), locked, 'a locked member rejects the whole batch');
+  await f.edit([{ op: 'patch', id: 'b', patch: { locked: null } }, { op: 'ungroup', ids: ['a'] }]);
+  inspected = await f.inspect(); assert.deepEqual(Object.keys(inspected.groups), []);
+  assert.ok(inspected.layers.every(l => l.data.groupName === undefined));
+  assert.deepEqual((await f.read()).editing.find(d => d.id === 'ipad'), beforeIPad);
+  current = await f.read();
+  await f.api.edit_layers({ project: f.project, revision: current.revisions.studio, edits: [
+    { op: 'add', device: 'iphone', shared: true, layer: rect('shared-a') },
+    { op: 'add', device: 'iphone', shared: true, layer: rect('shared-b') },
+    { op: 'group', device: 'iphone', shared: true, ids: ['shared-a', 'shared-b'], name: 'Across the row' },
+  ] });
+  const shared = await f.api.inspect_layers({ project: f.project, device: 'iphone', shared: true });
+  assert.equal(shared.hierarchy[0].kind, 'shared'); assert.equal(shared.hierarchy[0].children[0].name, 'Across the row');
+  assert.ok(shared.hierarchy[0].children[0].layerIds.includes('shared-a'), 'hierarchy IDs work directly with edit_layers');
+  current = await f.read();assert.equal(current.editing[0].sharedHierarchy[0].children[0].name, 'Across the row');
+  assert.doesNotMatch(f.disk(), /_sharedId|_origin/);
+});
+
 test('boolean MCP edits keep vector geometry and retain the untouched source canvas', async t => {
   for (const [operation, width, cx] of [['unite', 150, 75], ['subtract', 50, 25], ['intersect', 50, 75], ['exclude', 150, 75]]) {
     const f = await fixture(t);
@@ -190,6 +229,7 @@ test('Figma preparation returns collision-safe native and copy plans without app
   await f.api.edit_layers({ project: f.project, edits: plan.edits, revision: plan.revision });
   await f.api.save_copy({ project: f.project, locale: 'sv-SE', copy: plan.copy, revision: plan.copyRevision });
   const inspected = await f.inspect({ locale: 'sv-SE' }); assert.equal(inspected.layers.find(l => l.type === 'text').text.value, 'Editable from Figma');
+  assert.equal(inspected.hierarchy[0].children.find(n => n.kind === 'figma').name, 'Cards');
   const updated = await f.read(); assert.equal(updated.copy['sv-SE']._meta.status, 'draft'); assert.equal(updated.studio.slides[0].layouts.phone.layers.length, 3);
   const second = await f.api.prepare_design_import({ project: f.project, source: 'figma.json', action: 'prepare', device: 'iphone', slide: 'first-slide', locale: 'sv-SE', revision: updated.revisions.studio });
   assert.ok(second.edits.every(e => !plan.edits.some(old => old.layer.id === e.layer.id)));
@@ -205,6 +245,14 @@ test('active-app native edits reject old sessions and notify the existing editor
   const result = await active.invoke('edit_layers', { projectSession: 'native-session', revision: doc.revisions.studio, edits: [{ op: 'shadow', device: 'iphone', slide: 'first-slide', ids: ['a'], preset: 'soft' }] });
   assert.equal(result.projectSession, 'native-session'); assert.deepEqual(notifications, [['studio.json']]);
   assert.equal((await active.invoke('inspect_layers', { projectSession: 'native-session', device: 'iphone', slide: 'first-slide' })).layers[0].data.shadow.blur, 32);
+  let current = await active.invoke('read_project');
+  await active.invoke('edit_layers', { projectSession: 'native-session', revision: current.revisions.studio, edits: [{ op: 'group', device: 'iphone', slide: 'first-slide', ids: ['a', 'b'], name: 'Active cards' }] });
+  current = await active.invoke('read_project');
+  await active.invoke('edit_layers', { projectSession: 'native-session', revision: current.revisions.studio, edits: [{ op: 'rename_group', device: 'iphone', slide: 'first-slide', ids: ['b'], name: 'Renamed in app' }] });
+  const grouped = await active.invoke('inspect_layers', { projectSession: 'native-session', device: 'iphone', slide: 'first-slide' });
+  assert.equal(grouped.hierarchy[0].children.find(n => n.kind === 'group').name, 'Renamed in app');
+  assert.deepEqual(notifications, [['studio.json'], ['studio.json'], ['studio.json']]);
+
 });
 
 test('remote Figma preparation uses the injected saved connection and keeps image fills native', async t => {
