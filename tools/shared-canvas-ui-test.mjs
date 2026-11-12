@@ -42,6 +42,18 @@ try {
     all.click();await waitFor(()=>ed.scene?.allScreens && ed.scene.tiles.length===3);
     check(document.querySelector('.workspace-screen-labels').children.length===3,'Every screen has a label');
     check(ed.scene.W===1248 && ed.scene.H===800,'Workspace includes gaps');
+    const frameName=document.querySelectorAll('.workspace-screen-labels button')[1],beforeLabelClick=JSON.stringify(engine.project),beforeWidth=ed.stageWidth;
+    frameName.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));
+    check(state.ui.allScreens&&ed.scene.allScreens&&ed.stageWidth===beforeWidth,'A single click on a canvas frame name keeps the all-screens viewport');
+    frameName.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:2}));
+    check(state.ui.allScreens,'The second click waits for the explicit double-click action');
+    frameName.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}));await waitFor(()=>ed.scene?.slideId==='b'&&!ed.scene.allScreens);
+    all.click();await waitFor(()=>ed.scene?.allScreens);
+    const keyboardFrame=document.querySelectorAll('.workspace-screen-labels button')[2];keyboardFrame.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await waitFor(()=>ed.scene?.slideId==='c'&&!ed.scene.allScreens);
+    all.click();await waitFor(()=>ed.scene?.allScreens);
+    document.querySelector('.thumb[data-id="b"]').click();await waitFor(()=>ed.scene?.slideId==='b'&&!ed.scene.allScreens);
+    check(JSON.stringify(engine.project)===beforeLabelClick,'Frame navigation never changes the document');
+    editor.selectSlide('a');all.click();await waitFor(()=>ed.scene?.allScreens);
     ed.setTab('design');
     const chooseSpacing=value=>{const input=document.querySelector('[aria-label="Screen spacing preset"]');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};
     chooseSpacing('google-play');await waitFor(()=>ed.scene.W===1232);

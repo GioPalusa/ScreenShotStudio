@@ -1071,7 +1071,15 @@ export function createEditor(ctx) {
     screenLabels.replaceChildren(); screenLabels.hidden = !state.ui.allScreens;
     if (state.ui.allScreens) {
       const geometry = sharedGeometry(engine.project, state.ui.device, state.ui.locale);
-      for (const [i, tile] of geometry.tiles.entries()) screenLabels.append(h('button', { title: 'Edit this screen', onClick: () => selectSlide(tile.slide.id), style: { left: `${tile.x / geometry.W * 100}%`, width: `${tile.W / geometry.W * 100}%` } }, `${i + 1} · ${tile.slide.name ?? tile.slide.id}`));
+      for (const [i, tile] of geometry.tiles.entries()) {
+        const open=()=>{if(!stageApi.dragging)selectSlide(tile.slide.id);};
+        screenLabels.append(h('button', { type:'button',title:'Double-click to edit only this screen',
+          onClick:e=>{if(e.detail===0)open();},
+          onDblclick:e=>{e.preventDefault();open();},
+          onKeyDown:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();open();}},
+          style:{left:`${tile.x / geometry.W * 100}%`,width:`${tile.W / geometry.W * 100}%`},
+        }, `${i + 1} · ${tile.slide.name ?? tile.slide.id}`));
+      }
     }
     const [W, H] = ed.device().size;
     canvas.style.width = `${width}px`; canvas.style.height = `${width * H / W}px`;
