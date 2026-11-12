@@ -66,7 +66,7 @@ try {
     check(workspace.layers.some(l=>l._sharedId&&l._box.w===300),'Shared object retains its complete editable box across the gap');
     editor.selectSlide('b');await waitFor(()=>ed.scene?.slideId==='b'&&!ed.scene.allScreens);
     shared=ed.scene.layers.find(l=>l._sharedId);check(shared.cx===-12,'Second screen gets projected coordinates');check(!document.querySelector('.rail-foot .btn.danger').disabled,'Single-screen actions are enabled again');
-    ed.select(shared.id,{from:'stage'});check(document.querySelector('.shared-scope').textContent.includes('Shared object'),'Inspector makes shared ownership clear');
+    ed.select(shared.id,{from:'stage'});check(!document.querySelector('.layout-scope')&&document.querySelector('[aria-label="Screen edges"]').value==='shared','Selected shared object has focused Details and explicit screen scope');
     ed.startEdit();ed.applyBox(shared,{...shared._box,x:shared._box.x+50});ed.finishEdit();
     check(sharedBlock(engine.project,'phone').layers[0].cx===462,'Moving from single screen updates shared source');
     check((await pixel('a',300,400))[0]===255 && (await pixel('b',150,400))[0]===220,'Move changes both renders');
@@ -80,10 +80,8 @@ try {
     local=ed.scene.layers.find(l=>l._sourceLayerId===local.id);ed.select(local.id);
     check(!document.querySelector('[aria-label="Screen edges"]').disabled && document.querySelector('[aria-label="Screen edges"]').value==='shared','All screens defaults to overlap and the menu is enabled');
     ed.select(null);
-    const groups=[...document.querySelectorAll('.details-screen-group')];
-    check(groups.map(g=>g.dataset.screenId).join(',')==='a,b,c,shared','Object choices are grouped in screen order, followed by shared objects');
-    check(groups[0].textContent.includes('Screen a') && groups[0].querySelectorAll('.details-choice').length===1 && groups[1].querySelectorAll('.details-choice').length===0,'Local objects are under their named screen');
-    groups[0].querySelector('.details-choice').click();check(ed.selectedId===local.id,'Grouped choice selects the correct object');
+    check(document.querySelector('.document-details')&&!document.querySelector('.details-choice'),'Empty selection shows document details, not object controls');
+    ed.select(local.id);check(ed.selectedId===local.id,'Layer selection opens object Details');
     ed.setLayer(local,{cy:160},{rebuild:true});
     await waitFor(()=>sharedBlock(engine.project,'phone').layers.some(l=>l.cy===160));
     check((await pixel('b',10,160))[0]===220,'Moving a formerly local image in All screens makes it span the next screen');
@@ -115,7 +113,7 @@ try {
     undo();await waitFor(()=>ed.scene.layers.some(l=>l._sharedId&&l.cx===462));
     check((await pixel('a',350,400))[0]===220,'Undo restores both exported pieces');
     ed.select(null);ed.rebuildInspector();
-    check(document.querySelector('.details-screen-group[data-screen-id="shared"] .details-choice'),'Shared objects have their own named group');
+    check(document.querySelector('.document-details')&&!document.querySelector('[aria-label="Add shadow"]'),'Clearing selection returns to document details');
     ed.addLayer('shape');await waitFor(()=>ed.scene.allLayers.some(l=>l._sharedId&&l.type==='shape'));
     ed.addLayer('shape');await waitFor(()=>ed.scene.allLayers.filter(l=>l._sharedId&&l.type==='shape').length===2);
     check(new Set(sharedBlock(engine.project,'phone').layers.map(l=>l.id)).size===3,'Repeated additions keep unique source IDs');
@@ -179,7 +177,7 @@ try {
     check(JSON.stringify(engine.project.sharedCanvas.phone)===phoneSource,'iPad shared edits preserve the phone row');
     undo();await waitFor(()=>!engine.project.sharedCanvas?.ipad?.layers?.length);
     await flushSaves();await loadAll();check(state.ui.device==='ipad'&&state.ui.allScreens,'iPad shared mode survives reload');
-    result.textContent='PASS: All screens first, store spacing presets, fractional custom spacing, undo, visible gaps, shared image on both screens, edits from a single screen, isolated local overflow, grouped screen choices, default sharing in workspace, editable scope and persistent containment, copy/paste with independent text, undo/redo, unique IDs, shared duplication/deletion, text editing, persistence and warning triangles';
+    result.textContent='PASS: All screens first, store spacing presets, fractional custom spacing, undo, visible gaps, shared image on both screens, edits from a single screen, isolated local overflow, document Details, default sharing in workspace, editable scope and persistent containment, copy/paste with independent text, undo/redo, unique IDs, shared duplication/deletion, text editing, persistence and warning triangles';
   } catch (e) { result.textContent = 'FAIL: ' + e.stack; }
   </script></body></html>`);
   const testPage = path.join(appPath, 'shared-ui-test.html'), html = fs.readFileSync(testPage, 'utf8');

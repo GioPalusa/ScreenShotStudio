@@ -13,9 +13,9 @@ try{
  const tick=()=>new Promise(r=>setTimeout(r,120));const wait=async f=>{for(let i=0;i<100;i++){if(f())return;await tick();}throw Error('Timed out: '+document.body.textContent);};
  try{
   const store=await import('/app/js/store.js'),{engine,state,loadAll,flushSaves,undo,redo}=store,{mountStudio}=await import('/app/js/ui.js');
-  await loadAll();state.ui.locale='en-US';state.ui.device='iphone';state.ui.slideId=engine.project.slides[0].id;state.ui.view='editor';state.ui.allScreens=false;state.ui.tab='details';mountStudio(q('#root'));await wait(()=>button('Imported curve'));
+  await loadAll();state.ui.locale='en-US';state.ui.device='iphone';state.ui.slideId=engine.project.slides[0].id;state.ui.view='editor';state.ui.allScreens=false;state.ui.tab='details';mountStudio(q('#root'));await wait(()=>button('Browse layers'));
   const stored=()=>engine.project.slides[0].layouts.iphone.layers[0],original=JSON.stringify(stored()),path=()=>stored().paths[0].d;
-  button('Imported curve').click();await wait(()=>button('Edit points'));check(!q('[data-section="vector-code"]').open,'SVG code is hidden by default');
+  button('Browse layers').click();q('.layer-row').click();[...document.querySelectorAll('[role=tab]')].find(b=>b.textContent==='Details').click();await wait(()=>button('Edit points'));check(!q('[data-section="vector-code"]').open,'SVG code is hidden by default');
   button('Edit points').click();await wait(()=>q('[aria-label="Point 1 · path 1"]'));check(q('[aria-label="Vector points"]'),'Point toolbar visible');
   const overlay=q('.overlay');overlay.setPointerCapture=()=>{};overlay.releasePointerCapture=()=>{};
   const send=(el,type,x,y)=>el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:y}));

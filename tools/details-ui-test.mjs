@@ -36,12 +36,12 @@ try {
     document.querySelector('#root').style.height='100vh';document.querySelector('#root').append(editor.el);editor.build();editor.activate();
     await waitFor(()=>ed.scene && document.querySelector('.details-empty'));
     check([...document.querySelectorAll('.tabs button')].map(b=>b.textContent).join(',')==='Details,Layers,Design','Old Text/Screenshot tabs must become Details');
-    check(!document.querySelector('[aria-label="Device frame"]'),'Nothing selected must not silently edit the first device');
+    check(!document.querySelector('[aria-label="Device frame"]')&&document.querySelector('.document-details')&&!document.querySelector('.details-choice'),'Nothing selected must show document properties without object controls');
     const overlay=document.querySelector('.overlay');overlay.setPointerCapture=()=>{};overlay.releasePointerCapture=()=>{};
     const clickLayer=id=>{const box=ed.layerById(id)._box,k=ed.stageWidth/ed.scene.W,r=overlay.getBoundingClientRect();const p={bubbles:true,cancelable:true,button:0,pointerId:1,clientX:r.left+(box.x+box.w/2)*k,clientY:r.top+(box.y+box.h/2)*k};overlay.dispatchEvent(new PointerEvent('pointerdown',p));overlay.dispatchEvent(new PointerEvent('pointerup',p));};
     clickLayer('headline');check(state.ui.tab==='details' && ed.selectedId==='headline','Canvas text click must open Details');
     let field=document.querySelector('.details-panel textarea');check(field && document.querySelectorAll('.details-panel [data-field]').length===1,'Details must expose only the selected text field');
-    check(!document.querySelector('[aria-label="Device frame"]'),'Text Details must not show device controls');
+    check(!document.querySelector('[aria-label="Device frame"]')&&!document.querySelector('.layout-scope')&&!document.querySelector('.document-details'),'Text Details must not show document or device controls');
     field.value='Edited directly in Details';field.dispatchEvent(new Event('input',{bubbles:true}));
     await new Promise(r=>setTimeout(r,220));check(field===document.querySelector('.details-panel textarea'),'Typing must retain focus and field identity');
     check(getCopy('en-US',slide.id,'headline')==='Edited directly in Details','Text edits must update selected copy');
