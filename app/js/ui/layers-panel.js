@@ -8,7 +8,7 @@ import { checkControl } from './review-check.js';
 // properties of the selected layer - position and size, rotation, opacity, shadow and the settings of its type.
 
 import { engine, checkpoint, saveStudio } from '../store.js';
-import { paintOrder } from '../layouts.js';
+import { layerTree, layerOwner } from '../layer-tree.js';
 import { layerLabel, removedLayerIds, restoreLayer, placeRelativeTo, stepLayer } from '../layer-ops.js';
 import { frameLabel } from '../frames.js';
 import { frameTarget, framesForTarget } from '../frame-matching.js';
@@ -21,6 +21,7 @@ import { icon, iconButton, iconChoices } from './icons.js';
 
 const ICONS = { device: 'iphone', text: 'textformat', art: 'photo', shape: 'square', route: 'line.3.horizontal' };
 const aspectLocks = new Map(); // layer id -> boolean (images lock to their proportions unless you unlock them)
+const treeStates = new WeakMap();
 
 export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
   const scene = ed.scene;
@@ -33,6 +34,8 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
   /** The layer as it is *now*: sliders keep changing it without rebuilding this panel, so handlers must not trust the object they were built with. */
   const current = (layer) => ed.layerById(layer.id) ?? layer;
   const live = () => ed.scene?.allLayers ?? all;
+  if (!treeStates.has(ed)) treeStates.set(ed, new Set());
+  const collapsed = treeStates.get(ed);
 
   // ----- header: add buttons
   const hasField = (field) => all.some((l) => l.type === 'text' && l.field === field);
@@ -46,13 +49,13 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
       { value: 'bullets', label: 'Bullet list', disabled: hasField('bullets'), hint: hasField('bullets') ? 'already here' : '' },
       { value: 'text', label: 'Extra text', hint: 'its own field' },
     ], onPick: (kind) => ed.addLayer(kind) }),
+    h('button', { class: 'btn small', disabled: ed.selectionLayers().length < 2, title: 'Group selected layers · ⌘G', onClick: () => ed.groupSelection() }, '＋ Group'),
   ));
 
   // ----- the stack
   const list = h('div', { class: 'layer-list', role: 'listbox', 'aria-label': 'Layers, front to back', 'aria-multiselectable': 'true' });
-  const ordered = paintOrder(all).reverse();
   if (!detailsOnly) {
-    for (const layer of ordered) list.append(row(layer));
+    for (const section of layerTree(scene)) list.append(folder(section));
     panel.append(list);
   }
   const selection = ed.selectionLayers().filter(layer => !layer.locked && layer._box);
@@ -68,6 +71,42 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
   const removed = removedLayerIds(ed.peekBlock());
   if (!detailsOnly && removed.length) {
     panel.append(h('div', { class: 'hint row wrap' }, 'Removed from this layout:', removed.map((id) => h('button', { class: 'btn small', title: 'Bring it back', onClick: () => { checkpoint(); restoreLayer(ed.block(), id); saveStudio(); ed.refresh({ immediate: true, inspector: true }); } }, `↺ ${id}`))));
+  }
+
+  function folder(node) {
+    const el = h('details', { class: `layer-folder ${node.kind}`, open: !collapsed.has(node.id), dataset: { folderId: node.id } });
+    const title = h('button', { class: 'layer-folder-name', 'aria-pressed': String(node.layers.length > 0 && node.layers.every(layer => ed.selectedIds.has(layer.id))), title: `Select layers in ${node.name}`, onClick: e => {
+      e.preventDefault(); e.stopPropagation();
+      ed.selectLayers(node.layers.filter(layer => !layer.locked && !layer.hidden && !layer.maskOnly).map(layer => layer.id));
+    } }, node.name);
+    const summary = h('summary', { 'aria-label': `${node.name}, ${node.layers.length} layers` }, title, h('span', { class: 'layer-folder-count' }, node.layers.length));
+    if (node.kind === 'group') summary.append(iconButton('pencil', 'Rename group', e => {
+      e.preventDefault(); e.stopPropagation();
+      if (summary.querySelector('input')) return;
+      const project = engine.project;
+      const input = h('input', { class: 'input layer-rename', value: node.name, maxlength: 200, 'aria-label': 'Group name' });
+      let done = false;
+      const finish = commit => {
+        if (done) return; done = true;
+        const name = input.value.trim();
+        input.replaceWith(title);
+        if (commit && name && name !== node.name && project === engine.project && el.isConnected) {
+          checkpoint();
+          for (const layer of node.layers) ed.writePatch(current(layer), { groupName: name });
+          saveStudio(); ed.refresh({ immediate: true, inspector: true });
+        }
+      };
+      input.addEventListener('click', e => e.stopPropagation());
+      input.addEventListener('keydown', e => { e.stopPropagation(); if (['Enter', 'Escape'].includes(e.key)) { e.preventDefault(); finish(e.key === 'Enter'); } });
+      input.addEventListener('blur', () => finish(true));
+      title.replaceWith(input); input.focus(); input.select();
+    }));
+    const children = h('div', { class: 'layer-folder-children', role: 'group', 'aria-label': node.name });
+    for (const child of node.children) children.append(child.kind === 'layer' ? row(child.layer) : folder(child));
+    if (!node.layers.length) children.append(h('div', { class: 'hint layer-empty' }, 'No layers'));
+    el.append(summary, children);
+    el.addEventListener('toggle', () => { if (el.open) collapsed.delete(node.id); else collapsed.add(node.id); });
+    return el;
   }
 
   function row(layer) {
@@ -115,7 +154,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
     }
     renamers.set(layer.id, rename);
     let drag = null;
-    const clearDrop = () => { for (const row of list.children) row.classList.remove('drop-before', 'drop-after'); };
+    const clearDrop = () => { for (const row of list.querySelectorAll('.layer-row')) row.classList.remove('drop-before', 'drop-after'); };
     const cancelDrag = () => {
       const pointerId = drag?.pointerId;
       drag = null; clearDrop();
@@ -141,6 +180,7 @@ export function buildLayersPanel(ed, { detailsOnly = false } = {}) {
       else if (e.clientY > bounds.bottom - 36) panel.scrollTop += 14;
       const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.layer-row');
       if (!target || !list.contains(target) || target === el) return;
+      if (layerOwner(current(layer), scene.slideId) !== layerOwner(ed.layerById(target.dataset.id), scene.slideId)) return;
       const below = e.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
       target.classList.add(below ? 'drop-after' : 'drop-before');
       drag.target = { id: target.dataset.id, where: below ? 'behind' : 'front' };

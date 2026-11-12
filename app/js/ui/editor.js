@@ -1,4 +1,6 @@
 import { installCanvasCursors } from '../canvas-cursors.js';
+import { pointOnArtboard, layerOwner } from '../layer-tree.js';
+import { groupLayerPatches } from '../layer-ops.js';
 import {drawingStyle,dragShape} from '../drawing-ops.js';
 import {canCombineShapes,booleanShape} from '../shape-boolean.js';
 import {restackSelection,appearancePatch,encodeAppearanceClipboard,decodeAppearanceClipboard,createMaskPatches,releaseMaskPatch} from '../layer-ops.js';
@@ -289,9 +291,14 @@ export function createEditor(ctx) {
     /** Preserve a multi-selection when the user starts dragging it from the canvas. */
     selectionVisible() { return state.ui.tab === 'layers' || state.ui.tab === 'details'; },
     showDetails() { if (state.ui.tab !== 'details') ed.setTab('details'); },
+    selectLayers(ids) {
+      ed.selectedIds = new Set(ids);
+      ed.selectedId = ids.at(-1) ?? null;
+      stageApi.render(); buildInspector();
+    },
     select(id, { from, toggle = false, individual = false } = {}) {
       const layer = ed.layerById(id);
-      const ids = layer?.group && !individual ? ed.scene.layers.filter(l => l.group === layer.group).map(l => l.id) : id ? [id] : [];
+      const ids = layer?.group && !individual ? ed.scene.layers.filter(l => l.group === layer.group && layerOwner(l, ed.scene.slideId) === layerOwner(layer, ed.scene.slideId)).map(l => l.id) : id ? [id] : [];
       if (!toggle) ed.selectedIds.clear();
       const remove = toggle && ed.selectedIds.has(id);
       for (const next of ids) { if (remove) ed.selectedIds.delete(next); else ed.selectedIds.add(next); }
@@ -461,12 +468,18 @@ export function createEditor(ctx) {
       saveStudio();ed.refresh({immediate:true,inspector:false,rail:true});
     },
     groupSelection(ungroup = false) {
-      const layers = ed.selectionLayers();
-      if (!layers.length) return;
-      checkpoint();
+      let layers = ed.selectionLayers();
+      if (!layers.length || !ungroup && layers.length < 2) return;
+      if (ungroup) {
+        const members = new Set(layers.filter(l => l.group).map(l => JSON.stringify([layerOwner(l, ed.scene.slideId), l.group])));
+        layers = ed.scene.allLayers.filter(l => members.has(JSON.stringify([layerOwner(l, ed.scene.slideId), l.group])));
+        if (!layers.length) return;
+        if (layers.some(l => l.locked)) { toast('Unlock every member before ungrouping.'); return; }
+      }
+      if (layers.some(l => l.maskMembership)) { toast('Release the mask before changing its group.'); return; }
       if (!ungroup && new Set(layers.map(l => l._sharedId ? 'shared' : l._sourceSlideId ?? currentSlide().id)).size > 1) { toast('Group shared objects together, or layers belonging to the same screen.'); return; }
-      const group = ungroup ? undefined : `group-${Date.now()}`;
-      for (const layer of layers) ed.writePatch(layer, { group });
+      checkpoint();
+      for (const { layer, patch } of groupLayerPatches(layers, { id: uniqueId(ed.scene.allLayers.map(l => l.group).filter(Boolean), `group-${Date.now()}`), ungroup })) ed.writePatch(layer, patch);
       saveStudio(); ed.refresh({ immediate: true, inspector: true });
     },
     arrange(operation) {
@@ -718,6 +731,10 @@ export function createEditor(ctx) {
   let pan = null;
   const positionViewport = () => { strip.style.transform = `translate(${viewportX}px, ${viewportY}px)`; };
   stageCanvas.addEventListener('pointerdown', e => {
+    if (e.button === 0 && !e.defaultPrevented && !stageApi.dragging && ed.scene && !e.target.closest('button, input, textarea, [data-handle], .drawing-toolbar, .vector-toolbar')) {
+      const point = stageApi.canvasPoint(e);
+      if (!pointOnArtboard(ed.scene, point)) ed.select(null);
+    }
     if (e.button !== 1 || stageApi.dragging) return;
     e.preventDefault(); stageCanvas.setPointerCapture(e.pointerId);
     stageCanvas.classList.add('panning');

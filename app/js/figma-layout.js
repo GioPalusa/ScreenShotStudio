@@ -82,7 +82,7 @@ export function convertFigmaFrame(root, { minSize = 100 } = {}) {
     const layerBlur = effects.find(e=>e.type === 'LAYER_BLUR');
     if (effects.some(e=>!['DROP_SHADOW','LAYER_BLUR','INNER_SHADOW'].includes(e.type))) warnings.add(`“${name(n)}”: inner shadows and blur effects need review. Geometry remains editable.`);
     const shadowData = shadow ? { color: rgba(shadow.color), blur: num(shadow.radius), dx: num(shadow.offset?.x), dy: num(shadow.offset?.y) } : undefined;
-    const ownScope = containers.has(n.type) ? { id: `figma-group-${serial}`, opacity: num(n.opacity,1), blend: n.blendMode, ...(shadows.length ? { shadows } : {}), ...(layerBlur ? {blur:num(layerBlur.radius)} : {}), ...(n.clipsContent ? { clip: { matrix, w, h, radius: n.rectangleCornerRadii ?? num(n.cornerRadius) } } : {}) } : null;
+    const ownScope = containers.has(n.type) ? { id: `figma-group-${serial}`, name: name(n), sourceType: n.type, opacity: num(n.opacity,1), blend: n.blendMode, ...(shadows.length ? { shadows } : {}), ...(layerBlur ? {blur:num(layerBlur.radius)} : {}), ...(n.clipsContent ? { clip: { matrix, w, h, radius: n.rectangleCornerRadii ?? num(n.cornerRadius) } } : {}) } : null;
     if (ownScope) scopes = [...scopes,ownScope];
     const id = `figma-${serial}`;
     const common = { ...(innerShadows.length?{innerShadows}:{}),id, name: name(n), compositing: scopes, hidden, maskOnly, opacity: ownScope ? 1 : num(n.opacity,1), ...(ownScope ? {} : { blend: n.blendMode, ...(layerBlur ? {blur:num(layerBlur.radius)} : {}), ...(shadowData ? {shadow:shadowData} : {}) }) };

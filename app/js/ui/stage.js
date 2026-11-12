@@ -1,4 +1,5 @@
 import { canvasCursor } from '../canvas-cursors.js';
+import { pointOnArtboard } from '../layer-tree.js';
 import {createCornerEditor} from './corner-editor.js';
 import {createDrawingTools} from './drawing-tools.js';
 import { createVectorEditor } from './vector-editor.js';
@@ -240,6 +241,7 @@ export function createStage(ed) {
       return;
     }
 
+    if (!pointOnArtboard(scene(), p)) { ed.select(null); return; }
     const hit = hitTest(p, { skip: e.altKey ? 1 : 0 });
     if (!hit) {
       if (ed.selectedId) ed.select(null);

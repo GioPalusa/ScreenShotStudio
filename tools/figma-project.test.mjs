@@ -12,6 +12,7 @@ test('native clipboard keeps text, fonts, vector commands and original dimension
   const data=await importFigmaClipboard(clipboardFixture()),design=data.designs[0];
   assert.equal(design.width,375);assert.equal(design.height,808);assert.ok(design.layers.some(l=>l.shape==='path'&&l.paths[0].d.includes('L100 0')));
   const text=design.layers.find(l=>l.type==='text');assert.equal(text.fontFamily,'Mulish');assert.equal(text.weight,700);assert.equal(design.texts[text.field],'Editable clipboard text');
+  assert.equal(text.compositing[0].name,'Copied frame');assert.equal(text.compositing[0].sourceType,'FRAME');
   await assert.rejects(importFigmaClipboard('<script>process.exit()</script>'),/No native Figma/);
   await assert.rejects(importFigmaClipboard('(figma)YmFk(/figma)'),/fig-kiwi/);
 });
