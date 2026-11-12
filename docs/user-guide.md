@@ -38,6 +38,10 @@ In the Mac app, choose **Export…**, review the selected images and checks, the
 
 **Paste from Figma:** copying layers in Figma and pressing **⌘V** in the editor pastes editable content directly. If fonts are unavailable, only the font-resolution dialog appears. If Figma omitted image files, **Missing images** lets you attach PNG/JPEG/WebP replacements, skip individual images or skip all unresolved images and paste the rest. Cancelling leaves the document unchanged; the completed paste is one Undo step. Figma links and **Import from Figma…** keep the view-selection and preview workflow.
 
+**SVG and WebP:** add either format through the image library, drag a file onto **Add as graphic**, or paste it onto the canvas. SVG becomes editable vector and text layers; positioned Illustrator text spans retain their placement and typography. Illustrator copy/paste uses its native SVG representation when available and centres the selected artwork without empty artboard margins. WebP remains a portable image layer. Each completed paste or file addition can be undone; missing SVG fonts use the font-resolution dialog.
+
+**Illustrator text boxes:** when Illustrator supplies formatted text without SVG, paste imports that text before the PNG preview. A box with consistent styling becomes one editable text layer with its paragraphs and soft line breaks intact. Font family, weight, italics, size, leading and tracking are retained; text is fitted to the canvas if necessary. Mixed styles remain editable text parts. Missing fonts open the font-resolution dialog, and cancellation leaves the document unchanged. The complete paste is one Undo step.
+
 ## Details follows the selection
 
 With no object selected, **Details** shows document facts and shortcuts to settings, fonts and the layer list. Selecting an object replaces those controls with its own properties. Position and Effects come before the type-specific controls, so shadows are available without scrolling past fills, gradients or paths. Screen-edge behaviour and secondary object actions are collapsible sections.

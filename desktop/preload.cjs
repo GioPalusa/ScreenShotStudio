@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('studioDesktop', {
   paste: () => ipcRenderer.invoke('studio:paste'),
+  readClipboard: () => ipcRenderer.invoke('studio:read-clipboard'),
   appearance: (operation, value) => ipcRenderer.invoke('studio:appearance', operation, value),
   onAppearance: callback => ipcRenderer.on('studio:appearance', (_event, value) => callback(value)),
   onChanged: callback => ipcRenderer.on('studio:changed', (_event, value) => callback(value)),

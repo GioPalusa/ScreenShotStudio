@@ -17,6 +17,59 @@ import { deviceForLayer, profilesFor, availableProfilesFor, profileChoices } fro
 import { arrangeSelection, selectionBounds, transformSelection } from '../app/js/selection.js';
 import { preflightScene, preflightSelection } from '../app/js/preflight.js';
 import { layoutText } from '../app/js/text.js';
+import { readDesignClipboard } from '../desktop/clipboard.mjs';
+import { imageFilesOf } from '../app/js/assets.js';
+import { adobeTextFixture } from './fixtures/adobe-text.mjs';
+import {parseAdobeText,layoutAdobeText} from '../app/js/adobe-text.js';
+
+const nativeClipboard=entries=>({read:async()=>[{types:Object.keys(entries),getType:async type=>entries[type]}]});
+test('Illustrator text boxes prefer formatted text over the PNG preview when SVG is empty',async()=>{
+  const rich=adobeTextFixture(),raw='electron application/osclipboard;format="com.adobe.cc-text-interchange"';
+  const data=await readDesignClipboard(nativeClipboard({'text/plain':new Blob(['Clear thoughts\u0003Make room']),[raw]:new Blob([rich]),'electron application/osclipboard;format="com.adobe.illustrator.svg"':new Blob([]),'image/png':new Blob([Buffer.from('89504e470d0a1a0a','hex')])}));
+  assert.equal(data.adobeText,rich);assert.equal(data.image,undefined);
+});
+test('Adobe paragraphs and soft breaks form a single editable text box with original typography',()=>{
+  const parsed=parseAdobeText(adobeTextFixture({paragraphs:['Clear\u0003thoughts','','Make\r\nroom']})),design=layoutAdobeText(parsed,text=>text.length*20);
+  assert.equal(design.layers.length,1);const [layer]=design.layers;
+  assert.equal(layer.type,'text');assert.equal(layer.fontFamily,'Arial');assert.equal(layer.size,42);assert.equal(layer.weight,700);assert.equal(layer.lineHeight,1.2);assert.equal(layer.color,'#ffffff');
+  assert.equal(design.texts[layer.field],'Clear\nthoughts\n\nMake\nroom');assert.equal(layer.boxHeight,5*42*1.2);
+  assert.ok(!('_' in layer));assert.ok(JSON.stringify(design));
+});
+test('mixed Illustrator text runs retain fonts, size, italics and their baseline',()=>{
+  const data=JSON.parse(adobeTextFixture({paragraphs:['Bold italic']}));
+  data.styles.Italic={type:'application/vnd.adobe.characterstyle+json',value:{...data.styles.Character.value,fontFamily:'Other font',fontSize:{type:'pt',value:24},fontWeight:'regular',adbeFont:{family:'Other font',style:'Italic'},adbeTracking:100}};
+  data.paragraphs[0].runs=[{from:0,to:5,styles:['Character']},{from:5,to:11,styles:['Italic']}];
+  const parsed=parseAdobeText(JSON.stringify(data)),design=layoutAdobeText(parsed,(text,style)=>text.length*style.size/2),[a,b]=design.layers;
+  assert.equal(design.layers.length,2);assert.equal(b.fontFamily,'Other font');assert.equal(b.weight,400);assert.equal(b.figmaText.italic,true);assert.equal(b.figmaText.letterSpacing,2.4);
+  assert.equal(a.capTop+a.size,b.capTop+b.size);assert.equal(b.x,105);
+});
+test('Adobe text rejects missing fonts, malformed ranges and excessive spacing without raster fallback',()=>{
+  const change=mutate=>{const data=JSON.parse(adobeTextFixture());mutate(data);return JSON.stringify(data);};
+  assert.throws(()=>parseAdobeText('{'),/invalid formatted text/);
+  assert.throws(()=>parseAdobeText(change(d=>{delete d.styles.Character.value.fontFamily;delete d.styles.Character.value.adbeFont;})),/font family/);
+  assert.throws(()=>parseAdobeText(change(d=>d.paragraphs[0].runs[0].to=999)),/ranges/);
+  assert.throws(()=>parseAdobeText(change(d=>d.styles.Character.value.adbeTracking=1e308)),/character spacing/);
+  assert.throws(()=>parseAdobeText(change(d=>d.paragraphs[0].runs[0].styles=['toString'])),/style is missing/);
+});
+test('Illustrator raw SVG wins when the native SVG MIME is backed by PNG bytes',async()=>{
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M0 0H100V100Z"/></svg>',raw='electron application/osclipboard;format="com.adobe.illustrator.svg"';
+  const clipboard=nativeClipboard({'text/plain':new Blob(['Stripped text']),'image/svg+xml':new Blob([Buffer.from('89504e470d0a1a0a','hex')]),[raw]:new Blob([svg])});
+  const data=await readDesignClipboard(clipboard);assert.equal(data.svg,svg);assert.equal(data.text,'Stripped text');assert.equal(data.image,undefined);
+});
+test('native WebP is transported without converting it into another format',async()=>{
+  const bytes=Buffer.from('RIFF0000WEBPVP8 fixture');
+  const data=await readDesignClipboard(nativeClipboard({'image/webp':new Blob([bytes])}));
+  assert.equal(data.image.mime,'image/webp');assert.deepEqual(Buffer.from(data.image.data,'base64'),bytes);
+});
+test('native clipboard retains HTML and ordinary text; oversized artwork is rejected',async()=>{
+  const data=await readDesignClipboard(nativeClipboard({'text/plain':new Blob(['Objects']),'text/html':new Blob(['<!--(figma)fixture(/figma)-->'])}));
+  assert.equal(data.html,'<!--(figma)fixture(/figma)-->');assert.equal(data.text,'Objects');
+  await assert.rejects(readDesignClipboard(nativeClipboard({'electron application/osclipboard;format="com.adobe.illustrator.svg"':new Blob([Buffer.alloc(8*1024*1024+1)])})),/size limit/);
+});
+test('SVG and WebP file drops work even when the platform omits their MIME type',()=>{
+  const files=[{name:'Art.SVG',type:''},{name:'Photo.webp',type:''},{name:'Capture.png',type:'image/png'},{name:'notes.txt',type:'text/plain'}];
+  assert.deepEqual(imageFilesOf(files),files.slice(0,3));
+});
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const fixture = layoutProject;

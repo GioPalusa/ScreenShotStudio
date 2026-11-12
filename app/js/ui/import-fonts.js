@@ -88,11 +88,11 @@ export function importFontControls({ active, onChange = () => {}, existing = eng
     get previewFonts() { return mergeProjectFonts(existing, fonts.map(font => ({ ...font, file: `data:font/${font.extension};base64,${font.data}` }))); },
     reviewMissing,
     replaceLayers(layers) { return layers.map(layer=>replacements.has(faceKey(layer))?{...layer,fontFamily:replacements.get(faceKey(layer))}:layer); },
-    async resolve(layers) {
+    async resolve(layers,{collectInstalled=true}={}) {
       required = layers.filter(l => l.type === 'text' && typeof l.fontFamily==='string' && l.fontFamily && !/^(system-ui|sans-serif|serif|monospace|ui-serif|ui-sans-serif|ui-rounded)$/.test(l.fontFamily)); loading = true; picker.disabled = true; refresh();
       if(!required.length){loading=false;picker.disabled=false;return;}
       try{installed=(await api('/api/fonts')).families??[];}catch{installed=[];}
-      const families = [...new Set(required.filter(l=>!replacements.has(faceKey(l))&&!available().some(f=>covers(f,l))).map(l=>l.fontFamily))].filter(f => !attempted.has(f));
+      const families = [...new Set(required.filter(l=>!replacements.has(faceKey(l))&&!available().some(f=>covers(f,l))&&(collectInstalled||!installed.includes(l.fontFamily))).map(l=>l.fontFamily))].filter(f => !attempted.has(f));
       try {
         if (families.length) {
           status.textContent = 'Collecting font files from Google Fonts…'; families.forEach(f => attempted.add(f));
@@ -133,7 +133,7 @@ export async function openProjectFonts() {
 export async function resolveDesignFonts(layers,active) {
   const controls=importFontControls({active});
   try{
-    await controls.resolve(layers);if(!active())return null;
+    await controls.resolve(layers,{collectInstalled:false});if(!active())return null;
     if(!(await controls.reviewMissing())||!active())return null;
     const fonts=await controls.save();if(!active())return null;
     return {layers:controls.replaceLayers(layers),fonts};

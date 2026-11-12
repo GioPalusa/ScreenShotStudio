@@ -45,12 +45,16 @@ export function parseSVG(text){
     }
     return [{type:'SOLID',color:color(value),opacity}];
   }
+  function styleFor(el,inherited){
+    const style={...inherited};for(const [selector,css] of styles){try{if(el.matches(selector))Object.assign(style,declarations(css));}catch{/* unsupported selector */}}
+    for(const attr of ['fill','stroke','stroke-width','fill-rule','fill-opacity','stroke-opacity','font-family','font-size','font-weight','font-style','letter-spacing','text-anchor','display','visibility'])if(el.hasAttribute(attr))style[attr]=el.getAttribute(attr);
+    Object.assign(style,declarations(el.getAttribute('style')??''));
+    return style;
+  }
   function convert(el,inherited={},depth=0){
     if(++serial>5000||depth>64)throw new Error('SVG has too many layers or nested groups.');
     const tag=el.localName;if(['defs','style','title','desc','metadata','linearGradient','radialGradient','clipPath','mask'].includes(tag))return null;
-    const style={...inherited};for(const [selector,css] of styles){try{if(el.matches(selector))Object.assign(style,declarations(css));}catch{/* unsupported selector */}}
-    for(const attr of ['fill','stroke','stroke-width','fill-rule','fill-opacity','stroke-opacity','font-family','font-size','font-weight','font-style','text-anchor','display','visibility'])if(el.hasAttribute(attr))style[attr]=el.getAttribute(attr);
-    Object.assign(style,declarations(el.getAttribute('style')??''));
+    const style=styleFor(el,inherited);
     const node={id:`svg-${serial}`,name:el.getAttribute('id')??el.getAttribute('aria-label')??tag,type:'GROUP',relativeTransform:matrix(el.getAttribute('transform')??''),opacity:number(el.getAttribute('opacity')??style.opacity,1),visible:style.display!=='none'&&style.visibility!=='hidden',fills:paint(style.fill??'#000',number(style['fill-opacity'],1)),strokes:paint(style.stroke??'none',number(style['stroke-opacity'],1)),strokeWeight:number(style['stroke-width'],1)};
     const origin=[0,0],translate=(x,y)=>{origin[0]+=x;origin[1]+=y;const m=node.relativeTransform;const p=multiply([m[0][0],m[1][0],m[0][1],m[1][1],m[0][2],m[1][2]],[1,0,0,1,x,y]);node.relativeTransform=[[p[0],p[2],p[4]],[p[1],p[3],p[5]]];};
     if(['g','svg','a','symbol'].includes(tag)){node.fills=[];node.strokes=[];node.children=[...el.children].map(c=>convert(c,{...style,opacity:undefined},depth+1)).filter(Boolean);}
@@ -66,9 +70,30 @@ export function parseSVG(text){
       if(!data)throw new Error('SVG images must be embedded PNG, JPEG or WebP; external images are not fetched.');
       if(data[2].length>32*1024*1024*4/3)throw new Error('An embedded SVG image exceeds 32 MB.');
       const ref=`svg-image-${serial}`;embeddedImages[ref]={mime:data[1],data:data[2]};node.type='RECTANGLE';node.size={x:number(el.getAttribute('width')),y:number(el.getAttribute('height'))};node.fills=[{type:'IMAGE',imageRef:ref,scaleMode:'FIT'}];node.strokes=[];translate(number(el.getAttribute('x')),number(el.getAttribute('y')));
+    }else if(tag==='text'&&el.querySelector('tspan')){
+      node.fills=[];node.strokes=[];node.children=[];
+      const cursor={x:number(el.getAttribute('x')),y:number(el.getAttribute('y'))};
+      function runs(parent,inherited,level){
+        if(level>64)throw Error('SVG has too many nested text spans.');
+        const current=styleFor(parent,inherited);
+        if(parent.hasAttribute('x'))cursor.x=number(parent.getAttribute('x'));
+        if(parent.hasAttribute('y'))cursor.y=number(parent.getAttribute('y'));
+        cursor.x+=number(parent.getAttribute('dx'));cursor.y+=number(parent.getAttribute('dy'));
+        for(const child of parent.childNodes){
+          if(child.nodeType===1){if(child.localName==='tspan')runs(child,current,level+1);else warnings.push(`SVG text ${child.localName} is not supported.`);}
+          else if(child.nodeType===3&&child.textContent&&!(child.textContent.includes('\n')&&!child.textContent.trim())){
+            const run=doc.createElementNS(svg.namespaceURI,'text');run.textContent=child.textContent.replace(/\s+/g,' ');run.setAttribute('x',cursor.x);run.setAttribute('y',cursor.y);
+            const converted=convert(run,{...current,opacity:undefined},level+1);node.children.push(converted);cursor.x+=converted.textAdvance??converted.size.x;
+          }
+        }
+      }
+      runs(el,style,depth);
     }else if(tag==='text'){
-      const size=number(style['font-size'],16);node.type='TEXT';node.characters=el.textContent;node.style={fontFamily:(style['font-family']??'sans-serif').replace(/['"]/g,''),fontSize:size,fontWeight:number(style['font-weight'],style['font-weight']==='bold'?700:400),italic:style['font-style']==='italic',lineHeightPx:size*1.2,textAlignHorizontal:'LEFT',baselineOffset:size};ctx.font=`${node.style.fontWeight} ${size}px ${node.style.fontFamily}`;const w=ctx.measureText(node.characters).width;node.size={x:Math.max(w,1),y:size*1.2};translate(number(el.getAttribute('x'))-(style['text-anchor']==='middle'?w/2:style['text-anchor']==='end'?w:0),number(el.getAttribute('y'))-size);
-      if(el.querySelector('tspan'))warnings.push('SVG text spans are combined into one editable text layer.');
+      const size=number(style['font-size'],16),families=(style['font-family']??'sans-serif').split(',').map(f=>f.trim().replace(/^['"]|['"]$/g,''));
+      let family=families[0];if(families[1]&&family.replace(/-(?:Bold|Regular|Medium|SemiBold|Heavy|Black|Light|Italic|Oblique|Roman)$/i,'').replace(/\s/g,'').toLowerCase()===families[1].replace(/\s/g,'').toLowerCase())family=families[1];
+      const spacing=number(style['letter-spacing'])*(String(style['letter-spacing']).endsWith('em')?size:1);
+      // SVG text has no wrapping box. Allow subpixel font-size rounding after scaling.
+      node.type='TEXT';node.characters=el.textContent;node.style={fontFamily:family,fontSize:size,fontWeight:number(style['font-weight'],style['font-weight']==='bold'?700:400),italic:style['font-style']==='italic',lineHeightPx:size*1.2,letterSpacing:spacing,textAlignHorizontal:'LEFT',baselineOffset:size};ctx.font=`${node.style.italic?'italic ':''}${node.style.fontWeight} ${size}px ${JSON.stringify(family)}`;ctx.letterSpacing=`${spacing}px`;const w=ctx.measureText(node.characters).width;ctx.letterSpacing='0px';node.size={x:Math.max(w+.5,1),y:size*1.2};node.textAdvance=w;translate(number(el.getAttribute('x'))-(style['text-anchor']==='middle'?w/2:style['text-anchor']==='end'?w:0),number(el.getAttribute('y'))-size);
     }else if(tag==='use'){
       const ref=el.getAttribute('href')??el.getAttribute('xlink:href');if(!ref?.startsWith('#'))throw new Error('External SVG references are not supported.');const target=doc.getElementById(ref.slice(1));if(!target)throw new Error('An SVG reference is missing.');node.fills=[];node.strokes=[];node.children=[convert(target,style,depth+1)].filter(Boolean);translate(number(el.getAttribute('x')),number(el.getAttribute('y')));
     }else{warnings.push(`SVG ${tag} is not supported and was omitted.`);return null;}

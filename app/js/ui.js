@@ -172,6 +172,11 @@ export function mountStudio(root) {
   });
 
   window.studioDesktop?.onCommand(command => {
+    if(command==='clipboard:paste'){
+      if(state.ui.view==='editor'&&!isTextEditing(document.activeElement)&&!document.querySelector('.modal-backdrop'))void views.editor.pasteClipboard();
+      else void window.studioDesktop.paste();
+      return;
+    }
     if (command === 'guide') { openGetStarted(); return; }
     if (command === 'guide:mcp') { openGetStarted('mcp'); return; }
     if (document.querySelector('.modal-backdrop')) return;

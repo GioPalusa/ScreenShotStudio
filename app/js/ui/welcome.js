@@ -69,7 +69,7 @@ root.append(h('div', { class: 'welcome home-workspace' }, sidebar,
   h('main', { class: 'home-content' }, h('header', { class: 'welcome-header' }, h('div', { class: 'row' }, back, title), headerActions), home, creation)));
 showCreate(new URLSearchParams(location.search).get('new') === '1');
 desktop?.onFlush(async () => {});
-desktop?.onCommand(command => { if(command==='import:figma')importFigma(); if (command === 'guide') openGetStarted(); if (command === 'guide:mcp') openGetStarted('mcp'); if (command === 'upload' && !document.querySelector('.modal-backdrop')) openSavedUpload(); });
+desktop?.onCommand(command => { if(command==='clipboard:paste')void desktop.paste(); if(command==='import:figma')importFigma(); if (command === 'guide') openGetStarted(); if (command === 'guide:mcp') openGetStarted('mcp'); if (command === 'upload' && !document.querySelector('.modal-backdrop')) openSavedUpload(); });
 update();
 
 document.addEventListener('paste',event=>{if(isTextEditing(document.activeElement)||document.querySelector('.modal-backdrop'))return;const html=event.clipboardData?.getData('text/html');if(html?.includes('(figma)')){event.preventDefault();openImportFigma({},{newProject:true,clipboardHTML:html});}});

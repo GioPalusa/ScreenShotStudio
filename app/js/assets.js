@@ -56,7 +56,7 @@ export async function measureFrameFile(file) {
 export const canvasToPNG = (canvas) => new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
 
 /** Files dropped or pasted that are images. */
-export const imageFilesOf = (list) => [...(list ?? [])].filter((f) => f.type?.startsWith('image/'));
+export const imageFilesOf = (list) => [...(list ?? [])].filter((f) => f.type?.startsWith('image/') || /\.(?:png|jpe?g|webp|svg)$/i.test(f.name??''));
 
 /** Natural size of an image that is already on the server (e.g. in the project library). */
 export async function imageInfoFromUrl(url) {

@@ -3,7 +3,8 @@ import { importFigma } from '../host/figma.mjs';
 import { createRecentPreviews } from '../host/recent-previews.mjs';
 import { importMenu } from './import-menu.mjs';
 import { recentProjectSummaries } from '../host/recent-projects.mjs';
-import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, session, shell } from 'electron';
+import { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, session, shell } from 'electron';
+import { readDesignClipboard } from './clipboard.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -49,6 +50,7 @@ const allowedExternal = url => ['https://www.palusa.se', 'https://developer.appl
 const saveSettings = () => atomicWrite(settingsFile(), JSON.stringify(settings, null, 2));
 const trusted = event => event.sender === win?.webContents && event.senderFrame?.url.startsWith(`${ORIGIN}/app/`);
 ipcMain.handle('studio:paste',event=>{if(!trusted(event))throw Error('Forbidden');win.webContents.focus();win.webContents.paste();return true;});
+ipcMain.handle('studio:read-clipboard',event=>{if(!trusted(event))throw Error('Forbidden');return readDesignClipboard(clipboard);});
 let agentSetup, activeAgent, desktopExporter, figmaSettings;
 const getFigmaSettings=()=>figmaSettings??=createFigmaSettings({keychain:createFigmaKeychain({root:ROOT,userData:app.getPath('userData'),packaged:app.isPackaged})});
 ipcMain.handle('studio:figma-settings',async(event,operation,value)=>{if(!trusted(event))throw Error('Forbidden');if(operation==='expiry')return getFigmaSettings().setExpiry(value?.expiresAt);if(operation==='load')return getFigmaSettings().load();if(operation==='forget'){await getFigmaSettings().forget();return {stored:false};}throw Error('Invalid Figma connection action.');});
@@ -352,7 +354,7 @@ function buildMenu() {
       { label: 'Show Project in Finder', enabled: Boolean(current), click: () => action('reveal') },
       { type: 'separator' }, { label: 'Export…', enabled: Boolean(current), accelerator: 'CmdOrCtrl+E', click: () => action('export') },
       { label: 'Upload to App Store Connect…', click: () => win.webContents.send('studio:command', 'upload') }, { role: 'close' },
-    ] }, { role: 'editMenu', submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'},{type:'separator'},{label:'Copy Appearance',accelerator:'CmdOrCtrl+Alt+C',click:()=>win.webContents.send('studio:command','appearance:copy')},{label:'Paste Appearance',accelerator:'CmdOrCtrl+Alt+V',click:()=>win.webContents.send('studio:command','appearance:paste')}] },
+    ] }, { role: 'editMenu', submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{label:'Paste',accelerator:'CmdOrCtrl+V',click:()=>win.webContents.send('studio:command','clipboard:paste')},{role:'selectAll'},{type:'separator'},{label:'Copy Appearance',accelerator:'CmdOrCtrl+Alt+C',click:()=>win.webContents.send('studio:command','appearance:copy')},{label:'Paste Appearance',accelerator:'CmdOrCtrl+Alt+V',click:()=>win.webContents.send('studio:command','appearance:paste')}] },
     { label: 'Help', submenu: [{ label: 'Community on GitHub', click: () => shell.openExternal('https://github.com/GioPalusa/ScreenShotStudio') }, { label: 'Download Releases', click: () => shell.openExternal(RELEASES_URL) }] },
     { label: 'View', submenu: [
       { label: 'Appearance', submenu: ['system', 'light', 'dark'].map(value => ({ label: value === 'system' ? 'Follow System' : value[0].toUpperCase() + value.slice(1), type: 'radio', checked: (appearance?.get() ?? 'system') === value, click: () => { try { appearance.set(value); } catch (error) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save appearance', detail: error.message }); } } })) },

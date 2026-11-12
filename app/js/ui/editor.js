@@ -11,7 +11,7 @@ import { addStoreImages } from '../store-images.js';
 import { moveScreen, renameScreen } from './slide-actions.js';
 import { editLayerTag } from './layer-tag.js';
 import { adjacentSlides, neighborPreferences } from '../preview-context.js';
-import { pasteDesignText,pasteSVGDesign,pasteFigmaClipboard } from './paste-design.js';
+import { pasteDesignText,pasteSVGDesign,pasteFigmaClipboard,pasteAdobeText } from './paste-design.js';
 import { creationShortcut, isTextEditing } from '../shortcuts.js';
 import { snapshotLayer, transferLayer, removeConnectedFragments, containTextSource, screenScopeFor, screenTileForLayer, encodeLayerClipboard, decodeLayerClipboard, pasteLayerClipboard, LAYER_CLIPBOARD_MIME } from '../layer-transfer.js';
 import { deviceForLayer } from '../profiles.js';
@@ -57,6 +57,7 @@ let appearanceClipboard='';
 export function createEditor(ctx) {
   const layerAliases = new Map();
   let lastPaste = '', pasteCount = 0;
+  const nativePasteEvents=new WeakSet();
   const inspectorMemory = createInspectorMemory();
   let inspectorKey;
   const storeList = h('div', { class: 'rail-store-list', role: 'listbox', 'aria-label': 'Store canvases' });
@@ -393,9 +394,17 @@ export function createEditor(ctx) {
     async pasteClipboard(){
       overlay.tabIndex=0;overlay.focus({preventScroll:true});
       try{
-        if(window.studioDesktop?.paste){await window.studioDesktop.paste();return;}
         const project=engine.project,route=JSON.stringify([state.ui.slideId,state.ui.device,state.ui.locale,state.ui.allScreens]),data=new DataTransfer();
-        if(navigator.clipboard?.read){
+        let nativeSVG=false,nativeText;
+        if(window.studioDesktop?.readClipboard){
+          const content=await window.studioDesktop.readClipboard();
+          nativeText=content.adobeText;
+          if(content.text)data.setData('text/plain',content.text);
+          if(content.html)data.setData('text/html',content.html);
+          if(content.svg){data.setData('image/svg+xml',content.svg);nativeSVG=true;}
+          else if(content.image){const {mime,data:encoded}=content.image;data.items.add(new File([Uint8Array.from(atob(encoded),c=>c.charCodeAt(0))],`clipboard.${mime.split('/')[1]}`,{type:mime}));}
+        }else if(window.studioDesktop?.paste){await window.studioDesktop.paste();return;}
+        else if(navigator.clipboard?.read){
           for(const item of await navigator.clipboard.read())for(const type of item.types){
             const blob=await item.getType(type);
             if(['text/plain','text/html','image/svg+xml'].includes(type))data.setData(type,await blob.text());
@@ -403,8 +412,9 @@ export function createEditor(ctx) {
           }
         }else data.setData('text/plain',await navigator.clipboard.readText());
         if(project!==engine.project||route!==JSON.stringify([state.ui.slideId,state.ui.device,state.ui.locale,state.ui.allScreens]))return;
+        if(nativeText&&!nativeSVG){await pasteAdobeText(ed,nativeText,()=>el.isConnected&&project===engine.project&&route===JSON.stringify([state.ui.slideId,state.ui.device,state.ui.locale,state.ui.allScreens]));return;}
         if(!data.types.length){toast('The clipboard contains no supported content.');return;}
-        overlay.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+        const event=new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true});if(nativeSVG)nativePasteEvents.add(event);overlay.dispatchEvent(event);
       }catch{toast('Clipboard access was unavailable. Press ⌘V to paste into the canvas.',{error:true});}
     },
     async combineSelection(operation){
@@ -1239,6 +1249,7 @@ export function createEditor(ctx) {
     const target={slide:state.ui.slideId,device:state.ui.device,locale:state.ui.locale,all:state.ui.allScreens};
     const html=e.clipboardData?.getData('text/html');
     if(html?.includes('(figma)')){e.preventDefault();pasteFigmaClipboard(ed,html,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens);return;}
+    if(nativePasteEvents.has(e)&&e.clipboardData.getData('image/svg+xml')){e.preventDefault();void pasteSVGDesign(ed,svg,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens,{selection:true});return;}
     if(pasteDesignText(ed,svg,()=>el.isConnected&&engine.project===clipboardProject&&target.slide===state.ui.slideId&&target.device===state.ui.device&&target.locale===state.ui.locale&&target.all===state.ui.allScreens)){e.preventDefault();return;}
     const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
     if(item){e.preventDefault();ed.addImage([item.getAsFile()]);return;}
@@ -1329,6 +1340,7 @@ export function createEditor(ctx) {
     const key = e.key.toLowerCase();
     if(mod&&e.altKey&&(key==='m'||e.code==='KeyM')){e.preventDefault();ed.maskSelection();return true;}
     if(mod&&e.altKey&&(key==='c'||e.code==='KeyC'||key==='v'||e.code==='KeyV')){e.preventDefault();if(key==='c'||e.code==='KeyC')void ed.copyAppearance();else void ed.pasteAppearance();return true;}
+    if(mod&&!e.altKey&&key==='v'&&window.studioDesktop?.readClipboard){e.preventDefault();void ed.pasteClipboard();return true;}
     if(e.key==='Escape'&&stageApi.objectDragging){e.preventDefault();stageApi.cancelDrag();doUndo();return true;}
     if(stageApi.drawing.key(e))return true;
     if (mod && key === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return true; }
@@ -1394,6 +1406,7 @@ export function createEditor(ctx) {
     togglePanel,
     newSeries,
     handleKey,
+    pasteClipboard:()=>ed.pasteClipboard(),
     copyAppearance:()=>ed.copyAppearance(),pasteAppearance:()=>ed.pasteAppearance(),
     undo: doUndo,
     redo: doRedo,
